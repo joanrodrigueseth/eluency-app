@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, Easing, Image, Keyboard, Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, Easing, Image, Keyboard, LayoutAnimation, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
+
+if (Platform.OS === "android") {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+const layoutSpring = () =>
+  LayoutAnimation.configureNext({
+    duration: 280,
+    create: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.scaleXY, springDamping: 0.78 },
+    update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
+    delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.scaleXY, springDamping: 0.78 },
+  });
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -10,6 +22,8 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import { SkeletonBox } from "../components/SkeletonLoader";
+import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -174,8 +188,10 @@ const base64ByteSize = (base64: string) => {
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
   return Math.floor((len * 3) / 4) - padding;
 };
-const conjugationsFor = (lang: string): ConjugationEntry[] =>
-  (LANGUAGE_CONFIG[lang]?.pronouns ?? []).map((pronoun) => ({ pronoun, form_a: "", form_b: "" }));
+const conjugationsFor = (lang: string): ConjugationEntry[] => {
+  const pronouns = LANGUAGE_CONFIG[lang]?.pronouns ?? LANGUAGE_CONFIG["Portuguese (BR)"].pronouns;
+  return pronouns.map((pronoun) => ({ pronoun, form_a: "", form_b: "" }));
+};
 const makeWord = (languagePair: string, lang: string, rowType: RowType = "vocab"): WordRow => {
   const template = LANGUAGE_CONFIG[lang]?.templates?.[0];
   return {
@@ -558,7 +574,7 @@ export default function LessonFormScreen() {
   const [uploadingWordIndex, setUploadingWordIndex] = useState<number | null>(null);
   const [generatingImageIndex, setGeneratingImageIndex] = useState<number | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
-  const toggleAdvanced = (key: string) => setAdvancedOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  const toggleAdvanced = (key: string) => { layoutSpring(); setAdvancedOpen((prev) => ({ ...prev, [key]: !prev[key] })); };
   const [openInlineDropdown, setOpenInlineDropdown] = useState<string | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState<string | null>(null);
 
@@ -571,7 +587,7 @@ export default function LessonFormScreen() {
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes(planRaw.toLowerCase()), [isAdmin, planRaw]);
   const labelA = pairMeta.labelA;
   const labelB = pairMeta.labelB;
-  const vocabCount = useMemo(() => words.filter((w) => w.rowType === "vocab").length, [words]);
+  const vocabCount = useMemo(() => words.length, [words]);
   const specialRowCount = useMemo(() => words.filter((w) => w.rowType !== "vocab").length, [words]);
   const heroDescription = description.trim() || "Build a richer lesson with stronger metadata, cleaner cards, and vocabulary that is easier to scan.";
 
@@ -662,7 +678,13 @@ export default function LessonFormScreen() {
         grammar: String(w.grammar ?? base.grammar),
         isInfinitive: w.isInfinitive === true,
         infinitive: String(w.infinitive ?? ""),
-        conjugations: Array.isArray(w.conjugations) ? w.conjugations.map((c: any) => ({ pronoun: String(c.pronoun ?? ""), form_a: String(c.form_a ?? ""), form_b: String(c.form_b ?? "") })) : base.conjugations,
+        conjugations: Array.isArray(w.conjugations) && w.conjugations.length > 0
+          ? w.conjugations.map((c: any, ci: number) => ({
+              pronoun: String(c.pronoun ?? "") || base.conjugations[ci]?.pronoun || "",
+              form_a: String(c.form_a ?? ""),
+              form_b: String(c.form_b ?? ""),
+            }))
+          : base.conjugations,
         prepositionTitle: String(w.prepositionTitle ?? base.prepositionTitle),
         prepositionGroup: String(w.prepositionGroup ?? base.prepositionGroup),
         prepositionTemplateId: String(w.prepositionTemplateId ?? base.prepositionTemplateId),
@@ -998,6 +1020,7 @@ export default function LessonFormScreen() {
         });
         if (error) throw error;
       }
+      triggerSuccessHaptic();
       Alert.alert("Saved", isEdit ? "Lesson updated." : "Lesson created.");
       navigation.goBack();
     } catch (e) {
@@ -1014,7 +1037,29 @@ export default function LessonFormScreen() {
   };
 
   if (bootLoading) {
-    return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }}><ActivityIndicator color={theme.colors.primary} /></View>;
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16 }}>
+        <GlassCard style={{ borderRadius: 26, marginBottom: 16 }} padding={14}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <SkeletonBox width={46} height={46} radius={16} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <SkeletonBox width="34%" height={12} radius={6} />
+              <SkeletonBox width="52%" height={20} radius={10} />
+            </View>
+            <SkeletonBox width={84} height={40} radius={14} />
+          </View>
+        </GlassCard>
+        <GlassCard style={{ borderRadius: 30 }} padding={22}>
+          <View style={{ gap: 16 }}>
+            <SkeletonBox width="100%" height={180} radius={20} />
+            <SkeletonBox width="55%" height={16} radius={8} />
+            <SkeletonBox width="100%" height={48} radius={14} />
+            <SkeletonBox width="100%" height={110} radius={18} />
+            <SkeletonBox width="100%" height={160} radius={24} />
+          </View>
+        </GlassCard>
+      </View>
+    );
   }
 
   const placeholderColor = theme.isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)";
@@ -1072,6 +1117,7 @@ export default function LessonFormScreen() {
               <TouchableOpacity
                 onPress={() => {
                   Keyboard.dismiss();
+                  triggerLightImpact();
                   save();
                 }}
                 disabled={saving}
@@ -1092,35 +1138,24 @@ export default function LessonFormScreen() {
                 <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
                 <FloatingGlow size={130} color={theme.colors.violetSoft} bottom={-38} left={-15} translate={heroGlowTwo} />
                 <View style={{ padding: 22 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <TouchableOpacity onPress={pickCover} activeOpacity={0.9} style={{ width: 110, marginRight: 16 }}>
-                      {coverPreviewUri.trim() ? (
-                        <Image source={{ uri: coverPreviewUri.trim() }} style={{ width: 110, height: 132, borderRadius: 24, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
-                      ) : (
-                        <View style={{ width: 110, height: 132, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 8 }}>
-                          <Ionicons name="image-outline" size={30} color={theme.colors.textMuted} />
-                          <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 11, textAlign: "center", paddingHorizontal: 10 }}>Add cover</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
+                  <TouchableOpacity onPress={pickCover} activeOpacity={0.9} style={{ width: "100%", marginBottom: 18 }}>
+                    {coverPreviewUri.trim() ? (
+                      <Image source={{ uri: coverPreviewUri.trim() }} style={{ width: "100%", height: 180, borderRadius: 20, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                    ) : (
+                      <View style={{ width: "100%", height: 180, borderRadius: 20, borderWidth: 1.5, borderColor: theme.colors.border, borderStyle: "dashed", backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 10 }}>
+                        <Ionicons name="image-outline" size={36} color={theme.colors.textMuted} />
+                        <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 13 }}>Add cover image</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
 
-                    <View style={{ flex: 1 }}>
-                      <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Lesson studio</Text>
-                      <Text style={[theme.typography.title, { marginTop: 8, fontSize: 28, lineHeight: 32 }]}>
-                        {title.trim() || (isEdit ? "Untitled lesson" : "Start a beautiful new lesson")}
-                      </Text>
-                      <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted, fontSize: 15, lineHeight: 22 }]}>
-                        {heroDescription}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
-                    <HeroChip icon="language-outline" label="Language" value={language === "(Choose Language)" ? "Choose" : language} tint={theme.colors.primarySoft} textColor={theme.colors.primary} />
-                    <HeroChip icon="layers-outline" label="Pack" value={category || "Vocabulary"} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
-                    <HeroChip icon="ribbon-outline" label="Level" value={languageLevel || "Open"} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
-                    <HeroChip icon="albums-outline" label="Rows" value={`${words.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
-                  </View>
+                  <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Lesson studio</Text>
+                  <Text style={[theme.typography.title, { marginTop: 4, fontSize: 18, lineHeight: 23 }]}>
+                    {title.trim() || (isEdit ? "Untitled lesson" : "Start a beautiful new lesson")}
+                  </Text>
+                  <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+                    {heroDescription}
+                  </Text>
                 </View>
               </View>
             </GlassCard>
@@ -1262,7 +1297,7 @@ export default function LessonFormScreen() {
                               </View>
                             </View>
                             {words.length > 1 ? (
-                              <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}>
+                              <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => prev.filter((x) => x.key !== w.key)); }} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}>
                                 <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
                               </TouchableOpacity>
                             ) : null}
@@ -1423,8 +1458,10 @@ export default function LessonFormScreen() {
                               <TextInput value={w.infinitive} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, infinitive: t } : x)))} placeholder="Verb / infinitive" placeholderTextColor={placeholderColor} style={pillStyle} />
                               {w.conjugations.map((c, ci) => (
                                 <View key={`${w.key}-c-${ci}`} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-                                  <Text style={{ width: 90, fontSize: 11, color: theme.colors.textMuted, fontWeight: "700" }}>{c.pronoun}</Text>
-                                  <TextInput value={c.form_a} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, conjugations: x.conjugations.map((cc, j) => (j === ci ? { ...cc, form_a: t } : cc)) } : x)))} placeholder="Form" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1 }]} />
+                                  <View style={{ width: 100, flexShrink: 0, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center" }}>
+                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary, textAlign: "center" }}>{c.pronoun}</Text>
+                                  </View>
+                                  <TextInput value={c.form_a} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, conjugations: x.conjugations.map((cc, j) => (j === ci ? { ...cc, form_a: t } : cc)) } : x)))} placeholder="Form" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1, minHeight: 40 }]} />
                                 </View>
                               ))}
                             </>
@@ -1465,13 +1502,10 @@ export default function LessonFormScreen() {
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                       <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{`${vocabCount} vocab`}</Text>
-                      </View>
-                      <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
-                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{`${specialRowCount} extra`}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{`${vocabCount} ${vocabCount === 1 ? "item" : "items"}`}</Text>
                       </View>
                     </View>
-                    <TouchableOpacity onPress={() => setWords((prev) => [...prev, makeWord(languagePair, language, "vocab")])} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
+                    <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => [...prev, makeWord(languagePair, language, "vocab")]); }} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
                       <Text style={{ fontSize: 12, fontWeight: "800", color: "#fff" }}>+ Add row</Text>
                     </TouchableOpacity>
                   </View>

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
+import { SkeletonBox } from "../components/SkeletonLoader";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import {
@@ -638,9 +639,22 @@ export default function TeachersScreen() {
       >
         {loading ? (
           <GlassCard style={{ borderRadius: 12 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16 }}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-              <Text style={[theme.typography.body, { marginLeft: 12 }]}>Loading directory…</Text>
+            <View style={{ gap: 14, paddingVertical: 6 }}>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+                <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+                <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+              </View>
+              {Array.from({ length: 4 }).map((_, index) => (
+                <View key={index} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <SkeletonBox width={44} height={44} radius={12} />
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <SkeletonBox width="38%" height={14} radius={7} />
+                    <SkeletonBox width="56%" height={11} radius={6} />
+                  </View>
+                  <SkeletonBox width={84} height={32} radius={10} />
+                </View>
+              ))}
             </View>
           </GlassCard>
         ) : (
@@ -1669,3 +1683,4 @@ export default function TeachersScreen() {
     </View>
   );
 }
+

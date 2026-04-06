@@ -30,6 +30,10 @@ import type { RootStudentsStackParams } from "./StudentsScreen";
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
+const GREEN = "#3EA370";
+const GREEN_SOFT = "#EBF8F0";
+const GREEN_BORDER = "#A8DFC0";
+
 function generateRandomCode(): string {
   return Array.from({ length: 6 }, () =>
     CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length))
@@ -345,14 +349,16 @@ export default function StudentFormScreen() {
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: theme.colors.text,
+    color: "#0F1115",
     backgroundColor: theme.colors.surfaceAlt,
   };
+
+  const darkCaption = [theme.typography.caption, { color: "#0F1115" as const }];
 
   if (bootLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={theme.colors.primary} />
+        <ActivityIndicator color={GREEN} />
       </View>
     );
   }
@@ -399,11 +405,11 @@ export default function StudentFormScreen() {
               paddingVertical: 10,
               borderRadius: 10,
               borderWidth: 1,
-              borderColor: theme.colors.primary,
-              backgroundColor: theme.colors.primarySoft,
+              borderColor: GREEN,
+              backgroundColor: GREEN_SOFT,
             }}
           >
-            <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
+            <Text style={{ color: GREEN, fontSize: 12, fontWeight: "800" }}>Web</Text>
           </TouchableOpacity>
           <Animated.View style={{ transform: [{ scale: saveScale }] }}>
             <TouchableOpacity
@@ -416,11 +422,11 @@ export default function StudentFormScreen() {
                 paddingHorizontal: 16,
                 paddingVertical: 11,
                 borderRadius: 10,
-                backgroundColor: theme.colors.primary,
+                backgroundColor: GREEN,
                 opacity: saving ? 0.7 : 1,
               }}
             >
-              <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "800" }}>
                 {saving ? "Saving..." : "Save"}
               </Text>
             </TouchableOpacity>
@@ -437,11 +443,11 @@ export default function StudentFormScreen() {
         <TouchableOpacity activeOpacity={1} onPress={() => Keyboard.dismiss()}>
           <View>
         <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Profile</Text>
+          <Text style={[darkCaption, { textTransform: "uppercase", marginBottom: 8 }]}>Profile</Text>
 
           <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
             <View style={{ flex: 1 }}>
-              <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Full name</Text>
+              <Text style={[darkCaption, { marginBottom: 4 }]}>Full name</Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
@@ -454,11 +460,11 @@ export default function StudentFormScreen() {
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Access code</Text>
+              <Text style={[darkCaption, { marginBottom: 4 }]}>Access code</Text>
               <Animated.View
                 style={{
                   transform: [{ scale: copyScale }],
-                  shadowColor: theme.colors.primary,
+                  shadowColor: GREEN,
                   shadowOpacity: copyGlow,
                   shadowRadius: 12,
                   shadowOffset: { width: 0, height: 4 },
@@ -470,8 +476,8 @@ export default function StudentFormScreen() {
                   style={{
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: theme.colors.primary,
-                    backgroundColor: theme.colors.primarySoft,
+                    borderColor: GREEN,
+                    backgroundColor: GREEN_SOFT,
                     paddingHorizontal: 10,
                     paddingVertical: 12,
                     flexDirection: "row",
@@ -479,10 +485,10 @@ export default function StudentFormScreen() {
                     justifyContent: "space-between",
                   }}
                 >
-                  <Text style={{ fontFamily: "monospace", fontSize: 20, fontWeight: "900", color: theme.colors.primary }}>
+                  <Text style={{ fontFamily: "monospace", fontSize: 20, fontWeight: "900", color: GREEN }}>
                     {code}
                   </Text>
-                  <Ionicons name="copy-outline" size={16} color={theme.colors.primary} />
+                  <Ionicons name="copy-outline" size={16} color={GREEN} />
                 </TouchableOpacity>
               </Animated.View>
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
@@ -498,7 +504,7 @@ export default function StudentFormScreen() {
             </View>
           </View>
 
-          <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Email (optional)</Text>
+          <Text style={[darkCaption, { marginBottom: 4 }]}>Email (optional)</Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -514,7 +520,7 @@ export default function StudentFormScreen() {
 
         {isAdmin ? (
           <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-            <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Teacher</Text>
+            <Text style={[darkCaption, { textTransform: "uppercase", marginBottom: 8 }]}>Teacher</Text>
             <TouchableOpacity
               onPress={() => {
                 setTeacherSearch("");
@@ -530,12 +536,12 @@ export default function StudentFormScreen() {
 
         <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[theme.typography.caption, { textTransform: "uppercase" }]}>Lessons</Text>
+            <Text style={[darkCaption, { textTransform: "uppercase" }]}>Lessons</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{selectedLessons.length} selected</Text>
+              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: GREEN }}>{selectedLessons.length} selected</Text>
               </View>
-              {contentLoading ? <ActivityIndicator size="small" color={theme.colors.primary} /> : null}
+              {contentLoading ? <ActivityIndicator size="small" color={GREEN} /> : null}
             </View>
           </View>
           <TextInput
@@ -562,14 +568,14 @@ export default function StudentFormScreen() {
                   marginBottom: 8,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: selected ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
+                  borderColor: selected ? GREEN : theme.colors.border,
+                  backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
                 }}
               >
                 <Ionicons
                   name={selected ? "checkbox" : "square-outline"}
                   size={22}
-                  color={theme.colors.primary}
+                  color={GREEN}
                 />
                 <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
                   {l.title}
@@ -609,9 +615,9 @@ export default function StudentFormScreen() {
 
         <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[theme.typography.caption, { textTransform: "uppercase" }]}>Tests</Text>
-            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{selectedTests.length} selected</Text>
+            <Text style={[darkCaption, { textTransform: "uppercase" }]}>Tests</Text>
+            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT, paddingHorizontal: 8, paddingVertical: 4 }}>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: GREEN }}>{selectedTests.length} selected</Text>
             </View>
           </View>
           <TextInput
@@ -637,14 +643,14 @@ export default function StudentFormScreen() {
                   marginBottom: 8,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: selected ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
+                  borderColor: selected ? GREEN : theme.colors.border,
+                  backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
                 }}
               >
                 <Ionicons
                   name={selected ? "checkbox" : "square-outline"}
                   size={22}
-                  color={theme.colors.primary}
+                  color={GREEN}
                 />
                 <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
                   {t.name}

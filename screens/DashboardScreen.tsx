@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  ActivityIndicator,
   Animated,
   Dimensions,
   Easing,
@@ -19,6 +18,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
  
 import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
+import { SkeletonBox } from "../components/SkeletonLoader";
+import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
  
@@ -239,11 +240,13 @@ function AnimatedPressable({
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      onPressIn={() => animateTo(0.975)}
+      onPressIn={() => {
+        triggerLightImpact();
+        animateTo(0.975);
+      }}
       onPressOut={() => animateTo(1)}
-      style={style}
     >
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
         {children}
       </Animated.View>
     </Pressable>
@@ -485,6 +488,9 @@ export default function DashboardScreen() {
     }
     if (label === "/dashboard/tests") {
       navigation.navigate("Tests");
+      return;
+    }
+    if (label === "/dashboard") {
       return;
     }
     if (label === "New Lesson" || label === "New Lessons") {
@@ -916,24 +922,6 @@ export default function DashboardScreen() {
     </View>
   );
  
-  const OverviewChip = ({ label, value }: { label: string; value: string | number }) => (
-    <View
-      style={{
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: theme.colors.surfaceGlass,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        marginRight: 8,
-        marginBottom: 8,
-      }}
-    >
-      <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{label}</Text>
-      <Text style={[theme.typography.bodyStrong, { marginTop: 2 }]}>{value}</Text>
-    </View>
-  );
- 
   const StatCard = ({
     label,
     value,
@@ -953,52 +941,56 @@ export default function DashboardScreen() {
     onPress: () => void;
     twoPerRow?: boolean;
   }) => (
-    <AnimatedPressable
-      onPress={onPress}
-      style={{
-        width: twoPerRow ? "48.5%" : "100%",
-        borderRadius: 24,
-        padding: 16,
-        marginBottom: twoPerRow ? 10 : 0,
-        backgroundColor: tint,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 2,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <View
-          style={{
-            height: 42,
-            width: 42,
-            borderRadius: 16,
-            backgroundColor: iconBg,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Ionicons name={ICONS[icon]} size={18} color={iconColor} />
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
-      </View>
- 
-      <Text
+    <View style={{ width: twoPerRow ? "32%" : "100%", marginBottom: twoPerRow ? 10 : 0 }}>
+      <AnimatedPressable
+        onPress={onPress}
         style={{
-          marginTop: 18,
-          fontSize: 28,
-          lineHeight: 32,
-          fontWeight: "800",
-          color: theme.colors.text,
+          borderRadius: 16,
+          padding: 10,
+          backgroundColor: tint,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          shadowColor: "#000",
+          shadowOpacity: 0.04,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 2,
         }}
       >
-        {value}
-      </Text>
-      <Text style={[theme.typography.bodyStrong, { marginTop: 6, color: theme.colors.textMuted }]}>{label}</Text>
-    </AnimatedPressable>
+        <View style={{ position: "absolute", top: 7, right: 7 }}>
+          <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+          </View>
+        </View>
+        <View style={{ alignItems: "center" }}>
+          <View
+            style={{
+              height: 28,
+              width: 28,
+              borderRadius: 10,
+              backgroundColor: iconBg,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name={ICONS[icon]} size={13} color={iconColor} />
+          </View>
+          <Text
+            style={{
+              marginTop: 8,
+              fontSize: 20,
+              lineHeight: 24,
+              fontWeight: "800",
+              color: theme.colors.text,
+              textAlign: "center",
+            }}
+          >
+            {value}
+          </Text>
+          <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, color: theme.colors.textMuted, textAlign: "center" }]}>{label}</Text>
+        </View>
+      </AnimatedPressable>
+    </View>
   );
  
   const QuickActionCard = ({
@@ -1022,34 +1014,33 @@ export default function DashboardScreen() {
             : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
  
     return (
-      <AnimatedPressable
-        onPress={() => handleActionPress(label)}
-        style={{
-          width: twoPerRow ? "48.5%" : 220,
-          borderRadius: 22,
-          padding: 15,
-          backgroundColor: colors.bg,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          marginRight: twoPerRow ? 0 : 10,
-          marginBottom: twoPerRow ? 10 : 0,
-        }}
-      >
-        <View
+      <View style={{ width: twoPerRow ? "48.5%" : "48%", marginBottom: 10 }}>
+        <AnimatedPressable
+          onPress={() => handleActionPress(label)}
           style={{
-            height: 40,
-            width: 40,
-            borderRadius: 15,
-            backgroundColor: colors.iconWrap,
-            alignItems: "center",
-            justifyContent: "center",
+            borderRadius: 18,
+            padding: 12,
+            backgroundColor: colors.bg,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
           }}
         >
-          <Ionicons name={ICONS[icon]} size={18} color={colors.icon} />
-        </View>
-        <Text style={[theme.typography.bodyStrong, { marginTop: 14 }]}>{label}</Text>
-        <Text style={[theme.typography.caption, { marginTop: 5, color: theme.colors.textMuted }]}>{helper}</Text>
-      </AnimatedPressable>
+          <View
+            style={{
+              height: 34,
+              width: 34,
+              borderRadius: 12,
+              backgroundColor: colors.iconWrap,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name={ICONS[icon]} size={15} color={colors.icon} />
+          </View>
+          <Text style={[theme.typography.bodyStrong, { marginTop: 11, fontSize: 14 }]}>{label}</Text>
+          <Text style={[theme.typography.caption, { marginTop: 3, fontSize: 11, color: theme.colors.textMuted }]}>{helper}</Text>
+        </AnimatedPressable>
+      </View>
     );
   };
  
@@ -1138,40 +1129,26 @@ export default function DashboardScreen() {
                   key={item.id}
                   onPress={() => handleActionPress(`/dashboard/lessons/${item.id}/edit`)}
                   style={{
+                    flexDirection: "row",
+                    alignItems: "center",
                     backgroundColor: theme.colors.surfaceAlt,
-                    borderRadius: 18,
+                    borderRadius: 12,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
-                    padding: 14,
-                    marginTop: index === 0 ? 0 : 10,
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    marginTop: index === 0 ? 0 : 6,
+                    gap: 8,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <View
-                      style={{
-                        height: 42,
-                        width: 42,
-                        borderRadius: 16,
-                        backgroundColor: theme.colors.primarySoft,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: 12,
-                      }}
-                    >
-                      <Ionicons name="book-outline" size={18} color={theme.colors.primary} />
-                    </View>
- 
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Created {formatDateTime(item.created_at)}</Text>
-                        <LanguagePill badge={badge} />
-                      </View>
-                    </View>
- 
-                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+                  <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Ionicons name="book-outline" size={13} color={theme.colors.primary} />
+                  </View>
+                  <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 13, color: theme.colors.text }]} numberOfLines={1}>{item.title}</Text>
+                  {badge ? <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}><Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.primary }}>{badge}</Text></View> : null}
+                  <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }}>{formatDateTime(item.created_at)}</Text>
+                  <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
                   </View>
                 </AnimatedPressable>
               );
@@ -1429,24 +1406,21 @@ export default function DashboardScreen() {
                 <Text style={[theme.typography.title, { marginTop: 8, fontSize: 24, lineHeight: 30 }]}>{`Welcome back, ${teacherName}`}</Text>
                 <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
  
-                <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 16 }}>
-                  <OverviewChip label="Date" value={todayLabel} />
-                  <OverviewChip label="Lessons" value={animatedLessonsCount} />
-                  <OverviewChip label="Students" value={animatedStudentsCount} />
-                </View>
+                
               </View>
  
               <View
                 style={{
-                  height: 64,
-                  width: 64,
-                  borderRadius: 24,
+                  height: 52,
+                  width: 52,
+                  borderRadius: 18,
                   backgroundColor: theme.colors.primarySoft,
                   alignItems: "center",
                   justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                <Ionicons name="shield-checkmark" size={28} color={theme.colors.primary} />
+                <Ionicons name="shield-checkmark" size={24} color={theme.colors.primary} />
               </View>
             </View>
           </View>
@@ -1486,13 +1460,12 @@ export default function DashboardScreen() {
               <QuickActionCard label="Add Principal" icon="shield" helper="Grant leadership access" twoPerRow />
             </View>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
-              <QuickActionCard label="New Lesson" icon="book" helper="Create lesson content" />
-              <QuickActionCard label="New Test" icon="clipboard" helper="Build an assessment" />
-              <QuickActionCard label="Add Student" icon="school" helper="Invite a learner" />
-              {isAdmin || isPrincipal ? <QuickActionCard label="Add Teacher" icon="people" helper="Add a teacher" /> : null}
-              {isAdmin ? <QuickActionCard label="Add Principal" icon="shield" helper="Grant leadership access" /> : null}
-            </ScrollView>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              <QuickActionCard label="New Lesson" icon="book" helper="Create lesson content" twoPerRow />
+              <QuickActionCard label="New Test" icon="clipboard" helper="Build an assessment" twoPerRow />
+              <QuickActionCard label="Add Student" icon="school" helper="Invite a learner" twoPerRow />
+              {isAdmin || isPrincipal ? <QuickActionCard label="Add Teacher" icon="people" helper="Add a teacher" twoPerRow /> : null}
+            </View>
           )}
         </GlassCard>
       </AnimatedSection>
@@ -1702,87 +1675,79 @@ export default function DashboardScreen() {
                 <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
                   {isStudentMode ? "Student Access" : isAdmin ? "Admin Access" : isPrincipal ? "Principal Access" : "Teacher Access"}
                 </Text>
-                <Text style={[theme.typography.title, { marginTop: 8, fontSize: 22, lineHeight: 28 }]}>{isStudentMode ? studentName || "Student" : teacherName}</Text>
-                <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
-                  {isStudentMode ? (studentTeacherName ? `Connected to ${studentTeacherName}` : "Welcome to your learning space") : todayLabel}
-                </Text>
- 
-                <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
-                  <View
-                    style={{
-                      flex: 1,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      backgroundColor: theme.colors.surfaceAlt,
-                      padding: 12,
-                    }}
-                  >
-                    <Text style={theme.typography.label}>{isStudentMode ? "Lessons" : "Classes"}</Text>
-                    <Text style={[theme.typography.title, { marginTop: 6, fontSize: 22, lineHeight: 26 }]}>
-                      {isStudentMode ? assignedLessonsIds.length : animatedLessonsCount}
-                    </Text>
+                <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 8 }}>
+                  <Text style={[theme.typography.title, { fontSize: 22, lineHeight: 28, flex: 1 }]}>{isStudentMode ? studentName || "Student" : teacherName}</Text>
+                  {!isStudentMode && (
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginLeft: 8 }]}>{todayLabel}</Text>
+                  )}
+                </View>
+                {isStudentMode && (
+                  <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+                    {studentTeacherName ? `Connected to ${studentTeacherName}` : "Welcome to your learning space"}
+                  </Text>
+                )}
+
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 7, paddingHorizontal: 10, gap: 6 }}>
+                    <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{isStudentMode ? "Lessons" : "Classes"}</Text>
+                    <Text style={[theme.typography.label, { color: theme.colors.border }]}>|</Text>
+                    <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]}>{isStudentMode ? assignedLessonsIds.length : animatedLessonsCount}</Text>
                   </View>
-                  <View
-                    style={{
-                      flex: 1,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      backgroundColor: theme.colors.surfaceAlt,
-                      padding: 12,
-                    }}
-                  >
-                    <Text style={theme.typography.label}>{isStudentMode ? "Tests" : "Students"}</Text>
-                    <Text style={[theme.typography.title, { marginTop: 6, fontSize: 22, lineHeight: 26 }]}>
-                      {isStudentMode ? assignedTestsIds.length : animatedStudentsCount}
-                    </Text>
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 7, paddingHorizontal: 10, gap: 6 }}>
+                    <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{isStudentMode ? "Tests" : "Students"}</Text>
+                    <Text style={[theme.typography.label, { color: theme.colors.border }]}>|</Text>
+                    <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]}>{isStudentMode ? assignedTestsIds.length : animatedStudentsCount}</Text>
                   </View>
                 </View>
               </GlassCard>
  
-              {menuSections.map((section) => (
-                <GlassCard key={section.title} style={{ marginBottom: 16, borderRadius: 18 }} padding={14}>
-                  <Text style={[theme.typography.label, { marginBottom: 10, color: theme.colors.primary }]}>{section.title}</Text>
-                  {section.items.map((item, index) => (
-                    <AnimatedPressable
-                      key={item.href}
-                      onPress={() => {
-                        closeMenu();
-                        handleActionPress(item.href);
-                      }}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        borderRadius: 16,
-                        backgroundColor: item.href === "/dashboard" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                        marginBottom: index === section.items.length - 1 ? 0 : 10,
-                        borderWidth: 1,
-                        borderColor: item.href === "/dashboard" ? theme.colors.primary : theme.colors.border,
-                      }}
-                    >
-                      <View
-                        style={{
-                          height: 42,
-                          width: 42,
-                          borderRadius: 16,
-                          backgroundColor: item.href === "/dashboard" ? theme.colors.background : theme.colors.primarySoft,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          marginRight: 12,
-                        }}
-                      >
-                        <Ionicons name={ICONS[item.icon]} size={18} color={theme.colors.primary} />
-                      </View>
-                      <Text style={[theme.typography.bodyStrong, { flex: 1 }]}>{item.label}</Text>
-                      <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
-                    </AnimatedPressable>
-                  ))}
-                </GlassCard>
-              ))}
- 
+              {(() => {
+                const DRAWER_COLORS: Record<string, { iconBg: string; iconColor: string; tint: string; border: string }> = {
+                  "/dashboard":                       { iconBg: theme.colors.primary,  iconColor: "#FFFFFF", tint: theme.colors.primarySoft,   border: theme.colors.primary },
+                  "/dashboard/lessons":               { iconBg: "#3777C9",             iconColor: "#FFFFFF", tint: "#ECF4FF",                   border: "#B8D3F7" },
+                  "/dashboard/tests":                 { iconBg: "#9050E7",             iconColor: "#FFFFFF", tint: "#F3ECFF",                   border: "#D5B8FC" },
+                  "/dashboard/students":              { iconBg: "#3EA370",             iconColor: "#FFFFFF", tint: "#EBF8F0",                   border: "#A8DFC0" },
+                  "/dashboard/packs":                 { iconBg: "#E3A91F",             iconColor: "#FFFFFF", tint: "#FFF7DE",                   border: "#F4DB88" },
+                  "/dashboard/teachers":              { iconBg: "#E3A91F",             iconColor: "#FFFFFF", tint: "#FFF7DE",                   border: "#F4DB88" },
+                  "/dashboard/notifications":         { iconBg: "#E85D4A",             iconColor: "#FFFFFF", tint: "#FFF0EE",                   border: "#F7C5BF" },
+                  "/dashboard/chats":                 { iconBg: "#7C5CFA",             iconColor: "#FFFFFF", tint: "#F3EEFF",                   border: "#CEC0FD" },
+                  "/dashboard/settings":              { iconBg: "#5C6370",             iconColor: "#FFFFFF", tint: theme.colors.surfaceAlt,     border: theme.colors.border },
+                  "/dashboard/settings/subscription": { iconBg: "#7C5CFA",             iconColor: "#FFFFFF", tint: "#F3EEFF",                   border: "#CEC0FD" },
+                };
+                return menuSections.map((section) => (
+                  <GlassCard key={section.title} style={{ marginBottom: 16, borderRadius: 18 }} padding={14}>
+                    <Text style={[theme.typography.label, { marginBottom: 10, color: theme.colors.primary }]}>{section.title}</Text>
+                    {section.items.map((item, index) => {
+                      const colors = DRAWER_COLORS[item.href] ?? { iconBg: theme.colors.primary, iconColor: "#FFFFFF", tint: theme.colors.surfaceAlt, border: theme.colors.border };
+                      return (
+                        <AnimatedPressable
+                          key={item.href}
+                          onPress={() => { closeMenu(); handleActionPress(item.href); }}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            paddingVertical: 10,
+                            paddingHorizontal: 10,
+                            borderRadius: 14,
+                            backgroundColor: theme.isDark ? theme.colors.surfaceAlt : colors.tint,
+                            marginBottom: index === section.items.length - 1 ? 0 : 10,
+                            borderWidth: 1,
+                            borderColor: theme.isDark ? theme.colors.border : colors.border,
+                          }}
+                        >
+                          <View style={{ height: 36, width: 36, borderRadius: 11, backgroundColor: colors.iconBg, alignItems: "center", justifyContent: "center", marginRight: 10, shadowColor: colors.iconBg, shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+                            <Ionicons name={ICONS[item.icon]} size={16} color={colors.iconColor} />
+                          </View>
+                          <Text style={[theme.typography.bodyStrong, { flex: 1, color: theme.colors.text }]}>{item.label}</Text>
+                          <View style={{ height: 26, width: 26, borderRadius: 9, backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center" }}>
+                            <Ionicons name="chevron-forward" size={13} color={theme.colors.textMuted} />
+                          </View>
+                        </AnimatedPressable>
+                      );
+                    })}
+                  </GlassCard>
+                ));
+              })()}
               <AppButton
                 label="Sign Out"
                 variant="secondary"
@@ -1836,7 +1801,7 @@ export default function DashboardScreen() {
                 justifyContent: "center",
               }}
             >
-              <Ionicons name="menu" size={20} color={theme.colors.textMuted} />
+              <Ionicons name="apps-outline" size={20} color={theme.colors.textMuted} />
             </AnimatedPressable>
  
             <View style={{ flex: 1, paddingHorizontal: 12 }}>
@@ -1846,7 +1811,7 @@ export default function DashboardScreen() {
           </View>
  
           <AnimatedPressable
-            onPress={() => Alert.alert("Profile", "Coming soon")}
+            onPress={() => navigation.navigate("Settings")}
             style={{
               height: 42,
               width: 42,
@@ -1872,9 +1837,21 @@ export default function DashboardScreen() {
         >
           {loading ? (
             <GlassCard style={{ borderRadius: 18 }}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-                <Text style={[theme.typography.body, { marginLeft: 12 }]}>Loading dashboard...</Text>
+              <View style={{ gap: 18 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <SkeletonBox width={52} height={52} radius={16} />
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <SkeletonBox width="40%" height={12} radius={6} />
+                    <SkeletonBox width="65%" height={20} radius={10} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
+                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
+                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
+                </View>
+                <SkeletonBox width="100%" height={170} radius={22} />
+                <SkeletonBox width="100%" height={120} radius={22} />
               </View>
             </GlassCard>
           ) : fatalError ? (

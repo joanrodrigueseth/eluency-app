@@ -15,6 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 
 import GlassCard from "../components/GlassCard";
+import { SkeletonBox } from "../components/SkeletonLoader";
+import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 
@@ -102,6 +104,40 @@ function visitorInitials(c: Conversation | null) {
     return local.slice(0, 2).toUpperCase();
   }
   return "V";
+}
+
+function ConversationSkeletonRow() {
+  return (
+    <View
+      style={{
+        minWidth: 168,
+        maxWidth: 220,
+        borderRadius: 12,
+        borderWidth: 1,
+        padding: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <SkeletonBox width={40} height={40} radius={10} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <SkeletonBox width="72%" height={14} radius={7} />
+        <SkeletonBox width="45%" height={11} radius={6} />
+      </View>
+    </View>
+  );
+}
+
+function MessageSkeletonBubble({ align }: { align: "flex-start" | "flex-end" }) {
+  return (
+    <View style={{ alignItems: align }}>
+      <View style={{ width: "78%", gap: 8 }}>
+        <SkeletonBox width="28%" height={10} radius={5} />
+        <SkeletonBox width="100%" height={56} radius={12} />
+      </View>
+    </View>
+  );
 }
 
 export default function ChatsScreen() {
@@ -479,12 +515,15 @@ export default function ChatsScreen() {
 
               <View style={{ paddingVertical: 14, paddingHorizontal: 14 }}>
                 {loadingConv ? (
-                  <View style={{ paddingVertical: 20, alignItems: "center" }}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                    <Text style={[theme.typography.caption, { marginTop: 10, color: theme.colors.textMuted }]}>
-                      Loading conversations…
-                    </Text>
-                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 10, paddingVertical: 2, paddingHorizontal: 4 }}
+                  >
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <ConversationSkeletonRow key={index} />
+                    ))}
+                  </ScrollView>
                 ) : conversations.length === 0 ? (
                   <View style={{ paddingVertical: 16, alignItems: "center" }}>
                     <View
@@ -524,7 +563,10 @@ export default function ChatsScreen() {
                       return (
                         <TouchableOpacity
                           key={c.id}
-                          onPress={() => setSelectedId(c.id)}
+                          onPress={() => {
+                            triggerLightImpact();
+                            setSelectedId(c.id);
+                          }}
                           activeOpacity={0.85}
                           style={{
                             minWidth: 168,
@@ -675,11 +717,10 @@ export default function ChatsScreen() {
                     onContentSizeChange={() => messagesScrollRef.current?.scrollToEnd({ animated: true })}
                   >
                     {loadingMsg ? (
-                      <View style={{ paddingVertical: 28, alignItems: "center" }}>
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                        <Text style={[theme.typography.caption, { marginTop: 10, color: theme.colors.textMuted }]}>
-                          Loading messages…
-                        </Text>
+                      <View style={{ paddingVertical: 4, gap: 16 }}>
+                        <MessageSkeletonBubble align="flex-start" />
+                        <MessageSkeletonBubble align="flex-end" />
+                        <MessageSkeletonBubble align="flex-start" />
                       </View>
                     ) : messages.length === 0 ? (
                       <View
@@ -818,3 +859,5 @@ export default function ChatsScreen() {
     </View>
   );
 }
+
+

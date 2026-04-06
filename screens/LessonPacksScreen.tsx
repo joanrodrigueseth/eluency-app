@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
+import { SkeletonBox } from "../components/SkeletonLoader";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole } from "../lib/teacherRolePlanRules";
@@ -918,9 +919,44 @@ export default function LessonPacksScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={theme.colors.primary} />
-        <Text style={[theme.typography.body, { marginTop: 12 }]}>Loading packs…</Text>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, paddingTop: Math.max(insets.top, 8), paddingHorizontal: 20 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 18 }}>
+          <SkeletonBox width={44} height={44} radius={12} />
+          <View style={{ flex: 1, paddingHorizontal: 10, gap: 8 }}>
+            <SkeletonBox width="28%" height={12} radius={6} />
+            <SkeletonBox width="42%" height={18} radius={9} />
+          </View>
+          <SkeletonBox width={62} height={38} radius={12} />
+        </View>
+        <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16}>
+          <View style={{ gap: 14 }}>
+            <SkeletonBox width="44%" height={16} radius={8} />
+            <SkeletonBox width="100%" height={44} radius={14} />
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={999} style={{ flex: 1 }} />
+            </View>
+          </View>
+        </GlassCard>
+        <View style={{ gap: 12 }}>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <GlassCard key={index} style={{ borderRadius: 18 }} padding={16}>
+              <View style={{ flexDirection: "row", gap: 14 }}>
+                <SkeletonBox width={72} height={88} radius={16} />
+                <View style={{ flex: 1, gap: 10 }}>
+                  <SkeletonBox width="62%" height={16} radius={8} />
+                  <SkeletonBox width="88%" height={12} radius={6} />
+                  <SkeletonBox width="74%" height={12} radius={6} />
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+                    <SkeletonBox width={72} height={24} radius={999} />
+                    <SkeletonBox width={92} height={24} radius={999} />
+                  </View>
+                </View>
+              </View>
+            </GlassCard>
+          ))}
+        </View>
       </View>
     );
   }
@@ -2200,3 +2236,4 @@ function NewPackModal({
     </Modal>
   );
 }
+

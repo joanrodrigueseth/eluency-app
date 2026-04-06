@@ -6,20 +6,25 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
   Image,
+  LayoutAnimation,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
 } from "react-native";
+
+if (Platform.OS === "android") UIManager.setLayoutAnimationEnabledExperimental?.(true);
+const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import {
@@ -30,7 +35,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../lib/supabase";
+import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
+import GlassCard from "../components/GlassCard";
+import IconTile from "../components/IconTile";
+import SkeletonLoader from "../components/SkeletonLoader";
 
 export type RootLessonsStackParams = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
@@ -72,7 +81,6 @@ const VIOLET_SOFT = "#F3EEFF";
 const VIOLET = "#7C5CFA";
 const GOLD = "#F3C64D";
 const GOLD_SOFT = "#FFF5D7";
-const SUCCESS_SOFT = "#EAF7EE";
 const DANGER_SOFT = "#FFF3F3";
 
 function formatDate(date?: string | null) {
@@ -190,41 +198,6 @@ function truncate(text?: string | null, max = 120) {
   return `${clean.slice(0, max).trimEnd()}...`;
 }
 
-function AnimatedCounter({
-  value,
-  suffix = "",
-  duration = 700,
-  textStyle,
-}: {
-  value: number;
-  suffix?: string;
-  duration?: number;
-  textStyle?: any;
-}) {
-  const animatedValue = useRef(new Animated.Value(0)).current;
-  const [displayValue, setDisplayValue] = useState(0);
-
-  useEffect(() => {
-    animatedValue.setValue(0);
-    const id = animatedValue.addListener(({ value: next }) => {
-      setDisplayValue(Math.round(next));
-    });
-
-    Animated.timing(animatedValue, {
-      toValue: value,
-      duration,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-
-    return () => {
-      animatedValue.removeListener(id);
-    };
-  }, [animatedValue, duration, value]);
-
-  return <Text style={textStyle}>{`${displayValue}${suffix}`}</Text>;
-}
-
 function FadeInSection({
   children,
   delay = 0,
@@ -268,6 +241,24 @@ function FadeInSection({
   );
 }
 
+function GlowOrb({ size, color, top, left, right, bottom, translate }: { size: number; color: string; top?: number; left?: number; right?: number; bottom?: number; translate: Animated.Value }) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute", top, left, right, bottom,
+        width: size, height: size, borderRadius: size / 2,
+        backgroundColor: color, opacity: 0.9,
+        transform: [
+          { translateY: translate },
+          { translateX: translate.interpolate({ inputRange: [-12, 12], outputRange: [8, -8] }) },
+          { scale: translate.interpolate({ inputRange: [-12, 12], outputRange: [0.96, 1.04] }) },
+        ],
+      }}
+    />
+  );
+}
+
 function PressableScale({
   children,
   onPress,
@@ -294,7 +285,10 @@ function PressableScale({
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      onPressIn={() => animateTo(0.98)}
+      onPressIn={() => {
+        triggerLightImpact();
+        animateTo(0.98);
+      }}
       onPressOut={() => animateTo(1)}
     >
       <Animated.View style={[style, { transform: [{ scale }] }]}>
@@ -326,6 +320,8 @@ export default function LessonsScreen() {
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0.7)).current;
+  const heroGlowOne = useRef(new Animated.Value(-10)).current;
+  const heroGlowTwo = useRef(new Animated.Value(10)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const modalScale = useRef(new Animated.Value(0.96)).current;
 
@@ -362,6 +358,17 @@ export default function LessonsScreen() {
       ),
     ]).start();
   }, [headerOpacity, heroGlow]);
+
+  useEffect(() => {
+    Animated.loop(Animated.sequence([
+      Animated.timing(heroGlowOne, { toValue: 12, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(heroGlowOne, { toValue: -10, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ])).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(heroGlowTwo, { toValue: -12, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(heroGlowTwo, { toValue: 10, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ])).start();
+  }, [heroGlowOne, heroGlowTwo]);
 
   useEffect(() => {
     if (teacherMenuOpen) {
@@ -594,11 +601,6 @@ export default function LessonsScreen() {
 
   const totalLessonsCount = lessonsForView.length;
   const visibleCount = filtered.length;
-  const packLinkedCount = useMemo(
-    () => Object.keys(lessonPackNames).length,
-    [lessonPackNames]
-  );
-
   const selectedTeacherLabel = viewingOtherTeacher
     ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
     : "My lessons";
@@ -657,15 +659,8 @@ export default function LessonsScreen() {
 
   if (loading && lessons.length === 0) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: theme.colors.background,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LIGHT_BG }}>
+        <SkeletonLoader count={6} />
       </View>
     );
   }
@@ -766,15 +761,19 @@ export default function LessonsScreen() {
             style={{
               borderRadius: 14,
               backgroundColor: theme.isDark ? theme.colors.primary : PRIMARY,
-              paddingHorizontal: 15,
+              paddingHorizontal: 14,
               paddingVertical: 11,
               shadowColor: theme.isDark ? theme.colors.primary : PRIMARY,
               shadowOpacity: 0.22,
               shadowRadius: 12,
               shadowOffset: { width: 0, height: 6 },
               elevation: 4,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
             }}
           >
+            <Ionicons name="add" size={15} color={theme.colors.primaryText} />
             <Text
               style={{
                 color: theme.colors.primaryText,
@@ -798,212 +797,33 @@ export default function LessonsScreen() {
         }}
       >
         <FadeInSection delay={20}>
-          <View
-            style={{
-              marginBottom: 16,
-              borderRadius: 26,
-              overflow: "hidden",
-              borderWidth: 1,
-              borderColor: theme.isDark ? theme.colors.border : PRIMARY_BORDER,
-              backgroundColor: theme.isDark ? theme.colors.surface : CARD_BG,
-            }}
-          >
-            <View
-              style={{
-                padding: 18,
-                backgroundColor: theme.isDark ? theme.colors.surface : "#FFFFFF",
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.isDark ? theme.colors.primary : PRIMARY },
-                    ]}
-                  >
-                    Premium lesson workspace
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
+            <View style={{ position: "relative", overflow: "hidden" }}>
+              <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT} top={-50} right={-18} translate={heroGlowOne} />
+              <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <IconTile icon="library-outline" size={38} iconSize={20} radius={10} backgroundColor={theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT} borderColor={theme.isDark ? theme.colors.primary : PRIMARY_BORDER} color={theme.isDark ? theme.colors.primary : PRIMARY} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[theme.typography.title, { fontSize: 18, color: theme.isDark ? theme.colors.primary : PRIMARY }]}>Lessons Library</Text>
+                  <Text style={[theme.typography.caption, { color: theme.isDark ? theme.colors.primary : "#4E6F8D", marginTop: 2 }]}>
+                    Browse, filter, and manage your lessons.
                   </Text>
-                  <Text
-                    style={[
-                      theme.typography.title,
-                      { marginTop: 8, fontSize: 24, lineHeight: 30 },
-                    ]}
-                  >
-                    Lesson Library
-                  </Text>
-                  <Text
-                    style={[
-                      theme.typography.body,
-                      {
-                        marginTop: 8,
-                        color: theme.colors.textMuted,
-                      },
-                    ]}
-                  >
-                    Browse, filter, and manage your lesson catalog with a more
-                    polished, app-like workflow.
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    width: 58,
-                    height: 58,
-                    borderRadius: 20,
-                    backgroundColor: theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT,
-                    borderWidth: 1,
-                    borderColor: theme.isDark ? theme.colors.primary : PRIMARY_BORDER,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons
-                    name="library-outline"
-                    size={26}
-                    color={theme.isDark ? theme.colors.primary : PRIMARY}
-                  />
                 </View>
               </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  justifyContent: "space-between",
-                  marginTop: 18,
-                }}
-              >
-                <View
-                  style={{
-                    width: "48.5%",
-                    borderRadius: 18,
-                    backgroundColor: theme.isDark ? theme.colors.surfaceAlt : PRIMARY_SOFT,
-                    borderWidth: 1,
-                    borderColor: theme.isDark ? theme.colors.border : PRIMARY_BORDER,
-                    padding: 14,
-                    marginBottom: 10,
-                  }}
-                >
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.colors.textMuted },
-                    ]}
-                  >
-                    Total in view
-                  </Text>
-                  <AnimatedCounter
-                    value={totalLessonsCount}
-                    textStyle={{
-                      marginTop: 8,
-                      fontSize: 24,
-                      lineHeight: 28,
-                      fontWeight: "900",
-                      color: theme.colors.text,
-                    }}
-                  />
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : PRIMARY_BORDER, backgroundColor: theme.isDark ? theme.colors.surfaceAlt : PRIMARY_SOFT, paddingVertical: 7, paddingHorizontal: 10, gap: 6 }}>
+                  <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>Total Lessons</Text>
+                  <Text style={[theme.typography.label, { color: theme.colors.border }]}>|</Text>
+                  <Text style={[theme.typography.bodyStrong, { color: theme.isDark ? theme.colors.primary : PRIMARY }]}>{totalLessonsCount}</Text>
                 </View>
-
-                <View
-                  style={{
-                    width: "48.5%",
-                    borderRadius: 18,
-                    backgroundColor: theme.isDark ? theme.colors.surfaceAlt : VIOLET_SOFT,
-                    borderWidth: 1,
-                    borderColor: theme.isDark ? theme.colors.border : "#D8CDFD",
-                    padding: 14,
-                    marginBottom: 10,
-                  }}
-                >
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.colors.textMuted },
-                    ]}
-                  >
-                    Filtered results
-                  </Text>
-                  <AnimatedCounter
-                    value={visibleCount}
-                    textStyle={{
-                      marginTop: 8,
-                      fontSize: 24,
-                      lineHeight: 28,
-                      fontWeight: "900",
-                      color: theme.colors.text,
-                    }}
-                  />
-                </View>
-
-                <View
-                  style={{
-                    width: "48.5%",
-                    borderRadius: 18,
-                    backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT,
-                    borderWidth: 1,
-                    borderColor: theme.isDark ? theme.colors.border : "#F4DB88",
-                    padding: 14,
-                  }}
-                >
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.colors.textMuted },
-                    ]}
-                  >
-                    Languages
-                  </Text>
-                  <AnimatedCounter
-                    value={languageOptions.length}
-                    textStyle={{
-                      marginTop: 8,
-                      fontSize: 24,
-                      lineHeight: 28,
-                      fontWeight: "900",
-                      color: theme.colors.text,
-                    }}
-                  />
-                </View>
-
-                <View
-                  style={{
-                    width: "48.5%",
-                    borderRadius: 18,
-                    backgroundColor: theme.isDark ? theme.colors.surfaceAlt : SUCCESS_SOFT,
-                    borderWidth: 1,
-                    borderColor: theme.isDark ? theme.colors.border : "#BEE0C6",
-                    padding: 14,
-                  }}
-                >
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.colors.textMuted },
-                    ]}
-                  >
-                    In lesson packs
-                  </Text>
-                  <AnimatedCounter
-                    value={packLinkedCount}
-                    textStyle={{
-                      marginTop: 8,
-                      fontSize: 24,
-                      lineHeight: 28,
-                      fontWeight: "900",
-                      color: theme.colors.text,
-                    }}
-                  />
+                <View style={{ flex: 1, flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : "#F4DB88", backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT, paddingVertical: 7, paddingHorizontal: 10, gap: 6 }}>
+                  <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>Languages</Text>
+                  <Text style={[theme.typography.label, { color: theme.colors.border }]}>|</Text>
+                  <Text style={[theme.typography.bodyStrong, { color: theme.isDark ? theme.colors.primary : PRIMARY }]}>{languageOptions.length}</Text>
                 </View>
               </View>
             </View>
-          </View>
+          </GlassCard>
         </FadeInSection>
 
         <FadeInSection delay={90}>
@@ -1243,7 +1063,7 @@ export default function LessonsScreen() {
                 contentContainerStyle={{ paddingRight: 4 }}
               >
                 <PressableScale
-                  onPress={() => setLanguageFilter("all")}
+                  onPress={() => { layoutEase(); setLanguageFilter("all"); }}
                   style={{
                     marginRight: 8,
                     paddingHorizontal: 14,
@@ -1278,7 +1098,7 @@ export default function LessonsScreen() {
                 {languageOptions.map((language) => (
                   <PressableScale
                     key={language}
-                    onPress={() => setLanguageFilter(language)}
+                    onPress={() => { layoutEase(); setLanguageFilter(language); }}
                     style={{
                       marginRight: 8,
                       paddingHorizontal: 14,
@@ -1382,11 +1202,20 @@ export default function LessonsScreen() {
                       style={{
                         marginRight: 10,
                         borderRadius: 14,
-                        backgroundColor: theme.colors.primary,
-                        paddingHorizontal: 16,
+                        backgroundColor: theme.isDark ? theme.colors.primary : PRIMARY,
+                        paddingHorizontal: 14,
                         paddingVertical: 12,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        shadowColor: theme.isDark ? theme.colors.primary : PRIMARY,
+                        shadowOpacity: 0.18,
+                        shadowRadius: 10,
+                        shadowOffset: { width: 0, height: 5 },
+                        elevation: 3,
                       }}
                     >
+                      <Ionicons name="add-circle-outline" size={15} color={theme.colors.primaryText} />
                       <Text
                         style={{
                           color: theme.colors.primaryText,
@@ -1404,10 +1233,14 @@ export default function LessonsScreen() {
                         borderWidth: 1,
                         borderColor: theme.colors.border,
                         backgroundColor: theme.colors.surface,
-                        paddingHorizontal: 16,
+                        paddingHorizontal: 14,
                         paddingVertical: 12,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
+                      <Ionicons name="globe-outline" size={15} color={theme.colors.text} />
                       <Text
                         style={{
                           color: theme.colors.text,

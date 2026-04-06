@@ -127,14 +127,14 @@ export function useAppTheme(): AppTheme {
         fontSize: 34,
         lineHeight: 40,
         fontWeight: "700",
-        color: colors.text,
+        color: isDark ? colors.text : "#0F1115",
       },
       title: {
         fontFamily: sharedFontFamily,
         fontSize: 23,
         lineHeight: 29,
         fontWeight: "800",
-        color: colors.text,
+        color: isDark ? colors.text : "#0F1115",
       },
       body: {
         fontFamily: sharedFontFamily,

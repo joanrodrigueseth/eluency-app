@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -25,15 +24,21 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../lib/supabase";
+import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { DEFAULT_RULES, ensureQuestionDefaults, ensureTestSettings, uid } from "../lib/testDesignMobile";
 import { getStudentLimitForPlan, normalizePlanUi } from "../lib/teacherRolePlanRules";
 import GlassCard from "../components/GlassCard";
+import { SkeletonBox } from "../components/SkeletonLoader";
 
 import type { RootTestsStackParams } from "./TestsScreen";
 
 const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+
+const PURPLE = "#9050E7";
+const PURPLE_SOFT = "#F3ECFF";
+const PURPLE_BORDER = "#D5B8FC";
 
 const TEST_CATEGORIES = [
   "Vocabulary",
@@ -906,6 +911,7 @@ export default function TestFormScreen() {
         if (isAdmin) payload.teacher_id = tid;
         const { error } = await (supabase.from("tests") as any).update(payload).eq("id", testId);
         if (error) throw error;
+        triggerSuccessHaptic();
         Alert.alert("Saved", "Test updated.");
       } else {
         const body = {
@@ -943,6 +949,7 @@ export default function TestFormScreen() {
             throw new Error(errJson?.error ?? ins.error.message ?? "Create failed");
           }
         }
+        triggerSuccessHaptic();
         Alert.alert("Created", "Test saved.");
       }
       navigation.goBack();
@@ -978,8 +985,25 @@ export default function TestFormScreen() {
 
   if (bootLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={theme.colors.primary} />
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16 }}>
+        <GlassCard style={{ borderRadius: 26, marginBottom: 16 }} padding={14}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <SkeletonBox width={46} height={46} radius={16} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <SkeletonBox width="30%" height={12} radius={6} />
+              <SkeletonBox width="48%" height={20} radius={10} />
+            </View>
+            <SkeletonBox width={84} height={40} radius={14} />
+          </View>
+        </GlassCard>
+        <GlassCard style={{ borderRadius: 30 }} padding={22}>
+          <View style={{ gap: 16 }}>
+            <SkeletonBox width="100%" height={132} radius={24} />
+            <SkeletonBox width="100%" height={48} radius={14} />
+            <SkeletonBox width="100%" height={96} radius={18} />
+            <SkeletonBox width="100%" height={180} radius={24} />
+          </View>
+        </GlassCard>
       </View>
     );
   }
@@ -993,20 +1017,20 @@ export default function TestFormScreen() {
               <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
             <View style={{ flex: 1, marginHorizontal: 14 }}>
-              <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
+              <Text style={[theme.typography.label, { color: PURPLE }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
+              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: PURPLE, backgroundColor: PURPLE_SOFT, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="open-outline" size={14} color={PURPLE} />
+                <Text style={{ color: PURPLE, fontSize: 12, fontWeight: "800" }}>Web</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => { Keyboard.dismiss(); handleSave(); }}
+                onPress={() => { Keyboard.dismiss(); triggerLightImpact(); handleSave(); }}
                 disabled={saving}
-                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: PURPLE, opacity: saving ? 0.7 : 1 }}
               >
-                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
+                <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1017,7 +1041,7 @@ export default function TestFormScreen() {
         <View style={{ gap: 16 }}>
           <GlassCard style={{ borderRadius: 30, overflow: "hidden" }} padding={0}>
             <View style={{ position: "relative", overflow: "hidden" }}>
-              <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
+              <FloatingGlow size={180} color={PURPLE_SOFT} top={-55} right={-25} translate={heroGlowOne} />
               <FloatingGlow size={130} color={theme.colors.violetSoft} bottom={-38} left={-15} translate={heroGlowTwo} />
               <View style={{ padding: 22 }}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -1034,7 +1058,7 @@ export default function TestFormScreen() {
                     )}
                   </TouchableOpacity>
                   <View style={{ flex: 1 }}>
-                    <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Test studio</Text>
+                    <Text style={[theme.typography.label, { color: PURPLE }]}>Test studio</Text>
                     <Text style={[theme.typography.title, { marginTop: 8, fontSize: 28, lineHeight: 32 }]}>
                       {name.trim() || (isEdit ? "Untitled test" : "Design a polished new test")}
                     </Text>
@@ -1044,7 +1068,7 @@ export default function TestFormScreen() {
                   </View>
                 </View>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
-                  <HeroChip icon="grid-outline" label="Type" value={finalType} tint={theme.colors.primarySoft} textColor={theme.colors.primary} />
+                  <HeroChip icon="grid-outline" label="Type" value={finalType} tint={PURPLE_SOFT} textColor={PURPLE} />
                   <HeroChip icon="book-outline" label="Vocab" value={`${activeWordCount}`} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
                   <HeroChip icon="document-text-outline" label="Questions" value={`${questions.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
                   <HeroChip icon="link-outline" label="Lessons" value={`${linkedLessonIds.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
@@ -1057,12 +1081,12 @@ export default function TestFormScreen() {
             style={{
               borderRadius: 24,
               borderWidth: 1,
-              borderColor: theme.colors.primary,
-              backgroundColor: theme.colors.primarySoft,
+              borderColor: PURPLE,
+              backgroundColor: PURPLE_SOFT,
               padding: 16,
             }}
           >
-            <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.primary, letterSpacing: 1.3, textTransform: "uppercase" }}>
+            <Text style={{ fontSize: 11, fontWeight: "900", color: PURPLE, letterSpacing: 1.3, textTransform: "uppercase" }}>
               Test builder
             </Text>
             <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text, marginTop: 6 }}>
@@ -1086,7 +1110,7 @@ export default function TestFormScreen() {
                     width: "48%",
                     borderRadius: 14,
                     borderWidth: 1,
-                    borderColor: theme.colors.primary,
+                    borderColor: PURPLE,
                     backgroundColor: theme.colors.surface,
                     paddingHorizontal: 10,
                     paddingVertical: 9,
@@ -1176,21 +1200,21 @@ export default function TestFormScreen() {
                         key={v}
                         onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: v === "unlimited" ? "unlimited" : (Number(v) as 1 | 2) }))}
                         style={v === "unlimited"
-                          ? { flex: 1, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? theme.colors.primary : theme.colors.border, backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt }
-                          : { width: 32, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? theme.colors.primary : theme.colors.border, backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt }
+                          ? { flex: 1, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? PURPLE : theme.colors.border, backgroundColor: active ? PURPLE_SOFT : theme.colors.surfaceAlt }
+                          : { width: 32, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? PURPLE : theme.colors.border, backgroundColor: active ? PURPLE_SOFT : theme.colors.surfaceAlt }
                         }
                       >
-                        <Text style={{ fontSize: v === "unlimited" ? 11 : 10, fontWeight: "800", color: active ? theme.colors.primary : theme.colors.text }}>{v === "unlimited" ? "Unlimited" : v}</Text>
+                        <Text style={{ fontSize: v === "unlimited" ? 11 : 10, fontWeight: "800", color: active ? PURPLE : theme.colors.text }}>{v === "unlimited" ? "Unlimited" : v}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
               </View>
               <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))}>
-                <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_questions ? "On" : "Off"} - Randomize order</Text>
+                <Text style={{ color: PURPLE, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_questions ? "On" : "Off"} - Randomize order</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_mcq_options: !prev.randomize_mcq_options }))}>
-                <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_mcq_options ? "On" : "Off"} - Randomize MCQ</Text>
+                <Text style={{ color: PURPLE, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_mcq_options ? "On" : "Off"} - Randomize MCQ</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -1202,8 +1226,8 @@ export default function TestFormScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>2B. Linked lessons</Text>
                 {linkedLessonIds.length > 0 ? (
-                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{linkedLessonIds.length}</Text>
+                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: PURPLE_SOFT }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: PURPLE }}>{linkedLessonIds.length}</Text>
                   </View>
                 ) : null}
               </View>
@@ -1241,10 +1265,10 @@ export default function TestFormScreen() {
                   {linkedLessonIds.map((id) => {
                     const lesson = lessons.find((l) => l.id === id);
                     return (
-                      <View key={id} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: theme.colors.primarySoft, borderWidth: 1, borderColor: theme.colors.primary }}>
-                        <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.primary }} numberOfLines={1}>{lesson?.title ?? id}</Text>
+                      <View key={id} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: PURPLE_SOFT, borderWidth: 1, borderColor: PURPLE }}>
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: PURPLE }} numberOfLines={1}>{lesson?.title ?? id}</Text>
                         <TouchableOpacity onPress={() => setLinkedLessonIds((prev) => prev.filter((x) => x !== id))}>
-                          <Ionicons name="close-circle" size={13} color={theme.colors.primary} />
+                          <Ionicons name="close-circle" size={13} color={PURPLE} />
                         </TouchableOpacity>
                       </View>
                     );
@@ -1277,8 +1301,8 @@ export default function TestFormScreen() {
             <View style={{ flex: 1, paddingRight: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3. Vocabulary</Text>
-                <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{words.length}</Text>
+                <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: PURPLE_SOFT }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: PURPLE }}>{words.length}</Text>
                 </View>
                 <TouchableOpacity onPress={() => setHelpBubble((v) => v === "vocab" ? null : "vocab")} style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: theme.colors.textMuted, alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ fontSize: 9, fontWeight: "900", color: theme.colors.textMuted }}>?</Text>
@@ -1294,15 +1318,15 @@ export default function TestFormScreen() {
                   <TouchableOpacity
                     onPress={(e) => { e.stopPropagation?.(); handleEnrichVocabularyWithAI(); }}
                     disabled={!canUseAI || aiVocabLoading}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, opacity: !canUseAI || aiVocabLoading ? 0.6 : 1 }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: PURPLE, backgroundColor: PURPLE_SOFT, opacity: !canUseAI || aiVocabLoading ? 0.6 : 1 }}
                   >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{aiVocabLoading ? "AI..." : "AI Fill"}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: PURPLE }}>{aiVocabLoading ? "AI..." : "AI Fill"}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={(e) => { e.stopPropagation?.(); setWords((w) => [...w, { key: uid(), en: "", pt: "", sp: "", se: "" }]); }}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: PURPLE_SOFT }}
                   >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>+ Add</Text>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: PURPLE }}>+ Add</Text>
                   </TouchableOpacity>
                 </>
               ) : null}
@@ -1422,12 +1446,12 @@ export default function TestFormScreen() {
                   paddingVertical: 6,
                   borderRadius: 6,
                   borderWidth: 1,
-                  borderColor: theme.colors.primary,
-                  backgroundColor: theme.colors.primarySoft,
+                  borderColor: PURPLE,
+                  backgroundColor: PURPLE_SOFT,
                   opacity: !canUseAI || aiQuestionsLoading ? 0.6 : 1,
                 }}
               >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{aiQuestionsLoading ? "AI..." : "AI Gen"}</Text>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: PURPLE }}>{aiQuestionsLoading ? "AI..." : "AI Gen"}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setTemplatePickerOpen((v) => !v)}
@@ -1437,9 +1461,9 @@ export default function TestFormScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setQuestions((q) => [...q, mapQuestion(ensureQuestionDefaults(null))])}
-                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: PURPLE_SOFT }}
               >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>+ Add</Text>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: PURPLE }}>+ Add</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1525,9 +1549,9 @@ export default function TestFormScreen() {
                               <TouchableOpacity
                                 key={pf}
                                 onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
-                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? theme.colors.primarySoft : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}
+                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? PURPLE_SOFT : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}
                               >
-                                <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? theme.colors.primary : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
+                                <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? PURPLE : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
                               </TouchableOpacity>
                             ))}
                           </View>
@@ -1549,9 +1573,9 @@ export default function TestFormScreen() {
                               <TouchableOpacity
                                 key={af}
                                 onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
-                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? theme.colors.primarySoft : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}
+                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? PURPLE_SOFT : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}
                               >
-                                <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? theme.colors.primary : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
+                                <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? PURPLE : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
                               </TouchableOpacity>
                             ))}
                           </View>
@@ -1560,7 +1584,7 @@ export default function TestFormScreen() {
                     </View>
 
                     <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, required: !cur.required }))}>
-                      <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 12 }}>
+                      <Text style={{ color: PURPLE, fontWeight: "700", fontSize: 12 }}>
                         {q.required ? "Required" : "Optional"}
                       </Text>
                     </TouchableOpacity>
@@ -1591,7 +1615,7 @@ export default function TestFormScreen() {
                                   });
                                 }
                               }}
-                              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" }}
+                              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: PURPLE, alignItems: "center", justifyContent: "center" }}
                             >
                               <Ionicons name={playingAudio[q.key] ? "stop" : "play"} size={16} color="#fff" />
                             </TouchableOpacity>
@@ -1630,8 +1654,8 @@ export default function TestFormScreen() {
                             <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{uploadingQuestionIndex === i ? "Uploading..." : "Upload image"}</Text>
                           </TouchableOpacity>
                           {canUseAI ? (
-                            <TouchableOpacity onPress={() => handleGenerateImageForQuestion(i)} disabled={aiImageIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: aiImageIndex === i ? 0.6 : 1 }}>
-                              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>{aiImageIndex === i ? "AI..." : "AI image"}</Text>
+                            <TouchableOpacity onPress={() => handleGenerateImageForQuestion(i)} disabled={aiImageIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: PURPLE, backgroundColor: PURPLE_SOFT, alignItems: "center", opacity: aiImageIndex === i ? 0.6 : 1 }}>
+                              <Text style={{ fontSize: 11, fontWeight: "700", color: PURPLE }}>{aiImageIndex === i ? "AI..." : "AI image"}</Text>
                             </TouchableOpacity>
                           ) : null}
                         </View>
@@ -1680,7 +1704,7 @@ export default function TestFormScreen() {
                         {q.mcq_options.map((opt, oi) => (
                           <View key={opt.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                             <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_correct_option_id: opt.id }))}>
-                              <Ionicons name={q.mcq_correct_option_id === opt.id ? "radio-button-on" : "radio-button-off"} size={18} color={theme.colors.primary} />
+                              <Ionicons name={q.mcq_correct_option_id === opt.id ? "radio-button-on" : "radio-button-off"} size={18} color={PURPLE} />
                             </TouchableOpacity>
                             <TextInput value={opt.text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: cur.mcq_options.map((x, idx) => (idx === oi ? { ...x, text: t } : x)) }))} placeholder={`Option ${oi + 1}`} placeholderTextColor={placeholderColor} style={[inputStyle, { flex: 1 }]} />
                             <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => { const next = cur.mcq_options.filter((_, idx) => idx !== oi); return { ...cur, mcq_options: next.length >= 2 ? next : [...next, { id: uid(), text: "" }] }; })}>
@@ -1689,7 +1713,7 @@ export default function TestFormScreen() {
                           </View>
                         ))}
                         <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: [...cur.mcq_options, { id: uid(), text: "" }] }))}>
-                          <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>+ Add option</Text>
+                          <Text style={{ color: PURPLE, fontWeight: "700" }}>+ Add option</Text>
                         </TouchableOpacity>
                       </View>
                     ) : null}
@@ -1706,8 +1730,8 @@ export default function TestFormScreen() {
                       onPress={() => setAdvancedOpen((prev) => ({ ...prev, [q.key]: !isAdvOpen }))}
                       style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, marginTop: 2 }}
                     >
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Advanced options</Text>
-                      <Ionicons name={isAdvOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.primary} />
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: PURPLE }}>Advanced options</Text>
+                      <Ionicons name={isAdvOpen ? "chevron-up" : "chevron-down"} size={13} color={PURPLE} />
                     </TouchableOpacity>
                     {isAdvOpen ? (
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>

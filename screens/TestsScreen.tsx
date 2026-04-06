@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Alert,
   Easing,
   Image,
+  LayoutAnimation,
   Linking,
+  Platform,
+  Pressable,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
 } from "react-native";
+
+if (Platform.OS === "android") UIManager.setLayoutAnimationEnabledExperimental?.(true);
+const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { NavigationProp, useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -20,6 +26,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
+import SkeletonLoader from "../components/SkeletonLoader";
+import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { normalizePlanUi } from "../lib/teacherRolePlanRules";
@@ -52,9 +60,9 @@ const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 const LINEN_BG = "#F7F2EA";
 const LINEN_CARD = "#FCFAF6";
-const AZULEJO_BLUE = "#2E7ABF";
-const AZULEJO_BLUE_SOFT = "#EAF3FB";
-const AZULEJO_BLUE_BORDER = "#B7D0E8";
+const AZULEJO_BLUE = "#9050E7";
+const AZULEJO_BLUE_SOFT = "#F3ECFF";
+const AZULEJO_BLUE_BORDER = "#D5B8FC";
 const GOLD_ACCENT = "#F3C64D";
 
 function GlowOrb({
@@ -100,6 +108,45 @@ function GlowOrb({
         ],
       }}
     />
+  );
+}
+
+function AnimatedPressable({
+  children,
+  onPress,
+  style,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onPress?: () => void;
+  style?: any;
+  disabled?: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const animateTo = (toValue: number) => {
+    Animated.spring(scale, {
+      toValue,
+      tension: 250,
+      friction: 18,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      onPressIn={() => {
+        triggerLightImpact();
+        animateTo(0.975);
+      }}
+      onPressOut={() => animateTo(1)}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -232,6 +279,7 @@ export default function TestsScreen() {
   );
 
   const cycleSort = (key: SortKey) => {
+    layoutEase();
     if (sortKey !== key) {
       setSortKey(key);
       setSortDir("asc");
@@ -393,9 +441,8 @@ export default function TestsScreen() {
 
   if (loading && tests.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={theme.colors.primary} />
-        <Text style={[theme.typography.body, { marginTop: 12 }]}>Loading tests…</Text>
+      <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LINEN_BG }}>
+        <SkeletonLoader count={6} />
       </View>
     );
   }
@@ -439,21 +486,27 @@ export default function TestsScreen() {
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Tests</Text>
         </View>
         {canManage ? (
-          <GlassCard style={{ borderRadius: 14 }} padding={0}>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("TestForm")}
-              style={{
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 14,
-                backgroundColor: theme.isDark ? theme.colors.primarySoft : theme.colors.surfaceGlass,
-                borderWidth: 1,
-                borderColor: theme.colors.primary,
-              }}
-            >
-              <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 12 }}>NEW</Text>
-            </TouchableOpacity>
-          </GlassCard>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("TestForm")}
+            activeOpacity={0.85}
+            style={{
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              borderRadius: 14,
+              backgroundColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              shadowColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+              shadowOpacity: 0.22,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 4,
+            }}
+          >
+            <Ionicons name="add" size={15} color="#FFFFFF" />
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
 
@@ -502,8 +555,25 @@ export default function TestsScreen() {
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
               Free plan includes up to 5 tests. Upgrade for unlimited.
             </Text>
-            <TouchableOpacity onPress={() => navigation.navigate("Subscription")} style={{ marginTop: 10 }}>
-              <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "800" }}>View plans →</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Subscription")}
+              activeOpacity={0.85}
+              style={{
+                marginTop: 10,
+                alignSelf: "flex-start",
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 12,
+                backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT,
+                borderWidth: 1,
+                borderColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Ionicons name="diamond-outline" size={14} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
+              <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "800", fontSize: 13 }}>View plans</Text>
             </TouchableOpacity>
           </GlassCard>
         ) : null}
@@ -514,36 +584,46 @@ export default function TestsScreen() {
             <View style={{ marginBottom: 14 }}>
               <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase" }]}>Filter by teacher</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                <TouchableOpacity
+                <AnimatedPressable
                   onPress={() => setTeacherView("mine")}
                   style={{
                     paddingHorizontal: 14,
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
+                    borderColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.border,
+                    backgroundColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.surfaceGlass,
+                    flexDirection: "row", alignItems: "center", gap: 5,
+                    shadowColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : "transparent",
+                    shadowOpacity: teacherView === "mine" ? 0.2 : 0,
+                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
                   }}
                 >
-                  <Text style={{ fontWeight: "800", fontSize: 12 }}>My tests</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                  {teacherView === "mine" && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: teacherView === "mine" ? "#FFFFFF" : theme.colors.text }}>My tests</Text>
+                </AnimatedPressable>
+                <AnimatedPressable
                   onPress={() => setTeacherMenuOpen(true)}
                   style={{
                     paddingHorizontal: 14,
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
+                    borderColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.border,
+                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.surfaceGlass,
+                    flexDirection: "row", alignItems: "center", gap: 5,
+                    shadowColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : "transparent",
+                    shadowOpacity: viewingOtherTeacher ? 0.2 : 0,
+                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
                   }}
                 >
-                  <Text style={{ fontWeight: "800", fontSize: 12 }}>
+                  {viewingOtherTeacher && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? "#FFFFFF" : theme.colors.text }}>
                     {viewingOtherTeacher
                       ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
                       : "Other teacher…"}
                   </Text>
-                </TouchableOpacity>
+                </AnimatedPressable>
                 {viewingOtherTeacher ? (
                   <TouchableOpacity onPress={() => setTeacherView("mine")} style={{ justifyContent: "center" }}>
                     <Text style={{ color: theme.colors.textMuted, fontSize: 12 }}>Clear</Text>
@@ -571,31 +651,35 @@ export default function TestsScreen() {
               ] as const
             ).map(({ key, label }) => {
               const active = sortKey === key;
+              const activeColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
               return (
-                <TouchableOpacity
+                <AnimatedPressable
                   key={key}
                   onPress={() => cycleSort(key)}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
                     paddingHorizontal: 12,
-                    paddingVertical: 8,
+                    paddingVertical: 9,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: active ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
-                    backgroundColor: active ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
+                    borderColor: active ? activeColor : theme.colors.border,
+                    backgroundColor: active ? activeColor : theme.colors.surfaceGlass,
+                    gap: 5,
+                    shadowColor: active ? activeColor : "transparent",
+                    shadowOpacity: active ? 0.2 : 0,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 3 },
+                    elevation: active ? 2 : 0,
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: "800" }}>{label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? "#FFFFFF" : theme.colors.text }}>{label}</Text>
                   {active ? (
-                    <Ionicons
-                      name={sortDir === "asc" ? "arrow-up" : "arrow-down"}
-                      size={14}
-                      color={theme.colors.primary}
-                      style={{ marginLeft: 4 }}
-                    />
-                  ) : null}
-                </TouchableOpacity>
+                    <Ionicons name={sortDir === "asc" ? "arrow-up" : "arrow-down"} size={13} color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="swap-vertical-outline" size={13} color={theme.colors.textMuted} />
+                  )}
+                </AnimatedPressable>
               );
             })}
           </View>
@@ -611,28 +695,41 @@ export default function TestsScreen() {
                 <View style={{ flexDirection: "row", marginTop: 16, gap: 10 }}>
                   <TouchableOpacity
                     onPress={() => navigation.navigate("TestForm")}
+                    activeOpacity={0.85}
                     style={{
-                      paddingHorizontal: 16,
+                      paddingHorizontal: 14,
                       paddingVertical: 11,
                       borderRadius: 14,
-                      backgroundColor: theme.colors.surfaceGlass,
-                      borderWidth: 1,
-                      borderColor: theme.colors.primary,
+                      backgroundColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      shadowColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+                      shadowOpacity: 0.18,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 5 },
+                      elevation: 3,
                     }}
                   >
-                    <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 13 }}>Create test</Text>
+                    <Ionicons name="add-circle-outline" size={15} color="#FFFFFF" />
+                    <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13 }}>Create test</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setSearchTerm("")}
+                    activeOpacity={0.85}
                     style={{
-                      paddingHorizontal: 16,
+                      paddingHorizontal: 14,
                       paddingVertical: 11,
                       borderRadius: 14,
                       backgroundColor: theme.colors.surfaceGlass,
                       borderWidth: 1,
                       borderColor: theme.colors.border,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
+                    <Ionicons name="close-circle-outline" size={15} color={theme.colors.textMuted} />
                     <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 13 }}>Clear filters</Text>
                   </TouchableOpacity>
                 </View>
@@ -640,159 +737,109 @@ export default function TestsScreen() {
             </View>
           ) : filteredSorted.length === 0 ? (
             <View style={{ paddingVertical: 24, alignItems: "center" }}>
-              <Text style={theme.typography.body}>No match for “{searchTerm}”</Text>
-              <TouchableOpacity onPress={() => setSearchTerm("")} style={{ marginTop: 12 }}>
-                <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Clear search</Text>
+              <Text style={theme.typography.body}>No match for "{searchTerm}"</Text>
+              <TouchableOpacity
+                onPress={() => setSearchTerm("")}
+                activeOpacity={0.85}
+                style={{
+                  marginTop: 12,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT,
+                  borderWidth: 1,
+                  borderColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={14} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
+                <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "700", fontSize: 13 }}>Clear search</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
-              {filteredSorted.map((test) => {
+              {filteredSorted.map((test, index) => {
                 const cfg = test.config_json ?? {};
                 const wordCount = Array.isArray(cfg.words) ? cfg.words.length : 0;
                 const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
                 const busy = actionLoadingId === test.id;
+                const accentColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
 
                 return (
-                  <View
-                    key={test.id}
-                    style={{
-                      marginBottom: 10,
-                      minHeight: 64,
-                      borderRadius: 20,
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      backgroundColor: theme.colors.surfaceGlass,
-                      paddingHorizontal: 12,
-                      paddingVertical: 11,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <TouchableOpacity
-                        onPress={() => navigation.navigate("TestForm", { testId: test.id })}
-                        activeOpacity={0.85}
-                      >
-                        {test.cover_image_url?.trim() ? (
-                          <Image
-                            source={{ uri: test.cover_image_url.trim() }}
-                            style={{ width: 44, height: 44, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.border }}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 13,
+                  <ScreenReveal key={test.id} delay={index * 45}>
+                    <AnimatedPressable
+                      onPress={() => navigation.navigate("TestForm", { testId: test.id })}
+                      style={{
+                        marginBottom: 12,
+                        borderRadius: 20,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "#FFFFFF",
+                        overflow: "hidden",
+                        shadowColor: "#000",
+                        shadowOpacity: theme.isDark ? 0.06 : 0.07,
+                        shadowRadius: 10,
+                        shadowOffset: { width: 0, height: 4 },
+                        elevation: 2,
+                      }}
+                    >
+                      <View style={{ height: 3, backgroundColor: accentColor, opacity: 0.65 }} />
+                      <View style={{ paddingHorizontal: 14, paddingVertical: 14 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                          {test.cover_image_url?.trim() ? (
+                            <Image
+                              source={{ uri: test.cover_image_url.trim() }}
+                              style={{ width: 48, height: 48, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.border }}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={{
+                              width: 48, height: 48, borderRadius: 15,
                               borderWidth: 1,
-                              borderColor: theme.colors.border,
-                              backgroundColor: theme.isDark ? "#2A2230" : "#F6EFE4",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <Ionicons name="image-outline" size={18} color={theme.colors.primary} />
+                              borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER,
+                              backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT,
+                              alignItems: "center", justifyContent: "center",
+                            }}>
+                              <Ionicons name="clipboard-outline" size={20} color={accentColor} />
+                            </View>
+                          )}
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={{ fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                              {test.name ?? "Untitled"}
+                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
+                              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, paddingHorizontal: 7, paddingVertical: 3 }}>
+                                <Text style={{ fontSize: 9, fontWeight: "900", color: accentColor }}>{wordCount}W</Text>
+                              </View>
+                              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : "#E6D39A", backgroundColor: theme.isDark ? theme.colors.primarySoft : "#FFF5DA", paddingHorizontal: 7, paddingVertical: 3 }}>
+                                <Text style={{ fontSize: 9, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
+                              </View>
+                              <View style={{ flex: 1 }} />
+                              {canManage ? (
+                                <>
+                                  <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                                    <Ionicons name="pencil-outline" size={12} color={accentColor} />
+                                    <Text style={{ fontSize: 11, fontWeight: "800", color: accentColor }}>Edit</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
+                                    {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
+                                  </TouchableOpacity>
+                                </>
+                              ) : (
+                                <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                                  <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
+                                  <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
                           </View>
-                        )}
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={{ flex: 1, minWidth: 0 }}
-                        onPress={() => navigation.navigate("TestForm", { testId: test.id })}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
-                          {test.name ?? "Untitled"}
-                        </Text>
-                        <Text style={{ marginTop: 2, fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }} numberOfLines={1}>
-                          Test
-                        </Text>
-                      </TouchableOpacity>
-
-                      <View
-                        style={{
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: theme.isDark ? "rgba(96,165,250,0.28)" : AZULEJO_BLUE_BORDER,
-                          backgroundColor: theme.isDark ? "rgba(59,130,246,0.16)" : AZULEJO_BLUE_SOFT,
-                          paddingHorizontal: 7,
-                          paddingVertical: 4,
-                        }}
-                      >
-                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.isDark ? "#60A5FA" : AZULEJO_BLUE }}>{wordCount}W</Text>
+                        </View>
                       </View>
-
-                      <View
-                        style={{
-                          borderRadius: 999,
-                          borderWidth: 1,
-                          borderColor: theme.isDark ? theme.colors.border : "#E6D39A",
-                          backgroundColor: theme.isDark ? theme.colors.primarySoft : "#FFF5DA",
-                          paddingHorizontal: 7,
-                          paddingVertical: 4,
-                        }}
-                      >
-                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
-                      </View>
-
-                      {canManage ? (
-                        <>
-                          <TouchableOpacity
-                            onPress={() => navigation.navigate("TestForm", { testId: test.id })}
-                            disabled={busy}
-                            style={{
-                              minWidth: 54,
-                              borderRadius: 11,
-                              backgroundColor: theme.isDark ? theme.colors.primarySoft : theme.colors.surfaceGlass,
-                              borderWidth: 1,
-                              borderColor: theme.colors.primary,
-                              paddingHorizontal: 12,
-                              paddingVertical: 8,
-                              opacity: busy ? 0.6 : 1,
-                              alignItems: "center",
-                            }}
-                          >
-                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Edit</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => deleteTest(test)}
-                            disabled={busy}
-                            style={{
-                              width: 34,
-                              height: 34,
-                              borderRadius: 11,
-                              borderWidth: 1,
-                              borderColor: theme.colors.danger,
-                              backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6",
-                              opacity: busy ? 0.6 : 1,
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {busy ? (
-                              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.danger }}>...</Text>
-                            ) : (
-                              <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
-                            )}
-                          </TouchableOpacity>
-                        </>
-                      ) : (
-                        <TouchableOpacity
-                          onPress={() => openWebEdit(test.id)}
-                          style={{
-                            borderRadius: 11,
-                            borderWidth: 1,
-                            borderColor: theme.colors.border,
-                              backgroundColor: theme.colors.surfaceGlass,
-                              paddingHorizontal: 12,
-                              paddingVertical: 8,
-                            }}
-                          >
-                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
+                    </AnimatedPressable>
+                  </ScreenReveal>
                 );
               })}
             </>
@@ -903,7 +950,6 @@ function StatCard({
     </View>
   );
 }
-
 
 
 

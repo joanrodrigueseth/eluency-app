@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 
 type AppButtonProps = {
@@ -36,7 +37,10 @@ export default function AppButton({
 
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={() => {
+        triggerLightImpact();
+        onPress();
+      }}
       disabled={isDisabled}
       activeOpacity={0.9}
       style={{
