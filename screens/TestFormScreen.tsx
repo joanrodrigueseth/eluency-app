@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Image,
+  Keyboard,
   Linking,
   Modal,
   ScrollView,
@@ -16,16 +19,16 @@ import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import { Audio } from "expo-av";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import AppButton from "../components/AppButton";
-import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { DEFAULT_RULES, ensureQuestionDefaults, ensureTestSettings, uid } from "../lib/testDesignMobile";
 import { getStudentLimitForPlan, normalizePlanUi } from "../lib/teacherRolePlanRules";
+import GlassCard from "../components/GlassCard";
 
 import type { RootTestsStackParams } from "./TestsScreen";
 
@@ -47,7 +50,13 @@ const TEST_CATEGORIES = [
   "Other",
 ] as const;
 
-type WordRow = { key: string; en: string; pt: string };
+type WordRow = {
+  key: string;
+  en: string;
+  pt: string;
+  sourceLessonId?: string | null;
+  sourceLessonWordKey?: string | null;
+};
 type QRow = {
   key: string;
   id: string;
@@ -86,6 +95,16 @@ type TemplatePreset = {
   id: string;
   label: string;
   build: () => Partial<QRow>;
+};
+
+type LinkedLessonWordRow = {
+  key: string;
+  en: string;
+  pt: string;
+  sp: string;
+  se: string;
+  sourceLessonId: string;
+  sourceLessonWordKey: string;
 };
 
 const AI_ELIGIBLE_PLANS = ["teacher", "standard", "pro", "school", "internal"];
@@ -141,6 +160,86 @@ const TEMPLATE_PRESETS: TemplatePreset[] = [
   },
 ];
 
+function FloatingGlow({
+  size,
+  color,
+  top,
+  left,
+  right,
+  bottom,
+  translate,
+}: {
+  size: number;
+  color: string;
+  top?: number;
+  left?: number;
+  right?: number;
+  bottom?: number;
+  translate: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top,
+        left,
+        right,
+        bottom,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color,
+        opacity: 0.85,
+        transform: [
+          { translateY: translate },
+          {
+            translateX: translate.interpolate({
+              inputRange: [-12, 12],
+              outputRange: [8, -8],
+            }),
+          },
+          { scale: translate.interpolate({ inputRange: [-12, 12], outputRange: [0.96, 1.04] }) },
+        ],
+      }}
+    />
+  );
+}
+
+function HeroChip({
+  icon,
+  label,
+  value,
+  tint,
+  textColor,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  tint: string;
+  textColor: string;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        borderRadius: 999,
+        backgroundColor: tint,
+      }}
+    >
+      <Ionicons name={icon} size={14} color={textColor} />
+      <Text style={{ fontSize: 11, fontWeight: "800", color: textColor, textTransform: "uppercase", letterSpacing: 0.7 }}>
+        {label}
+      </Text>
+      <Text style={{ fontSize: 12, fontWeight: "700", color: textColor }}>{value}</Text>
+    </View>
+  );
+}
+
 export default function TestFormScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -159,10 +258,11 @@ export default function TestFormScreen() {
   const [type, setType] = useState<string>("Vocabulary");
   const [customCategory, setCustomCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<"draft" | "published">("draft");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const heroGlowOne = useRef(new Animated.Value(-10)).current;
+  const heroGlowTwo = useRef(new Animated.Value(10)).current;
 
-  const [words, setWords] = useState<(WordRow & { sp: string; se: string })[]>([{ key: uid(), en: "", pt: "", sp: "", se: "" }]);
+  const [words, setWords] = useState<(WordRow & { sp: string; se: string })[]>([]);
   const [questions, setQuestions] = useState<QRow[]>([
     mapQuestion(ensureQuestionDefaults(null)),
   ]);
@@ -181,6 +281,16 @@ export default function TestFormScreen() {
   const [uploadingQuestionIndex, setUploadingQuestionIndex] = useState<number | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [vocabOpen, setVocabOpen] = useState<Record<string, boolean>>({});
+  const [vocabSectionOpen, setVocabSectionOpen] = useState(false);
+  const [questionOpen, setQuestionOpen] = useState<Record<string, boolean>>({});
+  const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
+  const [dropdownOpen, setDropdownOpen] = useState<Record<string, "prompt" | "answer" | null>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [linkedLessonsOpen, setLinkedLessonsOpen] = useState(false);
+  const [helpBubble, setHelpBubble] = useState<"vocab" | "questions" | null>(null);
+  const [playingAudio, setPlayingAudio] = useState<Record<string, boolean>>({});
+  const audioSoundRef = useState<{ sound: Audio.Sound | null }>({ sound: null })[0];
 
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes((planUi ?? "").toLowerCase()), [isAdmin, planUi]);
 
@@ -227,6 +337,59 @@ export default function TestFormScreen() {
   const replaceQuestion = (key: string, updater: (q: QRow) => QRow) => {
     setQuestions((prev) => prev.map((q) => (q.key === key ? updater(q) : q)));
   };
+
+  const buildLinkedLessonWordRows = useCallback((lessonRows: { id: string; content_json?: unknown }[]) => {
+    const linkedWords: LinkedLessonWordRow[] = [];
+    for (const lesson of lessonRows) {
+      const cfg = lesson.content_json && typeof lesson.content_json === "object" ? (lesson.content_json as Record<string, unknown>) : {};
+      const rawWords = Array.isArray((cfg as any).words) ? ((cfg as any).words as any[]) : [];
+      rawWords.forEach((word, index) => {
+        const rowType = String(word?.rowType ?? "vocab");
+        if (rowType !== "vocab") return;
+        const en = String(word?.en ?? word?.term_b ?? "").trim();
+        const pt = String(word?.pt ?? word?.term_a ?? "").trim();
+        const sp = String(word?.sp ?? word?.context_a ?? "").trim();
+        const se = String(word?.se ?? word?.context_b ?? "").trim();
+        if (!en && !pt && !sp && !se) return;
+        const sourceLessonWordKey = String(word?.id ?? word?.key ?? `${lesson.id}:${index}`);
+        linkedWords.push({
+          key: uid(),
+          en,
+          pt,
+          sp,
+          se,
+          sourceLessonId: lesson.id,
+          sourceLessonWordKey,
+        });
+      });
+    }
+    return linkedWords;
+  }, []);
+
+  const syncLinkedLessonWords = useCallback(
+    async (lessonIds: string[]) => {
+      if (!lessonIds.length) {
+        setWords((prev) => {
+          const manualWords = prev.filter((w) => !w.sourceLessonId);
+          return manualWords;
+        });
+        return;
+      }
+
+      const { data, error } = await (supabase.from("lessons") as any)
+        .select("id, content_json")
+        .in("id", lessonIds);
+      if (error) throw error;
+
+      const linkedWords = buildLinkedLessonWordRows((data ?? []) as { id: string; content_json?: unknown }[]);
+      setWords((prev) => {
+        const manualWords = prev.filter((w) => !w.sourceLessonId);
+        const nextWords = [...manualWords, ...linkedWords];
+        return nextWords;
+      });
+    },
+    [buildLinkedLessonWordRows]
+  );
 
   const loadLessonsForTeacher = useCallback(async (tid: string) => {
     if (!tid) {
@@ -290,7 +453,6 @@ export default function TestFormScreen() {
           setType(TEST_CATEGORIES.includes(t as (typeof TEST_CATEGORIES)[number]) ? t : "Other");
           if (!TEST_CATEGORIES.includes(t as (typeof TEST_CATEGORIES)[number])) setCustomCategory(t);
           setDescription(row.description ?? "");
-          setStatus(row.status === "published" ? "published" : "draft");
           setCoverImageUrl(row.cover_image_url ?? "");
           setTeacherId(row.teacher_id ?? user.id);
 
@@ -304,8 +466,10 @@ export default function TestFormScreen() {
                   pt: String(x.pt ?? ""),
                   sp: String(x.sp ?? ""),
                   se: String(x.se ?? ""),
+                  sourceLessonId: x.sourceLessonId ? String(x.sourceLessonId) : null,
+                  sourceLessonWordKey: x.sourceLessonWordKey ? String(x.sourceLessonWordKey) : null,
                 }))
-              : [{ key: uid(), en: "", pt: "", sp: "", se: "" }]
+              : []
           );
 
           const rawTests = Array.isArray((cfg as any).tests) ? (cfg as any).tests : [];
@@ -331,9 +495,8 @@ export default function TestFormScreen() {
           setType("Vocabulary");
           setCustomCategory("");
           setDescription("");
-          setStatus("draft");
           setCoverImageUrl("");
-          setWords([{ key: uid(), en: "", pt: "", sp: "", se: "" }]);
+          setWords([]);
           setQuestions([mapQuestion(ensureQuestionDefaults(null))]);
           setLinkedLessonIds([]);
           setTestSettings(ensureTestSettings(null) as TestSettings);
@@ -374,15 +537,86 @@ export default function TestFormScreen() {
     loadLessonsForTeacher(teacherId);
   }, [isAdmin, teacherId, loadLessonsForTeacher]);
 
+  useEffect(() => {
+    if (bootLoading) return;
+    syncLinkedLessonWords(linkedLessonIds).catch((e) => {
+      Alert.alert("Linked lessons", e instanceof Error ? e.message : "Could not sync linked lesson vocabulary");
+    });
+  }, [bootLoading, linkedLessonIds, syncLinkedLessonWords]);
+
   const filteredTeachers = teachers.filter((t) => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
-  const filteredLessons = lessons.filter((l) => l.title.toLowerCase().includes(lessonSearch.toLowerCase()));
 
   const finalType = type === "Other" ? (customCategory.trim() || "Other") : type;
+  const linkedLessonsSummary =
+    linkedLessonIds.length > 0 ? `${linkedLessonIds.length} linked lesson${linkedLessonIds.length === 1 ? "" : "s"}` : "No lessons linked";
+  const activeWordCount = words.filter((w) => w.en.trim() || w.pt.trim()).length;
+  const linkedWordCount = words.filter((w) => w.sourceLessonId && (w.en.trim() || w.pt.trim())).length;
+  const manualWordCount = Math.max(0, activeWordCount - linkedWordCount);
+  const vocabSummary =
+    activeWordCount > 0
+      ? `${activeWordCount} active vocabulary row${activeWordCount === 1 ? "" : "s"}`
+      : "Add vocabulary manually or pull it from lessons";
+  const questionsSummary =
+    questions.length > 0 ? `${questions.length} question${questions.length === 1 ? "" : "s"} ready to edit` : "No questions yet";
+  const settingsSummary =
+    testSettings.time_limit_minutes || linkedLessonIds.length || testSettings.randomize_questions || testSettings.randomize_mcq_options
+      ? "Configured"
+      : "Using default test settings";
+  const heroDescription =
+    description.trim() || "Shape the test flow, link lessons when needed, and turn vocabulary into a cleaner, richer assessment experience.";
+
+  useEffect(() => {
+    const loopOne = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowOne, {
+          toValue: 12,
+          duration: 3800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroGlowOne, {
+          toValue: -10,
+          duration: 3800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const loopTwo = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowTwo, {
+          toValue: -12,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroGlowTwo, {
+          toValue: 10,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loopOne.start();
+    loopTwo.start();
+    return () => {
+      loopOne.stop();
+      loopTwo.stop();
+    };
+  }, [heroGlowOne, heroGlowTwo]);
 
   const buildConfigJson = () => {
     const wordObjs = words
       .filter((w) => w.en.trim() || w.pt.trim())
-      .map((w) => ({ pt: w.pt.trim(), en: w.en.trim(), sp: w.sp.trim(), se: w.se.trim() }));
+      .map((w) => ({
+        pt: w.pt.trim(),
+        en: w.en.trim(),
+        sp: w.sp.trim(),
+        se: w.se.trim(),
+        sourceLessonId: w.sourceLessonId ?? null,
+        sourceLessonWordKey: w.sourceLessonWordKey ?? null,
+      }));
 
     const builtTests: Record<string, unknown>[] = questions.map((q) =>
       ensureQuestionDefaults({
@@ -403,7 +637,8 @@ export default function TestFormScreen() {
         mcq_options: q.mcq_options,
         mcq_correct_option_id: q.mcq_correct_option_id,
         teacher_reference_answer: q.teacher_reference_answer,
-        fill_blank_character_count: q.fill_blank_character_count,
+        fill_blank_character_count:
+          q.prompt_format === "fill_blank" ? Math.max(1, q.correct_text.trim().length || q.fill_blank_character_count || 1) : q.fill_blank_character_count,
       })
     );
 
@@ -664,7 +899,7 @@ export default function TestFormScreen() {
           name: name.trim(),
           type: finalType,
           description: description.trim() || null,
-          status,
+          status: "published",
           cover_image_url: coverImageUrl.trim() || null,
           config_json,
         };
@@ -677,7 +912,7 @@ export default function TestFormScreen() {
           name: name.trim(),
           type: finalType,
           description: description.trim() || null,
-          status,
+          status: "published",
           config_json,
           cover_image_url: coverImageUrl.trim() || null,
           created_by: currentUserId,
@@ -718,14 +953,27 @@ export default function TestFormScreen() {
     }
   };
 
+  const placeholderColor = theme.isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)";
+
   const inputStyle = {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.border,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: theme.colors.text,
-    backgroundColor: theme.colors.surfaceAlt,
+    backgroundColor: theme.colors.surface,
+    fontSize: 14,
+    minHeight: 48,
+  };
+
+  const sectionCardStyle = {
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    borderRadius: 24,
+    backgroundColor: theme.colors.surfaceGlass,
+    overflow: "hidden" as const,
+    marginBottom: 16,
   };
 
   if (bootLoading) {
@@ -738,121 +986,142 @@ export default function TestFormScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <View
-        style={{
-          paddingTop: Math.max(insets.top, 8),
-          paddingBottom: 10,
-          paddingHorizontal: 16,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-          flexDirection: "row",
-          alignItems: "center",
-          backgroundColor: theme.isDark ? theme.colors.background : "#FFFFFF",
-        }}
-      >
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={{ color: theme.colors.primary, fontWeight: "800" }}>Back</Text>
-        </TouchableOpacity>
-        <Text style={[theme.typography.title, { flex: 1, textAlign: "center", fontSize: 17 }]}>
-          {isEdit ? "Edit test" : "New test"}
-        </Text>
-        <TouchableOpacity onPress={openWebEditor}>
-          <Text style={{ color: theme.colors.textMuted, fontSize: 12, fontWeight: "700" }}>Web</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Details</Text>
-          <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Name</Text>
-          <TextInput value={name} onChangeText={setName} placeholder="Test name" placeholderTextColor={theme.colors.textMuted} style={[inputStyle, { marginBottom: 12 }]} />
-
-          <Text style={[theme.typography.caption, { marginBottom: 8 }]}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: type === "Other" ? 8 : 12 }}>
-            {TEST_CATEGORIES.map((c) => (
-              <TouchableOpacity
-                key={c}
-                onPress={() => setType(c)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  marginRight: 8,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: type === c ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: type === c ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800" }}>{c}</Text>
+      <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
+        <GlassCard style={{ borderRadius: 26 }} padding={14}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginHorizontal: 14 }}>
+              <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
+              <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-          {type === "Other" ? (
-            <TextInput
-              value={customCategory}
-              onChangeText={setCustomCategory}
-              placeholder="Custom category"
-              placeholderTextColor={theme.colors.textMuted}
-              style={[inputStyle, { marginBottom: 12 }]}
-            />
-          ) : null}
-
-          <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Description</Text>
-          <TextInput
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            placeholder="Optional"
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { minHeight: 72, marginBottom: 12 }]}
-          />
-          <Text style={[theme.typography.caption, { marginBottom: 4 }]}>Cover image URL</Text>
-          <TextInput
-            value={coverImageUrl}
-            onChangeText={setCoverImageUrl}
-            placeholder="https://..."
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { marginBottom: 12 }]}
-          />
-          <TouchableOpacity
-            onPress={pickCoverImage}
-            disabled={coverUploading}
-            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 12, alignSelf: "flex-start" }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{coverUploading ? "Uploading..." : "Upload cover image"}</Text>
-          </TouchableOpacity>
-          {coverImageUrl.trim() ? (
-            <Image
-              source={{ uri: coverImageUrl.trim() }}
-              style={{ width: "100%", height: 170, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}
-              resizeMode="cover"
-            />
-          ) : null}
-
-          <Text style={[theme.typography.caption, { marginBottom: 8 }]}>Status</Text>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {(["draft", "published"] as const).map((s) => (
               <TouchableOpacity
-                key={s}
-                onPress={() => setStatus(s)}
-                style={{
-                  flex: 1,
-                  paddingVertical: 10,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: status === s ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: status === s ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                  alignItems: "center",
-                }}
+                onPress={() => { Keyboard.dismiss(); handleSave(); }}
+                disabled={saving}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: "800", textTransform: "uppercase" }}>{s}</Text>
+                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
-            ))}
+            </View>
           </View>
         </GlassCard>
+      </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <View style={{ gap: 16 }}>
+          <GlassCard style={{ borderRadius: 30, overflow: "hidden" }} padding={0}>
+            <View style={{ position: "relative", overflow: "hidden" }}>
+              <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
+              <FloatingGlow size={130} color={theme.colors.violetSoft} bottom={-38} left={-15} translate={heroGlowTwo} />
+              <View style={{ padding: 22 }}>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity onPress={pickCoverImage} activeOpacity={0.9} disabled={coverUploading} style={{ width: 110, marginRight: 16 }}>
+                    {coverImageUrl.trim() ? (
+                      <Image source={{ uri: coverImageUrl.trim() }} style={{ width: 110, height: 132, borderRadius: 24, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                    ) : (
+                      <View style={{ width: 110, height: 132, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 8 }}>
+                        <Ionicons name="image-outline" size={30} color={theme.colors.textMuted} />
+                        <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 11, textAlign: "center", paddingHorizontal: 10 }}>
+                          {coverUploading ? "Uploading..." : "Add cover"}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Test studio</Text>
+                    <Text style={[theme.typography.title, { marginTop: 8, fontSize: 28, lineHeight: 32 }]}>
+                      {name.trim() || (isEdit ? "Untitled test" : "Design a polished new test")}
+                    </Text>
+                    <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted, fontSize: 15, lineHeight: 22 }]}>
+                      {heroDescription}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
+                  <HeroChip icon="grid-outline" label="Type" value={finalType} tint={theme.colors.primarySoft} textColor={theme.colors.primary} />
+                  <HeroChip icon="book-outline" label="Vocab" value={`${activeWordCount}`} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
+                  <HeroChip icon="document-text-outline" label="Questions" value={`${questions.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
+                  <HeroChip icon="link-outline" label="Lessons" value={`${linkedLessonIds.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
+                </View>
+              </View>
+            </View>
+          </GlassCard>
+
+          <View
+            style={{
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: theme.colors.primary,
+              backgroundColor: theme.colors.primarySoft,
+              padding: 16,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.primary, letterSpacing: 1.3, textTransform: "uppercase" }}>
+              Test builder
+            </Text>
+            <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text, marginTop: 6 }}>
+              {isEdit ? "Test overview" : "Build the test in four steps."}
+            </Text>
+            {!isEdit ? (
+              <Text style={{ fontSize: 13, lineHeight: 19, color: theme.colors.textMuted, marginTop: 6 }}>
+                Start with basics, link lessons if needed, shape the vocabulary, then finish with the questions students will answer.
+              </Text>
+            ) : null}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              {[
+                { label: "Basics", value: finalType },
+                { label: "Linked Lessons", value: linkedLessonIds.length ? String(linkedLessonIds.length) : "0" },
+                { label: "Vocabulary", value: String(activeWordCount) },
+                { label: "Questions", value: String(questions.length) },
+              ].map((item) => (
+                <View
+                  key={item.label}
+                  style={{
+                    width: "48%",
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.primary,
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 10,
+                    paddingVertical: 9,
+                  }}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.text, textTransform: "uppercase" }} numberOfLines={1}>
+                    {item.label}: <Text style={{ color: theme.colors.textMuted }}>{item.value}</Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {!isEdit ? (
+          <View style={{ marginBottom: 2 }}>
+            <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.textMuted, letterSpacing: 1.4, textTransform: "uppercase" }}>
+              Step 1
+            </Text>
+            <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 4 }}>
+              Basics
+            </Text>
+            <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4 }}>
+              Name the test, describe it, and add a cover students will recognize.
+            </Text>
+          </View>
+          ) : null}
+
+          <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+            <TextInput value={name} onChangeText={setName} placeholder="Test name" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 24, fontWeight: "800", color: theme.colors.text }} />
+            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+            <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
+          </View>
 
         {isAdmin ? (
-          <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
+          <View style={[sectionCardStyle, { padding: 16 }]}>
             <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Teacher</Text>
             <TouchableOpacity
               onPress={() => {
@@ -864,82 +1133,287 @@ export default function TestFormScreen() {
               <Text>{teachers.find((t) => t.id === teacherId)?.name ?? teacherId}</Text>
               <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
             </TouchableOpacity>
-          </GlassCard>
+          </View>
         ) : null}
 
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <Text style={[theme.typography.caption, { textTransform: "uppercase" }]}>Vocabulary</Text>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TouchableOpacity
-                onPress={handleEnrichVocabularyWithAI}
-                disabled={!canUseAI || aiVocabLoading}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: theme.colors.primary,
-                  backgroundColor: theme.colors.primarySoft,
-                  opacity: !canUseAI || aiVocabLoading ? 0.6 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{aiVocabLoading ? "AI..." : "AI Fill"}</Text>
+        {!isEdit ? (
+        <View style={{ marginTop: 2, marginBottom: -4 }}>
+          <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.textMuted, letterSpacing: 1.4, textTransform: "uppercase" }}>
+            Step 2
+          </Text>
+          <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 4 }}>
+            Setup
+          </Text>
+          <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4 }}>
+            Choose test behavior, then link lessons if you want vocabulary to sync in automatically.
+          </Text>
+        </View>
+        ) : null}
+
+        <View style={sectionCardStyle}>
+          <TouchableOpacity onPress={() => setSettingsOpen((v) => !v)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: settingsOpen ? 1 : 0, borderBottomColor: theme.colors.border }}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>2A. Test settings</Text>
+              {!settingsOpen ? (
+                <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textMuted }}>{settingsSummary}</Text>
+              ) : null}
+            </View>
+            <Ionicons name={settingsOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+          {settingsOpen ? (
+            <View style={{ padding: 14, gap: 10 }}>
+              <View>
+                <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Time limit (min)</Text>
+                <TextInput value={testSettings.time_limit_minutes == null ? "" : String(testSettings.time_limit_minutes)} onChangeText={(t) => setTestSettings((prev) => ({ ...prev, time_limit_minutes: t.trim() ? Number(t) || null : null }))} keyboardType="numeric" placeholder="Optional" placeholderTextColor={theme.colors.textMuted} style={inputStyle} />
+              </View>
+              <View>
+                <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>Attempts</Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  {(["1", "2", "unlimited"] as const).map((v) => {
+                    const active = String(testSettings.attempts_allowed) === v;
+                    return (
+                      <TouchableOpacity
+                        key={v}
+                        onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: v === "unlimited" ? "unlimited" : (Number(v) as 1 | 2) }))}
+                        style={v === "unlimited"
+                          ? { flex: 1, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? theme.colors.primary : theme.colors.border, backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt }
+                          : { width: 32, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? theme.colors.primary : theme.colors.border, backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt }
+                        }
+                      >
+                        <Text style={{ fontSize: v === "unlimited" ? 11 : 10, fontWeight: "800", color: active ? theme.colors.primary : theme.colors.text }}>{v === "unlimited" ? "Unlimited" : v}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))}>
+                <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_questions ? "On" : "Off"} - Randomize order</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setWords((w) => [...w, { key: uid(), en: "", pt: "", sp: "", se: "" }])}
-                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>+ Add</Text>
+              <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_mcq_options: !prev.randomize_mcq_options }))}>
+                <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_mcq_options ? "On" : "Off"} - Randomize MCQ</Text>
               </TouchableOpacity>
             </View>
-          </View>
-          {words.map((w, i) => (
-            <View key={w.key} style={{ marginBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingBottom: 12 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <Text style={theme.typography.caption}>Word {i + 1}</Text>
-                {words.length > 1 ? (
-                  <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
-                    <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}>Remove</Text>
-                  </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <View style={sectionCardStyle}>
+          <TouchableOpacity onPress={() => setLinkedLessonsOpen((v) => !v)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: linkedLessonsOpen ? 1 : 0, borderBottomColor: theme.colors.border }}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>2B. Linked lessons</Text>
+                {linkedLessonIds.length > 0 ? (
+                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{linkedLessonIds.length}</Text>
+                  </View>
                 ) : null}
               </View>
-              <TextInput
-                value={w.en}
-                onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, en: t } : x)))}
-                placeholder="English"
-                placeholderTextColor={theme.colors.textMuted}
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              <TextInput
-                value={w.pt}
-                onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, pt: t } : x)))}
-                placeholder="Portuguese (or target)"
-                placeholderTextColor={theme.colors.textMuted}
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              <TextInput
-                value={w.sp}
-                onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, sp: t } : x)))}
-                placeholder="Context PT"
-                placeholderTextColor={theme.colors.textMuted}
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              <TextInput
-                value={w.se}
-                onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, se: t } : x)))}
-                placeholder="Context EN"
-                placeholderTextColor={theme.colors.textMuted}
-                style={inputStyle}
-              />
+              {!linkedLessonsOpen ? (
+                <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textMuted }}>{linkedLessonsSummary}</Text>
+              ) : null}
             </View>
-          ))}
-        </GlassCard>
+            <Ionicons name={linkedLessonsOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+          {linkedLessonsOpen ? (
+            <View style={{ padding: 14, gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => setLessonSearch((v) => v === "__open__" ? "" : "__open__")}
+                style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
+              >
+                <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Add lesson...</Text>
+                <Ionicons name="chevron-down" size={14} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+              {lessonSearch === "__open__" ? (
+                <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface, maxHeight: 200 }}>
+                  <ScrollView nestedScrollEnabled>
+                    {lessons.filter((l) => !linkedLessonIds.includes(l.id)).map((l, idx, arr) => (
+                      <TouchableOpacity key={l.id} onPress={() => { setLinkedLessonIds((prev) => [...prev, l.id]); setLessonSearch(""); }} style={{ paddingVertical: 9, paddingHorizontal: 12, borderBottomWidth: idx < arr.length - 1 ? 1 : 0, borderBottomColor: theme.colors.border }}>
+                        <Text style={{ fontSize: 12, color: theme.colors.text }} numberOfLines={2}>{l.title}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {lessons.filter((l) => !linkedLessonIds.includes(l.id)).length === 0 ? (
+                      <Text style={{ padding: 12, fontSize: 12, color: theme.colors.textMuted }}>No lessons available</Text>
+                    ) : null}
+                  </ScrollView>
+                </View>
+              ) : null}
+              {linkedLessonIds.length > 0 ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {linkedLessonIds.map((id) => {
+                    const lesson = lessons.find((l) => l.id === id);
+                    return (
+                      <View key={id} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: theme.colors.primarySoft, borderWidth: 1, borderColor: theme.colors.primary }}>
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.primary }} numberOfLines={1}>{lesson?.title ?? id}</Text>
+                        <TouchableOpacity onPress={() => setLinkedLessonIds((prev) => prev.filter((x) => x !== id))}>
+                          <Ionicons name="close-circle" size={13} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
 
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <Text style={[theme.typography.caption, { textTransform: "uppercase" }]}>Questions</Text>
-            <View style={{ flexDirection: "row", gap: 8 }}>
+        {!isEdit ? (
+        <View style={{ marginTop: 2, marginBottom: -4 }}>
+          <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.textMuted, letterSpacing: 1.4, textTransform: "uppercase" }}>
+            Step 3
+          </Text>
+          <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 4 }}>
+            Vocabulary
+          </Text>
+          <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4 }}>
+            Mix synced lesson vocabulary with manual words, then expand the rows you want to refine.
+          </Text>
+        </View>
+        ) : null}
+
+        <View style={sectionCardStyle}>
+          <TouchableOpacity
+            onPress={() => setVocabSectionOpen((v) => !v)}
+            style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, borderBottomWidth: vocabSectionOpen ? 1 : 0, borderBottomColor: theme.colors.border }}
+          >
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3. Vocabulary</Text>
+                <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>{words.length}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setHelpBubble((v) => v === "vocab" ? null : "vocab")} style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: theme.colors.textMuted, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "900", color: theme.colors.textMuted }}>?</Text>
+                </TouchableOpacity>
+              </View>
+              {!vocabSectionOpen ? (
+                <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textMuted }}>{vocabSummary}</Text>
+              ) : null}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {vocabSectionOpen ? (
+                <>
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation?.(); handleEnrichVocabularyWithAI(); }}
+                    disabled={!canUseAI || aiVocabLoading}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, opacity: !canUseAI || aiVocabLoading ? 0.6 : 1 }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{aiVocabLoading ? "AI..." : "AI Fill"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation?.(); setWords((w) => [...w, { key: uid(), en: "", pt: "", sp: "", se: "" }]); }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>+ Add</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+              <Ionicons name={vocabSectionOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+          {helpBubble === "vocab" ? (
+            <View style={{ marginHorizontal: 14, marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }}>
+              <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 16 }}>Add the words or terms for this test. Each word has an English side and a target language side. Context sentences are optional but help AI generate better questions.</Text>
+            </View>
+          ) : null}
+          {vocabSectionOpen ? (
+          <>
+          <View style={{ marginHorizontal: 12, marginTop: 2, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 10 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
+              {linkedWordCount} synced from lessons - {manualWordCount} added manually
+            </Text>
+            <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 4 }}>
+              Removing a linked lesson removes its synced vocabulary from this test.
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 12 }}>
+            {words.map((w, i) => {
+              const isOpen = !!vocabOpen[w.key];
+              return (
+                <View
+                  key={w.key}
+                  style={[
+                    { borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? "#1a1a2e" : "#F8F9FF" },
+                    isOpen ? { width: "100%" } : { flexBasis: "48%", flexGrow: 1 },
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => setVocabOpen((prev) => ({ ...prev, [w.key]: !isOpen }))}
+                    style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 10 }}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>#{i + 1}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text, marginTop: 2 }} numberOfLines={1}>{w.en || "English"}</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 1 }} numberOfLines={1}>{w.pt || "Target"}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {words.length > 1 && !isOpen ? (
+                        <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
+                          <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />
+                        </TouchableOpacity>
+                      ) : null}
+                      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                  {isOpen ? (
+                    <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 10, gap: 8 }}>
+                      <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+                        {words.length > 1 ? (
+                          <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
+                            <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>English</Text>
+                        <TextInput value={w.en} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, en: t } : x)))} placeholder="English term" placeholderTextColor={placeholderColor} style={inputStyle} />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Target language</Text>
+                        <TextInput value={w.pt} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, pt: t } : x)))} placeholder="Portuguese (or target)" placeholderTextColor={placeholderColor} style={inputStyle} />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Context (target)</Text>
+                        <TextInput value={w.sp} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, sp: t } : x)))} placeholder="Example sentence" placeholderTextColor={placeholderColor} style={inputStyle} />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Context (English)</Text>
+                        <TextInput value={w.se} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, se: t } : x)))} placeholder="Example sentence" placeholderTextColor={placeholderColor} style={inputStyle} />
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+          </>
+          ) : null}
+        </View>
+
+        {!isEdit ? (
+        <View style={{ marginTop: 2, marginBottom: -4 }}>
+          <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.textMuted, letterSpacing: 1.4, textTransform: "uppercase" }}>
+            Step 4
+          </Text>
+          <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 4 }}>
+            Questions
+          </Text>
+          <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4 }}>
+            Turn your vocabulary into questions and use templates or AI when it saves time.
+          </Text>
+        </View>
+        ) : null}
+
+        <View style={[sectionCardStyle, { padding: 16 }]}>
+          <View style={{ marginBottom: 8 }}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={[theme.typography.caption, { textTransform: "uppercase" }]}>4. Questions</Text>
+                <TouchableOpacity onPress={() => setHelpBubble((v) => v === "questions" ? null : "questions")} style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: theme.colors.textMuted, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "900", color: theme.colors.textMuted }}>?</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4 }}>{questionsSummary}</Text>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
               <TouchableOpacity
                 onPress={handleGenerateQuestionsFromVocabulary}
                 disabled={!canUseAI || aiQuestionsLoading}
@@ -969,6 +1443,11 @@ export default function TestFormScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          {helpBubble === "questions" ? (
+            <View style={{ marginHorizontal: 0, marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }}>
+              <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 16 }}>Design each question students will answer. Choose how the question is shown (text, audio, image) and how they answer (specific, open, multiple choice). Tap a question to expand it.</Text>
+            </View>
+          ) : null}
           {templatePickerOpen ? (
             <View style={{ marginBottom: 10, gap: 8 }}>
               {TEMPLATE_PRESETS.map((p) => (
@@ -995,339 +1474,270 @@ export default function TestFormScreen() {
               ))}
             </View>
           ) : null}
-          {questions.map((q, i) => (
-            <View key={q.key} style={{ marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <Text style={theme.typography.bodyStrong}>Q{i + 1}</Text>
-                {questions.length > 1 ? (
-                  <TouchableOpacity onPress={() => setQuestions((prev) => prev.filter((x) => x.key !== q.key))}>
-                    <Text style={{ color: theme.colors.danger, fontSize: 12 }}>Remove</Text>
-                  </TouchableOpacity>
+          {questions.map((q, i) => {
+            const isOpen = !!questionOpen[q.key];
+            const isAdvOpen = !!advancedOpen[q.key];
+            const PROMPT_FORMAT_LABELS: Record<string, string> = { text: "Text", fill_blank: "Fill in Blank", audio: "Audio", image: "Image" };
+            const ANSWER_FORMAT_LABELS: Record<string, string> = { specific: "Specific", open: "Open", mcq: "Multiple Choice" };
+            const qDropdown = dropdownOpen[q.key] ?? null;
+            return (
+              <View key={q.key} style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? "#1a1a2e" : "#F8F9FF", marginBottom: 10 }}>
+                {/* Collapsed header */}
+                <TouchableOpacity
+                  onPress={() => setQuestionOpen((prev) => ({ ...prev, [q.key]: !isOpen }))}
+                  style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 }}
+                >
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>
+                      Question {i + 1}
+                    </Text>
+                    {q.prompt_text.trim() ? (
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.prompt_text}</Text>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {questions.length > 1 ? (
+                      <TouchableOpacity onPress={() => setQuestions((prev) => prev.filter((x) => x.key !== q.key))}>
+                        <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                      </TouchableOpacity>
+                    ) : null}
+                    <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
+                  </View>
+                </TouchableOpacity>
+
+                {isOpen ? (
+                  <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 12 }}>
+                    {/* Two format dropdowns side by side */}
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      {/* Prompt format */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Prompt format</Text>
+                        <TouchableOpacity
+                          onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "prompt" ? null : "prompt" }))}
+                          style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
+                        >
+                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{PROMPT_FORMAT_LABELS[q.prompt_format]}</Text>
+                          <Ionicons name={qDropdown === "prompt" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
+                        </TouchableOpacity>
+                        {qDropdown === "prompt" ? (
+                          <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
+                            {(["text", "fill_blank", "audio", "image"] as const).map((pf, idx) => (
+                              <TouchableOpacity
+                                key={pf}
+                                onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
+                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? theme.colors.primarySoft : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}
+                              >
+                                <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? theme.colors.primary : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                      {/* Answer format */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Answer format</Text>
+                        <TouchableOpacity
+                          onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "answer" ? null : "answer" }))}
+                          style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
+                        >
+                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{ANSWER_FORMAT_LABELS[q.answer_format]}</Text>
+                          <Ionicons name={qDropdown === "answer" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
+                        </TouchableOpacity>
+                        {qDropdown === "answer" ? (
+                          <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
+                            {(["specific", "open", "mcq"] as const).map((af, idx) => (
+                              <TouchableOpacity
+                                key={af}
+                                onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
+                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? theme.colors.primarySoft : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}
+                              >
+                                <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? theme.colors.primary : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+
+                    <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, required: !cur.required }))}>
+                      <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 12 }}>
+                        {q.required ? "Required" : "Optional"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Audio upload block — at top when prompt_format is audio */}
+                    {q.prompt_format === "audio" ? (
+                      <View style={{ gap: 8 }}>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 2 }}>Audio</Text>
+                        {q.audio_url.trim() ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                const isPlaying = !!playingAudio[q.key];
+                                if (isPlaying) {
+                                  await audioSoundRef.sound?.stopAsync();
+                                  audioSoundRef.sound = null;
+                                  setPlayingAudio((prev) => ({ ...prev, [q.key]: false }));
+                                } else {
+                                  const { sound } = await Audio.Sound.createAsync({ uri: q.audio_url });
+                                  audioSoundRef.sound = sound;
+                                  setPlayingAudio((prev) => ({ ...prev, [q.key]: true }));
+                                  await sound.playAsync();
+                                  sound.setOnPlaybackStatusUpdate((status) => {
+                                    if (status.isLoaded && status.didJustFinish) {
+                                      setPlayingAudio((prev) => ({ ...prev, [q.key]: false }));
+                                      audioSoundRef.sound = null;
+                                    }
+                                  });
+                                }
+                              }}
+                              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" }}
+                            >
+                              <Ionicons name={playingAudio[q.key] ? "stop" : "play"} size={16} color="#fff" />
+                            </TouchableOpacity>
+                            <Text style={{ flex: 1, fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.audio_url.split("/").pop()}</Text>
+                            <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, audio_url: "" }))}>
+                              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => pickQuestionAudio(i)} disabled={uploadingQuestionIndex === i} style={{ paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}>
+                            <Ionicons name="musical-notes-outline" size={20} color={theme.colors.textMuted} />
+                            <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textMuted, marginTop: 4 }}>{uploadingQuestionIndex === i ? "Uploading..." : "Upload audio"}</Text>
+                          </TouchableOpacity>
+                        )}
+                        <View>
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Transcript (optional)</Text>
+                          <TextInput value={q.audio_transcript} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, audio_transcript: t }))} placeholder="Accessibility / teacher reference" placeholderTextColor={placeholderColor} style={inputStyle} />
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {/* Image block — shown above question for image format, or optionally for mcq */}
+                    {(q.prompt_format === "image" || q.answer_format === "mcq") ? (
+                      <View style={{ gap: 8 }}>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 2 }}>{q.prompt_format === "image" ? "Image prompt" : "Optional image"}</Text>
+                        {q.image_url.trim() ? (
+                          <View>
+                            <Image source={{ uri: q.image_url.trim() }} style={{ width: "100%", height: 160, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }} resizeMode="cover" />
+                            <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, image_url: "" }))} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.danger, alignItems: "center", justifyContent: "center" }}>
+                              <Ionicons name="close" size={14} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <TouchableOpacity onPress={() => pickQuestionImage(i)} disabled={uploadingQuestionIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}>
+                            <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{uploadingQuestionIndex === i ? "Uploading..." : "Upload image"}</Text>
+                          </TouchableOpacity>
+                          {canUseAI ? (
+                            <TouchableOpacity onPress={() => handleGenerateImageForQuestion(i)} disabled={aiImageIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: aiImageIndex === i ? 0.6 : 1 }}>
+                              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>{aiImageIndex === i ? "AI..." : "AI image"}</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {/* Question prompt */}
+                    <View>
+                      <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Question</Text>
+                      <TextInput value={q.prompt_text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, prompt_text: t }))} placeholder="Write the question students will see…" placeholderTextColor={placeholderColor} multiline style={inputStyle} />
+                    </View>
+
+                    {q.answer_format === "specific" ? (
+                      <>
+                        <View>
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Correct answer</Text>
+                          <TextInput
+                            value={q.correct_text}
+                            onChangeText={(t) =>
+                              replaceQuestion(q.key, (cur) => ({
+                                ...cur,
+                                correct_text: t,
+                                fill_blank_character_count:
+                                  cur.prompt_format === "fill_blank" ? Math.max(1, t.trim().length || 1) : cur.fill_blank_character_count,
+                              }))
+                            }
+                            placeholder="Correct answer"
+                            placeholderTextColor={placeholderColor}
+                            style={inputStyle}
+                          />
+                        </View>
+                        <View>
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Accepted alternatives</Text>
+                          <TextInput value={q.accepted_texts.join(", ")} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, accepted_texts: t.split(",").map((x) => x.trim()).filter(Boolean) }))} placeholder="Comma separated" placeholderTextColor={placeholderColor} style={inputStyle} />
+                        </View>
+                      </>
+                    ) : null}
+                    {q.answer_format === "open" ? (
+                      <View>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Reference answer</Text>
+                        <TextInput value={q.teacher_reference_answer} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, teacher_reference_answer: t }))} placeholder="Teacher reference / rubric (optional)" placeholderTextColor={placeholderColor} multiline style={inputStyle} />
+                      </View>
+                    ) : null}
+                    {q.answer_format === "mcq" ? (
+                      <View style={{ gap: 8 }}>
+                        {q.mcq_options.map((opt, oi) => (
+                          <View key={opt.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_correct_option_id: opt.id }))}>
+                              <Ionicons name={q.mcq_correct_option_id === opt.id ? "radio-button-on" : "radio-button-off"} size={18} color={theme.colors.primary} />
+                            </TouchableOpacity>
+                            <TextInput value={opt.text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: cur.mcq_options.map((x, idx) => (idx === oi ? { ...x, text: t } : x)) }))} placeholder={`Option ${oi + 1}`} placeholderTextColor={placeholderColor} style={[inputStyle, { flex: 1 }]} />
+                            <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => { const next = cur.mcq_options.filter((_, idx) => idx !== oi); return { ...cur, mcq_options: next.length >= 2 ? next : [...next, { id: uid(), text: "" }] }; })}>
+                              <Text style={{ color: theme.colors.danger, fontSize: 12 }}>Del</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                        <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: [...cur.mcq_options, { id: uid(), text: "" }] }))}>
+                          <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>+ Add option</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                    {q.prompt_format === "fill_blank" ? (
+                      <TextInput
+                        value={String(Math.max(1, q.correct_text.trim().length || q.fill_blank_character_count || 1))}
+                        editable={false}
+                        placeholderTextColor={placeholderColor}
+                        style={[inputStyle, { width: 56, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, fontSize: 12, textAlign: "center" }]}
+                      />
+                    ) : null}
+                    {/* Advanced options */}
+                    <TouchableOpacity
+                      onPress={() => setAdvancedOpen((prev) => ({ ...prev, [q.key]: !isAdvOpen }))}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, marginTop: 2 }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Advanced options</Text>
+                      <Ionicons name={isAdvOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.primary} />
+                    </TouchableOpacity>
+                    {isAdvOpen ? (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {(
+                          [
+                            ["caseInsensitive", "Case insensitive"],
+                            ["ignorePunctuation", "Ignore punctuation"],
+                            ["trimSpaces", "Trim spaces"],
+                            ["accentInsensitive", "Accent optional"],
+                          ] as const
+                        ).map(([k, label]) => (
+                          <TouchableOpacity
+                            key={k}
+                            onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: !cur.specific_rules[k] } }))}
+                            style={{ flexBasis: "48%", flexGrow: 1, paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: q.specific_rules[k] ? theme.colors.success : theme.colors.border, backgroundColor: q.specific_rules[k] ? theme.colors.successSoft : "transparent", alignItems: "center" }}
+                          >
+                            <Text style={{ fontSize: 10, fontWeight: "700", color: q.specific_rules[k] ? theme.colors.success : theme.colors.textMuted }}>{q.specific_rules[k] ? "On " : ""}{label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                {(["text", "fill_blank", "audio", "image"] as const).map((pf) => (
-                  <TouchableOpacity
-                    key={pf}
-                    onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf }))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 6,
-                      borderWidth: 1,
-                      borderColor: q.prompt_format === pf ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: q.prompt_format === pf ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800" }}>{pf}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                {(["specific", "open", "mcq"] as const).map((af) => (
-                  <TouchableOpacity
-                    key={af}
-                    onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af }))}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 6,
-                      borderWidth: 1,
-                      borderColor: q.answer_format === af ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: q.answer_format === af ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800" }}>{af}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput
-                value={q.section}
-                onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, section: t }))}
-                placeholder="Section"
-                placeholderTextColor={theme.colors.textMuted}
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              <TextInput
-                value={String(q.points)}
-                onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, points: Number(t) || 0 }))}
-                keyboardType="numeric"
-                placeholder="Points"
-                placeholderTextColor={theme.colors.textMuted}
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, required: !cur.required }))} style={{ marginBottom: 8 }}>
-                <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>{q.required ? "Required" : "Optional"}</Text>
-              </TouchableOpacity>
-              <TextInput
-                value={q.prompt_text}
-                onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, prompt_text: t }))}
-                placeholder="Question / prompt"
-                placeholderTextColor={theme.colors.textMuted}
-                multiline
-                style={[inputStyle, { marginBottom: 8 }]}
-              />
-              {q.answer_format === "specific" ? (
-                <>
-                  <TextInput
-                    value={q.correct_text}
-                    onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, correct_text: t }))}
-                    placeholder="Correct answer"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[inputStyle, { marginBottom: 8 }]}
-                  />
-                  <TextInput
-                    value={q.accepted_texts.join(", ")}
-                    onChangeText={(t) =>
-                      replaceQuestion(q.key, (cur) => ({
-                        ...cur,
-                        accepted_texts: t
-                          .split(",")
-                          .map((x) => x.trim())
-                          .filter(Boolean),
-                      }))
-                    }
-                    placeholder="Accepted alternatives (comma separated)"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[inputStyle, { marginBottom: 8 }]}
-                  />
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-                    {(
-                      [
-                        ["caseInsensitive", "Case insensitive"],
-                        ["ignorePunctuation", "Ignore punctuation"],
-                        ["trimSpaces", "Trim spaces"],
-                        ["accentInsensitive", "Accent optional"],
-                      ] as const
-                    ).map(([k, label]) => (
-                      <TouchableOpacity
-                        key={k}
-                        onPress={() =>
-                          replaceQuestion(q.key, (cur) => ({
-                            ...cur,
-                            specific_rules: { ...cur.specific_rules, [k]: !cur.specific_rules[k] },
-                          }))
-                        }
-                        style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border }}
-                      >
-                        <Text style={{ fontSize: 11, fontWeight: "700" }}>
-                          {q.specific_rules[k] ? "✓ " : ""}{label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              ) : null}
-              {q.answer_format === "open" ? (
-                <TextInput
-                  value={q.teacher_reference_answer}
-                  onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, teacher_reference_answer: t }))}
-                  placeholder="Teacher reference answer / rubric"
-                  placeholderTextColor={theme.colors.textMuted}
-                  multiline
-                  style={[inputStyle, { marginBottom: 8 }]}
-                />
-              ) : null}
-              {q.answer_format === "mcq" ? (
-                <View style={{ gap: 8, marginBottom: 8 }}>
-                  {q.mcq_options.map((opt, oi) => (
-                    <View key={opt.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_correct_option_id: opt.id }))}>
-                        <Ionicons
-                          name={q.mcq_correct_option_id === opt.id ? "radio-button-on" : "radio-button-off"}
-                          size={18}
-                          color={theme.colors.primary}
-                        />
-                      </TouchableOpacity>
-                      <TextInput
-                        value={opt.text}
-                        onChangeText={(t) =>
-                          replaceQuestion(q.key, (cur) => ({
-                            ...cur,
-                            mcq_options: cur.mcq_options.map((x, idx) => (idx === oi ? { ...x, text: t } : x)),
-                          }))
-                        }
-                        placeholder={`Option ${oi + 1}`}
-                        placeholderTextColor={theme.colors.textMuted}
-                        style={[inputStyle, { flex: 1 }]}
-                      />
-                      <TouchableOpacity
-                        onPress={() =>
-                          replaceQuestion(q.key, (cur) => {
-                            const next = cur.mcq_options.filter((_, idx) => idx !== oi);
-                            return { ...cur, mcq_options: next.length >= 2 ? next : [...next, { id: uid(), text: "" }] };
-                          })
-                        }
-                      >
-                        <Text style={{ color: theme.colors.danger }}>Del</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                  <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: [...cur.mcq_options, { id: uid(), text: "" }] }))}>
-                    <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>+ Add option</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-              {q.prompt_format === "fill_blank" ? (
-                <TextInput
-                  value={String(q.fill_blank_character_count ?? 4)}
-                  onChangeText={(t) =>
-                    replaceQuestion(q.key, (cur) => ({ ...cur, fill_blank_character_count: Math.min(50, Math.max(1, Number(t) || 1)) }))
-                  }
-                  keyboardType="numeric"
-                  placeholder="Blank character count"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={[inputStyle, { marginBottom: 8 }]}
-                />
-              ) : null}
-              {(q.prompt_format === "image" || q.prompt_format === "audio" || q.answer_format === "mcq") ? (
-                <>
-                  <TextInput
-                    value={q.image_url}
-                    onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, image_url: t }))}
-                    placeholder="Image URL"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[inputStyle, { marginBottom: 8 }]}
-                  />
-                  {q.image_url.trim() ? (
-                    <Image
-                      source={{ uri: q.image_url.trim() }}
-                      style={{ width: "100%", height: 160, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}
-                      resizeMode="cover"
-                    />
-                  ) : null}
-                  <TouchableOpacity
-                    onPress={() => pickQuestionImage(i)}
-                    disabled={uploadingQuestionIndex === i}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8, alignSelf: "flex-start", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                      {uploadingQuestionIndex === i ? "Uploading..." : "Upload image"}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleGenerateImageForQuestion(i)}
-                    disabled={!canUseAI || aiImageIndex === i}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 6,
-                      borderWidth: 1,
-                      borderColor: theme.colors.primary,
-                      marginBottom: 8,
-                      opacity: !canUseAI || aiImageIndex === i ? 0.6 : 1,
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                      {aiImageIndex === i ? "Generating..." : "Generate image with AI"}
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : null}
-              {q.prompt_format === "audio" ? (
-                <>
-                  <TextInput
-                    value={q.audio_url}
-                    onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, audio_url: t }))}
-                    placeholder="Audio URL"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[inputStyle, { marginBottom: 8 }]}
-                  />
-                  <TouchableOpacity
-                    onPress={() => pickQuestionAudio(i)}
-                    disabled={uploadingQuestionIndex === i}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8, alignSelf: "flex-start", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                      {uploadingQuestionIndex === i ? "Uploading..." : "Upload audio"}
-                    </Text>
-                  </TouchableOpacity>
-                  <TextInput
-                    value={q.audio_transcript}
-                    onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, audio_transcript: t }))}
-                    placeholder="Audio transcript (optional)"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={inputStyle}
-                  />
-                </>
-              ) : null}
-            </View>
-          ))}
-        </GlassCard>
-
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Test settings</Text>
-          <TextInput
-            value={testSettings.time_limit_minutes == null ? "" : String(testSettings.time_limit_minutes)}
-            onChangeText={(t) =>
-              setTestSettings((prev) => ({ ...prev, time_limit_minutes: t.trim() ? Number(t) || null : null }))
-            }
-            keyboardType="numeric"
-            placeholder="Time limit minutes (optional)"
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { marginBottom: 8 }]}
-          />
-          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-            {(["1", "2", "unlimited"] as const).map((v) => (
-              <TouchableOpacity
-                key={v}
-                onPress={() =>
-                  setTestSettings((prev) => ({ ...prev, attempts_allowed: v === "unlimited" ? "unlimited" : (Number(v) as 1 | 2) }))
-                }
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: String(testSettings.attempts_allowed) === v ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: String(testSettings.attempts_allowed) === v ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800" }}>{v}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))} style={{ marginBottom: 6 }}>
-            <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
-              {testSettings.randomize_questions ? "✓" : "○"} Randomize question order
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_mcq_options: !prev.randomize_mcq_options }))}>
-            <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
-              {testSettings.randomize_mcq_options ? "✓" : "○"} Randomize MCQ options
-            </Text>
-          </TouchableOpacity>
-        </GlassCard>
-
-        <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16}>
-          <Text style={[theme.typography.caption, { textTransform: "uppercase", marginBottom: 8 }]}>Linked lessons</Text>
-          <TextInput
-            value={lessonSearch}
-            onChangeText={setLessonSearch}
-            placeholder="Search lessons…"
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { marginBottom: 10 }]}
-          />
-          {filteredLessons.slice(0, 40).map((l) => {
-            const on = linkedLessonIds.includes(l.id);
-            return (
-              <TouchableOpacity
-                key={l.id}
-                onPress={() =>
-                  setLinkedLessonIds((prev) => (on ? prev.filter((x) => x !== l.id) : [...prev, l.id]))
-                }
-                style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
-              >
-                <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={theme.colors.primary} />
-                <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
-                  {l.title}
-                </Text>
-              </TouchableOpacity>
             );
           })}
-        </GlassCard>
+        </View>
 
-        <AppButton label={isEdit ? "Save" : "Create"} onPress={handleSave} loading={saving} />
+        </View>
+
       </ScrollView>
 
       <Modal visible={teacherModalOpen} animationType="slide" transparent onRequestClose={() => setTeacherModalOpen(false)}>

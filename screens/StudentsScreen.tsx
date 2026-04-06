@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Alert,
+  Easing,
   ScrollView,
   Text,
   TextInput,
@@ -14,7 +16,8 @@ import { NavigationProp, useNavigation, useFocusEffect } from "@react-navigation
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GlassCard from "../components/GlassCard";
-import AppButton from "../components/AppButton";
+import IconTile from "../components/IconTile";
+import ScreenReveal from "../components/ScreenReveal";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import {
@@ -48,6 +51,52 @@ type StudentRow = {
 type SortKey = "name" | "last_active" | "created_at";
 type SortDir = "asc" | "desc";
 
+function GlowOrb({
+  size,
+  color,
+  top,
+  left,
+  right,
+  bottom,
+  translate,
+}: {
+  size: number;
+  color: string;
+  top?: number;
+  left?: number;
+  right?: number;
+  bottom?: number;
+  translate: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top,
+        left,
+        right,
+        bottom,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color,
+        opacity: 0.9,
+        transform: [
+          { translateY: translate },
+          {
+            translateX: translate.interpolate({
+              inputRange: [-12, 12],
+              outputRange: [8, -8],
+            }),
+          },
+          { scale: translate.interpolate({ inputRange: [-12, 12], outputRange: [0.96, 1.04] }) },
+        ],
+      }}
+    />
+  );
+}
+
 function formatShortDate(dateIso?: string | null) {
   if (!dateIso) return "Never";
   const d = new Date(dateIso);
@@ -59,6 +108,8 @@ export default function StudentsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootStudentsStackParams>>();
+  const heroGlowOne = useRef(new Animated.Value(-10)).current;
+  const heroGlowTwo = useRef(new Animated.Value(10)).current;
 
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<StudentRow[]>([]);
@@ -73,6 +124,27 @@ export default function StudentsScreen() {
 
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loopOne = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowOne, { toValue: 12, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(heroGlowOne, { toValue: -10, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    const loopTwo = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowTwo, { toValue: -12, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(heroGlowTwo, { toValue: 10, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    loopOne.start();
+    loopTwo.start();
+    return () => {
+      loopOne.stop();
+      loopTwo.stop();
+    };
+  }, [heroGlowOne, heroGlowTwo]);
 
   const loadStudents = useCallback(async () => {
     setLoading(true);
@@ -132,7 +204,6 @@ export default function StudentsScreen() {
     [students]
   );
   const totalRecordCount = students.length;
-  const deactivatedCount = totalRecordCount - activeCount;
   const isMaxed = !isUnlimited && activeCount >= studentLimit;
 
   const totals = useMemo(
@@ -252,11 +323,11 @@ export default function StudentsScreen() {
   const inputStyle = {
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: theme.colors.text,
-    backgroundColor: theme.colors.surfaceAlt,
+    backgroundColor: theme.colors.surfaceGlass,
   };
 
   if (loading && students.length === 0) {
@@ -308,22 +379,26 @@ export default function StudentsScreen() {
         </View>
         {isMaxed && !isAdmin ? (
           <View style={{ alignItems: "flex-end" }}>
-            <View style={{ opacity: 0.6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border }}>
+            <View style={{ opacity: 0.7, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
               <Text style={{ fontSize: 10, fontWeight: "800" }}>MAX</Text>
             </View>
           </View>
         ) : (
-          <TouchableOpacity
-            onPress={() => navigation.navigate("StudentForm")}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 12,
-              backgroundColor: theme.colors.primary,
-            }}
-          >
-            <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 12 }}>NEW</Text>
-          </TouchableOpacity>
+          <GlassCard style={{ borderRadius: 14 }} padding={0}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("StudentForm")}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 14,
+                backgroundColor: theme.colors.surfaceGlass,
+                borderWidth: 1,
+                borderColor: theme.colors.primary,
+              }}
+            >
+              <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 12 }}>NEW</Text>
+            </TouchableOpacity>
+          </GlassCard>
         )}
       </View>
 
@@ -336,21 +411,27 @@ export default function StudentsScreen() {
           paddingBottom: 40,
         }}
       >
-        <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={16}>
-          <Text style={[theme.typography.title, { fontSize: 22 }]}>Students directory</Text>
-          <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
-            {isAdmin
-              ? "Global student management for all teachers."
-              : `Managing ${activeCount} active students. Cap: ${isUnlimited ? "∞" : `${activeCount} / ${studentLimit}`}.`}
-          </Text>
+        <ScreenReveal delay={30}>
+        <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
+          <View style={{ position: "relative", overflow: "hidden" }}>
+            <GlowOrb size={150} color={theme.colors.primarySoft} top={-50} right={-18} translate={heroGlowOne} />
+            <GlowOrb size={110} color={theme.colors.successSoft} bottom={-30} left={-10} translate={heroGlowTwo} />
+            <Text style={[theme.typography.title, { fontSize: 22 }]}>Students directory</Text>
+            <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
+              {isAdmin
+                ? "Global student management for all teachers."
+                : `Managing ${activeCount} active students. Cap: ${isUnlimited ? "∞" : `${activeCount} / ${studentLimit}`}.`}
+            </Text>
+          </View>
         </GlassCard>
+        </ScreenReveal>
 
+        <ScreenReveal delay={90}>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
           {isAdmin ? (
             <>
               <KpiTile theme={theme} label="Total" value={String(totalRecordCount)} icon="people-outline" />
               <KpiTile theme={theme} label="Active" value={String(activeCount)} icon="checkmark-circle-outline" tone="success" />
-              <KpiTile theme={theme} label="Deactivated" value={String(deactivatedCount)} icon="person-remove-outline" tone="danger" />
             </>
           ) : (
             <>
@@ -367,9 +448,10 @@ export default function StudentsScreen() {
             </>
           )}
         </View>
+        </ScreenReveal>
 
         {!isAdmin && planName === "Free" ? (
-          <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14}>
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
             <Text style={theme.typography.bodyStrong}>You are on the Free plan</Text>
             <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
               Higher plans include more students and unlimited lessons.
@@ -383,7 +465,8 @@ export default function StudentsScreen() {
           </GlassCard>
         ) : null}
 
-        <GlassCard style={{ borderRadius: 16 }} padding={16}>
+        <ScreenReveal delay={150}>
+        <GlassCard style={{ borderRadius: 18 }} padding={16}>
           {isAdmin ? (
             <View style={{ marginBottom: 14 }}>
               <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase" }]}>Filter by teacher</Text>
@@ -396,7 +479,7 @@ export default function StudentsScreen() {
                     borderRadius: 999,
                     borderWidth: 1,
                     borderColor: teacherView === "mine" ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    backgroundColor: teacherView === "mine" ? theme.colors.primarySoft : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontWeight: "800", fontSize: 12 }}>My students</Text>
@@ -409,7 +492,7 @@ export default function StudentsScreen() {
                     borderRadius: 999,
                     borderWidth: 1,
                     borderColor: viewingOtherTeacher ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    backgroundColor: viewingOtherTeacher ? theme.colors.primarySoft : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontWeight: "800", fontSize: 12 }}>
@@ -453,10 +536,10 @@ export default function StudentsScreen() {
                     alignItems: "center",
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    borderRadius: 10,
+                    borderRadius: 12,
                     borderWidth: 1,
                     borderColor: active ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontSize: 11, fontWeight: "800" }}>{label}</Text>
@@ -475,8 +558,28 @@ export default function StudentsScreen() {
 
           {studentsForView.length === 0 ? (
             <View style={{ paddingVertical: 32, alignItems: "center" }}>
-              <Ionicons name="school-outline" size={48} color={theme.colors.textMuted} style={{ opacity: 0.25 }} />
-              <Text style={[theme.typography.body, { marginTop: 12, color: theme.colors.textMuted }]}>No students found.</Text>
+              <IconTile icon="school-outline" size={74} iconSize={30} radius={24} backgroundColor={theme.colors.primarySoft} borderColor={theme.colors.primary} color={theme.colors.primary} />
+              <Text style={[theme.typography.title, { marginTop: 16, fontSize: 20, lineHeight: 24 }]}>No students found</Text>
+              <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted, textAlign: "center", maxWidth: 280 }]}>Add your first student or clear the current search and teacher filters to bring results back into view.</Text>
+              {!isMaxed || isAdmin ? (
+                <View style={{ flexDirection: "row", marginTop: 16, gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate("StudentForm")}
+                    style={{ paddingHorizontal: 16, paddingVertical: 11, borderRadius: 14, backgroundColor: theme.colors.surfaceGlass, borderWidth: 1, borderColor: theme.colors.primary }}
+                  >
+                    <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 13 }}>Add student</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchTerm("");
+                      setTeacherView("mine");
+                    }}
+                    style={{ paddingHorizontal: 16, paddingVertical: 11, borderRadius: 14, backgroundColor: theme.colors.surfaceGlass, borderWidth: 1, borderColor: theme.colors.border }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 13 }}>Clear filters</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </View>
           ) : filteredSorted.length === 0 ? (
             <View style={{ paddingVertical: 24, alignItems: "center" }}>
@@ -488,155 +591,98 @@ export default function StudentsScreen() {
           ) : (
             filteredSorted.map((student) => {
               const isActive = student.is_active !== false;
-              const lessonsN = Array.isArray(student.assigned_lessons) ? student.assigned_lessons.length : 0;
-              const testsN = Array.isArray(student.assigned_tests) ? student.assigned_tests.length : 0;
               return (
                 <View
                   key={student.id}
                   style={{
-                    marginBottom: 12,
-                    borderRadius: 14,
+                    marginBottom: 10,
+                    borderRadius: 18,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surfaceAlt,
-                    padding: 14,
+                    backgroundColor: theme.colors.surfaceGlass,
+                    paddingHorizontal: 12,
+                    paddingVertical: 11,
                     opacity: isActive ? 1 : 0.72,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                    <View
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        backgroundColor: isActive ? "#2563EB" : theme.colors.border,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: 12,
-                      }}
-                    >
-                      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>
-                        {(student.name ?? "?").charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <TouchableOpacity onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}>
-                        <Text style={[theme.typography.title, { fontSize: 17 }]} numberOfLines={2}>
-                          {student.name}
-                        </Text>
-                      </TouchableOpacity>
-                      {!isActive ? (
-                        <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.danger, marginTop: 4 }}>INACTIVE</Text>
-                      ) : null}
-                      {isAdmin ? (
-                        <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
-                          Teacher: {(student.teacher as any)?.name ?? "—"}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                     <TouchableOpacity
-                      onPress={() => handleToggleStatus(student)}
-                      disabled={toggleLoadingId === student.id}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: isActive ? theme.colors.success : theme.colors.danger,
-                        backgroundColor: isActive ? theme.colors.successSoft : theme.colors.dangerSoft,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
+                      style={{ flex: 1, minWidth: 0 }}
+                      onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}
+                      activeOpacity={0.85}
                     >
-                      {toggleLoadingId === student.id ? (
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                      ) : (
-                        <Ionicons
-                          name={isActive ? "checkmark-circle" : "close-circle"}
-                          size={16}
-                          color={isActive ? theme.colors.success : theme.colors.danger}
-                        />
-                      )}
-                      <Text style={{ fontSize: 11, fontWeight: "800" }}>{isActive ? "Active" : "Inactive"}</Text>
+                      <Text style={{ fontSize: 14, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                        {student.name}
+                      </Text>
                     </TouchableOpacity>
+
                     <TouchableOpacity
                       onPress={() => copyCode(student.code)}
                       style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
                         borderRadius: 999,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surfaceGlass,
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
                         flexDirection: "row",
                         alignItems: "center",
-                        gap: 6,
+                        gap: 5,
                       }}
                     >
-                      <Text style={{ fontFamily: "monospace", fontWeight: "800", fontSize: 14, color: theme.colors.primary }}>
+                      <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 10, color: theme.colors.primary }}>
                         {student.code}
                       </Text>
-                      <Ionicons name="copy-outline" size={16} color={theme.colors.textMuted} />
+                      <Ionicons name="copy-outline" size={13} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}
+                      style={{
+                        minWidth: 54,
+                        borderRadius: 11,
+                        backgroundColor: theme.colors.surfaceGlass,
+                        borderWidth: 1,
+                        borderColor: theme.colors.primary,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDelete(student)}
+                      disabled={deleteLoadingId === student.id}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 11,
+                        borderWidth: 1,
+                        borderColor: theme.colors.danger,
+                        backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6",
+                        opacity: deleteLoadingId === student.id ? 0.6 : 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {deleteLoadingId === student.id ? (
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.danger }}>...</Text>
+                      ) : (
+                        <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                      )}
                     </TouchableOpacity>
                   </View>
 
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: "rgba(59,130,246,0.12)",
-                        borderWidth: 1,
-                        borderColor: "rgba(59,130,246,0.25)",
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: "#2563EB" }}>{lessonsN} lessons</Text>
-                    </View>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: "rgba(234,179,8,0.15)",
-                        borderWidth: 1,
-                        borderColor: "rgba(234,179,8,0.3)",
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: "#CA8A04" }}>{testsN} tests</Text>
-                    </View>
-                    <Text style={[theme.typography.caption, { alignSelf: "center", color: theme.colors.textMuted }]}>
-                      Last: {formatShortDate(student.last_active)}
-                    </Text>
-                  </View>
-
-                  <View style={{ flexDirection: "row", marginTop: 14, gap: 10 }}>
-                    <View style={{ flex: 1 }}>
-                      <AppButton
-                        label="Edit"
-                        onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}
-                        variant="secondary"
-                        fullWidth
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <AppButton
-                        label="Remove"
-                        onPress={() => handleDelete(student)}
-                        loading={deleteLoadingId === student.id}
-                        variant="secondary"
-                        fullWidth
-                      />
-                    </View>
-                  </View>
+                  <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
+                    Last active: {formatShortDate(student.last_active)}
+                  </Text>
                 </View>
               );
             })
           )}
         </GlassCard>
+        </ScreenReveal>
       </ScrollView>
 
       {isAdmin && teacherMenuOpen ? (
@@ -732,3 +778,6 @@ function KpiTile({
     </View>
   );
 }
+
+
+

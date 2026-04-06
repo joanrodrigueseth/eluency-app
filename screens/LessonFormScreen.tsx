@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Animated, Easing, Image, Keyboard, Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -10,6 +10,7 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import type { RootLessonsStackParams } from "./LessonsScreen";
@@ -421,6 +422,107 @@ function InfoTooltip({
   );
 }
 
+function FloatingGlow({
+  size,
+  color,
+  top,
+  left,
+  right,
+  bottom,
+  translate,
+}: {
+  size: number;
+  color: string;
+  top?: number;
+  left?: number;
+  right?: number;
+  bottom?: number;
+  translate: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top,
+        left,
+        right,
+        bottom,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color,
+        opacity: 0.85,
+        transform: [
+          { translateY: translate },
+          {
+            translateX: translate.interpolate({
+              inputRange: [-12, 12],
+              outputRange: [8, -8],
+            }),
+          },
+          { scale: translate.interpolate({ inputRange: [-12, 12], outputRange: [0.96, 1.04] }) },
+        ],
+      }}
+    />
+  );
+}
+
+function HeroChip({
+  icon,
+  label,
+  value,
+  tint,
+  textColor,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  tint: string;
+  textColor: string;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        borderRadius: 999,
+        backgroundColor: tint,
+      }}
+    >
+      <Ionicons name={icon} size={14} color={textColor} />
+      <Text style={{ fontSize: 11, fontWeight: "800", color: textColor, textTransform: "uppercase", letterSpacing: 0.7 }}>
+        {label}
+      </Text>
+      <Text style={{ fontSize: 12, fontWeight: "700", color: textColor }}>{value}</Text>
+    </View>
+  );
+}
+
+function FormSectionHeader({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+}) {
+  const theme = useAppTheme();
+  return (
+    <View style={{ marginBottom: 14 }}>
+      <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{eyebrow}</Text>
+      <Text style={[theme.typography.title, { marginTop: 6, fontSize: 24, lineHeight: 30 }]}>{title}</Text>
+      {subtitle ? (
+        <Text style={[theme.typography.caption, { marginTop: 5, color: theme.colors.textMuted }]}>{subtitle}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export default function LessonFormScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -440,8 +542,12 @@ export default function LessonFormScreen() {
   const [category, setCategory] = useState<string>("Vocabulary");
   const [languageLevel, setLanguageLevel] = useState("");
   const [language, setLanguage] = useState<string>("(Choose Language)");
+  const heroGlowOne = useRef(new Animated.Value(-10)).current;
+  const heroGlowTwo = useRef(new Animated.Value(10)).current;
   const [languagePair, setLanguagePair] = useState<string>("en-pt");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [coverPreviewUri, setCoverPreviewUri] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
   const [docUrl, setDocUrl] = useState("");
   const [docName, setDocName] = useState("");
   const [teacherId, setTeacherId] = useState("");
@@ -465,8 +571,52 @@ export default function LessonFormScreen() {
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes(planRaw.toLowerCase()), [isAdmin, planRaw]);
   const labelA = pairMeta.labelA;
   const labelB = pairMeta.labelB;
+  const vocabCount = useMemo(() => words.filter((w) => w.rowType === "vocab").length, [words]);
+  const specialRowCount = useMemo(() => words.filter((w) => w.rowType !== "vocab").length, [words]);
+  const heroDescription = description.trim() || "Build a richer lesson with stronger metadata, cleaner cards, and vocabulary that is easier to scan.";
 
   const [pendingLanguage, setPendingLanguage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loopOne = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowOne, {
+          toValue: 12,
+          duration: 3800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroGlowOne, {
+          toValue: -10,
+          duration: 3800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const loopTwo = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowTwo, {
+          toValue: -12,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroGlowTwo, {
+          toValue: 10,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loopOne.start();
+    loopTwo.start();
+    return () => {
+      loopOne.stop();
+      loopTwo.stop();
+    };
+  }, [heroGlowOne, heroGlowTwo]);
 
   const closeAllDropdowns = () => {
     setCategoryOpen(false);
@@ -487,6 +637,7 @@ export default function LessonFormScreen() {
     setLanguageLevel(data.language_level ?? "");
     setLanguage(data.language ?? "Portuguese (BR)");
     setCoverImageUrl(data.cover_image_url ?? "");
+    setCoverPreviewUri(data.cover_image_url ?? "");
     setTeacherId(data.created_by ?? "");
 
     const cfg = data.content_json && typeof data.content_json === "object" ? data.content_json : {};
@@ -597,12 +748,19 @@ export default function LessonFormScreen() {
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", allowsEditing: true, quality: 0.85 });
     if (res.canceled || !res.assets[0]) return;
     const a = res.assets[0];
+    setCoverPreviewUri(a.uri);
+    setCoverUploading(true);
     try {
       const ext = (a.fileName?.split(".").pop() || "jpg").toLowerCase();
-      const url = await uploadFile(a.uri, "lesson-covers", ext, a.mimeType || "image/jpeg", 2 * 1024 * 1024);
+      const safeExt = ext === "png" || ext === "webp" || ext === "gif" || ext === "jpg" || ext === "jpeg" ? ext : "jpg";
+      const url = await uploadFile(a.uri, "lesson-covers", safeExt, a.mimeType || "image/jpeg", 2 * 1024 * 1024);
       setCoverImageUrl(url);
+      if (!a.uri.startsWith("file:")) setCoverPreviewUri(url);
     } catch (e) {
+      setCoverPreviewUri(coverImageUrl);
       Alert.alert("Upload failed", e instanceof Error ? e.message : "Could not upload");
+    } finally {
+      setCoverUploading(false);
     }
   };
 
@@ -767,6 +925,7 @@ export default function LessonFormScreen() {
 
   const save = async () => {
     if (!title.trim()) return Alert.alert("Validation", "Title required.");
+    if (coverUploading) return Alert.alert("Upload in progress", "Please wait for the cover image to finish uploading.");
     const serializedWords = words
       .map((w) => ({
         rowType: w.rowType,
@@ -864,20 +1023,20 @@ export default function LessonFormScreen() {
     flex: 1,
     borderWidth: 1.5,
     borderColor: theme.colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: theme.colors.text,
     backgroundColor: theme.colors.surface,
     fontSize: 14,
-    minHeight: 44,
+    minHeight: 48,
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       {pendingLanguage ? (
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 24 }}>
-          <View style={{ backgroundColor: theme.colors.surface, borderRadius: 20, padding: 24, width: "100%", borderWidth: 1, borderColor: theme.colors.border }}>
+          <GlassCard style={{ width: "100%", borderRadius: 28 }}>
             <Text style={[theme.typography.title, { marginBottom: 8 }]}>Change language?</Text>
             <Text style={[theme.typography.body, { marginBottom: 16, color: theme.colors.textMuted }]}>
               Switching to <Text style={{ fontWeight: "800", color: theme.colors.text }}>{pendingLanguage}</Text> may affect conjugation and preposition rows.
@@ -891,42 +1050,89 @@ export default function LessonFormScreen() {
             <TouchableOpacity onPress={() => setPendingLanguage(null)} style={{ alignItems: "center", paddingVertical: 10 }}>
               <Text style={{ color: theme.colors.textMuted, fontWeight: "700" }}>Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </GlassCard>
         </View>
       ) : null}
 
-      <View style={{ paddingTop: Math.max(insets.top, 8), paddingBottom: 10, paddingHorizontal: 16, borderBottomWidth: 1.5, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", backgroundColor: theme.isDark ? theme.colors.background : "#FFF" }}>
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
-        </TouchableOpacity>
-        <Text style={[theme.typography.title, { flex: 1, textAlign: "center", fontSize: 17 }]}>{isEdit ? "Edit lesson" : "New lesson"}</Text>
-        <TouchableOpacity onPress={openWeb} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft }}>
-          <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web ↗</Text>
-        </TouchableOpacity>
+      <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
+        <GlassCard style={{ borderRadius: 26 }} padding={14}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginHorizontal: 14 }}>
+              <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Lesson editor" : "Lesson studio"}</Text>
+              <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit lesson" : "New lesson"}</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity onPress={openWeb} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  Keyboard.dismiss();
+                  save();
+                }}
+                disabled={saving}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
+              >
+                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </GlassCard>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-        <TouchableOpacity activeOpacity={1} onPress={closeAllDropdowns}>
-          <View>
-            <TouchableOpacity onPress={pickCover} activeOpacity={0.85}>
-              {coverImageUrl.trim() ? (
-                <Image source={{ uri: coverImageUrl.trim() }} style={{ width: "100%", height: 200, backgroundColor: theme.colors.surfaceAlt }} resizeMode="cover" />
-              ) : (
-                <View style={{ width: "100%", height: 160, backgroundColor: theme.colors.surfaceAlt, borderBottomWidth: 1.5, borderBottomColor: theme.colors.border, alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <Ionicons name="image-outline" size={36} color={theme.colors.textMuted} />
-                  <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 14 }}>Tap to add cover image</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <TouchableOpacity activeOpacity={1} onPress={() => { Keyboard.dismiss(); closeAllDropdowns(); }}>
+          <View style={{ paddingBottom: 18 }}>
+            <GlassCard style={{ marginBottom: 18, borderRadius: 30, overflow: "hidden" }} padding={0}>
+              <View style={{ position: "relative", overflow: "hidden" }}>
+                <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
+                <FloatingGlow size={130} color={theme.colors.violetSoft} bottom={-38} left={-15} translate={heroGlowTwo} />
+                <View style={{ padding: 22 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <TouchableOpacity onPress={pickCover} activeOpacity={0.9} style={{ width: 110, marginRight: 16 }}>
+                      {coverPreviewUri.trim() ? (
+                        <Image source={{ uri: coverPreviewUri.trim() }} style={{ width: 110, height: 132, borderRadius: 24, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                      ) : (
+                        <View style={{ width: 110, height: 132, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          <Ionicons name="image-outline" size={30} color={theme.colors.textMuted} />
+                          <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 11, textAlign: "center", paddingHorizontal: 10 }}>Add cover</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
 
-            <View style={{ padding: 16, gap: 12 }}>
-              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, overflow: "hidden" }}>
-                <TextInput value={title} onChangeText={setTitle} placeholder="Lesson title" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, fontSize: 20, fontWeight: "800", color: theme.colors.text }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Lesson studio</Text>
+                      <Text style={[theme.typography.title, { marginTop: 8, fontSize: 28, lineHeight: 32 }]}>
+                        {title.trim() || (isEdit ? "Untitled lesson" : "Start a beautiful new lesson")}
+                      </Text>
+                      <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted, fontSize: 15, lineHeight: 22 }]}>
+                        {heroDescription}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
+                    <HeroChip icon="language-outline" label="Language" value={language === "(Choose Language)" ? "Choose" : language} tint={theme.colors.primarySoft} textColor={theme.colors.primary} />
+                    <HeroChip icon="layers-outline" label="Pack" value={category || "Vocabulary"} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
+                    <HeroChip icon="ribbon-outline" label="Level" value={languageLevel || "Open"} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
+                    <HeroChip icon="albums-outline" label="Rows" value={`${words.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
+                  </View>
+                </View>
+              </View>
+            </GlassCard>
+
+            <View style={{ paddingTop: 0, gap: 16 }}>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <TextInput value={title} onChangeText={setTitle} placeholder="Lesson title" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 24, fontWeight: "800", color: theme.colors.text }} />
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-                <TextInput value={description} onChangeText={setDescription} multiline placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, color: theme.colors.text, minHeight: 60 }} />
+                <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
               </View>
 
-              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, overflow: "hidden" }}>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 }}>
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Settings</Text>
                 </View>
@@ -956,7 +1162,7 @@ export default function LessonFormScreen() {
                 </View>
               </View>
 
-              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, padding: 14 }}>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, padding: 18 }}>
                 <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Lesson Document (PDF)</Text>
                 {docUrl ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -967,18 +1173,18 @@ export default function LessonFormScreen() {
                     </TouchableOpacity>
                   </View>
                 ) : null}
-                <TouchableOpacity onPress={pickDoc} style={{ paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, alignItems: "center" }}>
+                <TouchableOpacity onPress={pickDoc} style={{ paddingVertical: 11, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, alignItems: "center", backgroundColor: theme.colors.primarySoft }}>
                   <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: "700" }}>Upload PDF</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, overflow: "hidden" }}>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary</Text>
                 </View>
 
                 {canUseAI ? (
-                  <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: 10 }}>
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: 12, backgroundColor: theme.colors.surfaceAlt }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase" }}>AI Subject</Text>
                       <InfoTooltip
@@ -1019,20 +1225,20 @@ export default function LessonFormScreen() {
                   </View>
                 ) : null}
 
-                <View style={{ paddingHorizontal: 14, paddingTop: 14, paddingBottom: 14, gap: 16 }}>
+                <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
                   {words.map((w, i) => {
                     const isOpen = !!advancedOpen[w.key];
                     return (
-                      <View key={w.key} style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? "#1a1a2e" : "#F8F9FF" }}>
+                      <View key={w.key} style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 22, overflow: "hidden", backgroundColor: theme.colors.surfaceAlt }}>
                         {languageConfig.rowTypes.length > 1 ? (
-                          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
                             {languageConfig.rowTypes.map((rt, idx) => (
                               <TouchableOpacity
                                 key={rt}
                                 onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...makeWord(languagePair, language, rt), key: x.key, image_url: x.image_url } : x)))}
                                 style={{
                                   flex: 1,
-                                  paddingVertical: 8,
+                                  paddingVertical: 11,
                                   alignItems: "center",
                                   borderRightWidth: idx === languageConfig.rowTypes.length - 1 ? 0 : 1,
                                   borderRightColor: theme.colors.border,
@@ -1045,11 +1251,18 @@ export default function LessonFormScreen() {
                           </View>
                         ) : null}
 
-                        <View style={{ padding: 12, gap: 8 }}>
+                        <View style={{ padding: 16, gap: 10 }}>
                           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                            <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textMuted }}>#{i + 1}</Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.surfaceGlass }}>
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>#{i + 1}</Text>
+                              </View>
+                              <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{w.rowType}</Text>
+                              </View>
+                            </View>
                             {words.length > 1 ? (
-                              <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
+                              <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}>
                                 <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
                               </TouchableOpacity>
                             ) : null}
@@ -1135,7 +1348,7 @@ export default function LessonFormScreen() {
                                   </View>
 
                                   {w.image_url.trim() ? (
-                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 140, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
                                   ) : null}
 
                                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -1206,6 +1419,7 @@ export default function LessonFormScreen() {
 
                           {w.rowType === "conjugation" ? (
                             <>
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Conjugation rows are best for verb practice and tense review.</Text>
                               <TextInput value={w.infinitive} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, infinitive: t } : x)))} placeholder="Verb / infinitive" placeholderTextColor={placeholderColor} style={pillStyle} />
                               {w.conjugations.map((c, ci) => (
                                 <View key={`${w.key}-c-${ci}`} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
@@ -1218,11 +1432,12 @@ export default function LessonFormScreen() {
 
                           {w.rowType === "preposition" ? (
                             <>
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Use template chips to preload common preposition and contraction sets.</Text>
                               <TextInput value={w.prepositionTitle} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositionTitle: t } : x)))} placeholder="Title" placeholderTextColor={placeholderColor} style={pillStyle} />
                               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                                 {(languageConfig.templates ?? []).map((tp) => (
                                   <TouchableOpacity key={tp.id} onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositionTemplateId: tp.id, prepositionTitle: tp.title, prepositionGroup: "Prepositions / Contractions", prepositions: tp.entries.map((e) => ({ ...e })) } : x)))}
-                                    style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: w.prepositionTemplateId === tp.id ? theme.colors.primary : theme.colors.border, backgroundColor: w.prepositionTemplateId === tp.id ? theme.colors.primarySoft : theme.colors.surface }}>
+                                    style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: w.prepositionTemplateId === tp.id ? theme.colors.primary : theme.colors.border, backgroundColor: w.prepositionTemplateId === tp.id ? theme.colors.primarySoft : theme.colors.surface }}>
                                     <Text style={{ fontSize: 11, fontWeight: "700", color: w.prepositionTemplateId === tp.id ? theme.colors.primary : theme.colors.textMuted }}>{tp.title}</Text>
                                   </TouchableOpacity>
                                 ))}
@@ -1247,9 +1462,17 @@ export default function LessonFormScreen() {
                     );
                   })}
 
-                  <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-                    <TouchableOpacity onPress={() => setWords((prev) => [...prev, makeWord(languagePair, language, "vocab")])} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.colors.primary }}>
-                      <Text style={{ fontSize: 12, fontWeight: "800", color: "#fff" }}>+ Add</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{`${vocabCount} vocab`}</Text>
+                      </View>
+                      <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{`${specialRowCount} extra`}</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={() => setWords((prev) => [...prev, makeWord(languagePair, language, "vocab")])} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: "#fff" }}>+ Add row</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1263,3 +1486,4 @@ export default function LessonFormScreen() {
     </View>
   );
 }
+

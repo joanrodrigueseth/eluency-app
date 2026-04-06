@@ -1,7 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Alert,
+  Easing,
+  Image,
   Linking,
   ScrollView,
   Text,
@@ -15,6 +18,8 @@ import { NavigationProp, useNavigation, useFocusEffect } from "@react-navigation
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GlassCard from "../components/GlassCard";
+import IconTile from "../components/IconTile";
+import ScreenReveal from "../components/ScreenReveal";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { normalizePlanUi } from "../lib/teacherRolePlanRules";
@@ -32,6 +37,7 @@ type TestRow = {
   id: string;
   name: string | null;
   type: string | null;
+  cover_image_url?: string | null;
   status?: string | null;
   description?: string | null;
   teacher_id?: string | null;
@@ -44,11 +50,65 @@ type SortDir = "asc" | "desc";
 
 const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const LINEN_BG = "#F7F2EA";
+const LINEN_CARD = "#FCFAF6";
+const AZULEJO_BLUE = "#2E7ABF";
+const AZULEJO_BLUE_SOFT = "#EAF3FB";
+const AZULEJO_BLUE_BORDER = "#B7D0E8";
+const GOLD_ACCENT = "#F3C64D";
+
+function GlowOrb({
+  size,
+  color,
+  top,
+  left,
+  right,
+  bottom,
+  translate,
+}: {
+  size: number;
+  color: string;
+  top?: number;
+  left?: number;
+  right?: number;
+  bottom?: number;
+  translate: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top,
+        left,
+        right,
+        bottom,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color,
+        opacity: 0.9,
+        transform: [
+          { translateY: translate },
+          {
+            translateX: translate.interpolate({
+              inputRange: [-12, 12],
+              outputRange: [8, -8],
+            }),
+          },
+          { scale: translate.interpolate({ inputRange: [-12, 12], outputRange: [0.96, 1.04] }) },
+        ],
+      }}
+    />
+  );
+}
 
 export default function TestsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootTestsStackParams>>();
+  const heroGlowOne = useRef(new Animated.Value(-10)).current;
+  const heroGlowTwo = useRef(new Animated.Value(10)).current;
 
   const [loading, setLoading] = useState(true);
   const [tests, setTests] = useState<TestRow[]>([]);
@@ -67,6 +127,27 @@ export default function TestsScreen() {
 
   const planUi = normalizePlanUi(planRaw);
   const isFreePlan = planUi === "Free";
+
+  useEffect(() => {
+    const loopOne = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowOne, { toValue: 12, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(heroGlowOne, { toValue: -10, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    const loopTwo = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowTwo, { toValue: -12, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(heroGlowTwo, { toValue: 10, duration: 4200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    );
+    loopOne.start();
+    loopTwo.start();
+    return () => {
+      loopOne.stop();
+      loopTwo.stop();
+    };
+  }, [heroGlowOne, heroGlowTwo]);
 
   const canManage = useMemo(() => {
     const r = (role ?? "").toLowerCase().trim();
@@ -145,8 +226,6 @@ export default function TestsScreen() {
     return tests.filter((t) => t.teacher_id === teacherView);
   }, [tests, isAdmin, teacherView, currentUserId]);
 
-  const publishedCount = useMemo(() => testsForView.filter((t) => t.status === "published").length, [testsForView]);
-  const draftCount = useMemo(() => testsForView.filter((t) => t.status === "draft").length, [testsForView]);
   const vocabCount = useMemo(
     () => testsForView.filter((t) => VOCAB_TYPES.includes(t.type ?? "")).length,
     [testsForView]
@@ -305,11 +384,11 @@ export default function TestsScreen() {
   const inputStyle = {
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: theme.colors.text,
-    backgroundColor: theme.colors.surfaceAlt,
+    backgroundColor: theme.colors.surfaceGlass,
   };
 
   if (loading && tests.length === 0) {
@@ -322,7 +401,7 @@ export default function TestsScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LINEN_BG }}>
       <View
         style={{
           position: "absolute",
@@ -330,7 +409,7 @@ export default function TestsScreen() {
           left: 0,
           right: 0,
           zIndex: 50,
-          backgroundColor: theme.isDark ? theme.colors.background : "#FFFFFF",
+            backgroundColor: theme.isDark ? theme.colors.background : LINEN_BG,
           borderBottomWidth: 1,
           borderBottomColor: theme.colors.border,
           paddingTop: Math.max(insets.top, 8),
@@ -360,17 +439,21 @@ export default function TestsScreen() {
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Tests</Text>
         </View>
         {canManage ? (
-          <TouchableOpacity
-            onPress={() => navigation.navigate("TestForm")}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 12,
-              backgroundColor: theme.colors.primary,
-            }}
-          >
-            <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 12 }}>NEW</Text>
-          </TouchableOpacity>
+          <GlassCard style={{ borderRadius: 14 }} padding={0}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("TestForm")}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 14,
+                backgroundColor: theme.isDark ? theme.colors.primarySoft : theme.colors.surfaceGlass,
+                borderWidth: 1,
+                borderColor: theme.colors.primary,
+              }}
+            >
+              <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 12 }}>NEW</Text>
+            </TouchableOpacity>
+          </GlassCard>
         ) : null}
       </View>
 
@@ -383,30 +466,36 @@ export default function TestsScreen() {
           paddingBottom: 40,
         }}
       >
-        <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={16}>
-          <Text style={[theme.typography.title, { fontSize: 22 }]}>Tests library</Text>
-          <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
-            Manage grammar assessments and vocabulary configurations.
-          </Text>
-          {canManage ? (
-            <Text style={[theme.typography.caption, { marginTop: 10, color: theme.colors.textMuted }]}>
-              Create and edit tests in the app (tap New or Edit). Use Web for image/audio and advanced question types.
-            </Text>
-          ) : null}
+        <ScreenReveal delay={30}>
+        <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
+          <View style={{ position: "relative", overflow: "hidden" }}>
+            <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} top={-50} right={-18} translate={heroGlowOne} />
+            <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <IconTile icon="clipboard-outline" size={38} iconSize={20} radius={10} backgroundColor={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} borderColor={theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
+            <View style={{ flex: 1 }}>
+              <Text style={[theme.typography.title, { fontSize: 18, color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE }]}>Tests Library</Text>
+              <Text style={[theme.typography.caption, { color: theme.isDark ? theme.colors.primary : "#4E6F8D", marginTop: 2 }]}>
+                Create and manage your tests.
+              </Text>
+            </View>
+          </View>
+          </View>
         </GlassCard>
+        </ScreenReveal>
 
+        <ScreenReveal delay={90}>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
           <StatCard
             theme={theme}
             label="Total"
             value={!isAdmin && isFreePlan ? `${testsForView.length}/5` : String(testsForView.length)}
             icon="grid-outline"
-            accent="#D45917"
+            accent={theme.isDark ? theme.colors.primary : AZULEJO_BLUE}
           />
-          <StatCard theme={theme} label="Live" value={String(publishedCount)} icon="checkmark-circle-outline" accent={theme.colors.success} />
-          <StatCard theme={theme} label="Drafts" value={String(draftCount)} icon="document-text-outline" accent="#FB7185" />
-          <StatCard theme={theme} label="Vocab" value={String(vocabCount)} icon="language-outline" accent="#D45917" />
+          <StatCard theme={theme} label="Vocab" value={String(vocabCount)} icon="language-outline" accent={GOLD_ACCENT} />
         </View>
+        </ScreenReveal>
 
         {!isAdmin && isFreePlan ? (
           <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14}>
@@ -414,12 +503,13 @@ export default function TestsScreen() {
               Free plan includes up to 5 tests. Upgrade for unlimited.
             </Text>
             <TouchableOpacity onPress={() => navigation.navigate("Subscription")} style={{ marginTop: 10 }}>
-              <Text style={{ color: theme.colors.primary, fontWeight: "800" }}>View plans →</Text>
+              <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "800" }}>View plans →</Text>
             </TouchableOpacity>
           </GlassCard>
         ) : null}
 
-        <GlassCard style={{ borderRadius: 16 }} padding={16}>
+        <ScreenReveal delay={150}>
+        <GlassCard style={{ borderRadius: 18 }} padding={16}>
           {isAdmin ? (
             <View style={{ marginBottom: 14 }}>
               <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase" }]}>Filter by teacher</Text>
@@ -431,8 +521,8 @@ export default function TestsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: teacherView === "mine" ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    borderColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
+                    backgroundColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontWeight: "800", fontSize: 12 }}>My tests</Text>
@@ -444,8 +534,8 @@ export default function TestsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: viewingOtherTeacher ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    borderColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
+                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontWeight: "800", fontSize: 12 }}>
@@ -490,10 +580,10 @@ export default function TestsScreen() {
                     alignItems: "center",
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    borderRadius: 10,
+                    borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: active ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                    borderColor: active ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER) : theme.colors.border,
+                    backgroundColor: active ? (theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT) : theme.colors.surfaceGlass,
                   }}
                 >
                   <Text style={{ fontSize: 11, fontWeight: "800" }}>{label}</Text>
@@ -512,21 +602,40 @@ export default function TestsScreen() {
 
           {testsForView.length === 0 ? (
             <View style={{ paddingVertical: 32, alignItems: "center" }}>
-              <Ionicons name="clipboard-outline" size={48} color={theme.colors.textMuted} style={{ opacity: 0.25 }} />
-              <Text style={[theme.typography.body, { marginTop: 12, color: theme.colors.textMuted }]}>No tests found.</Text>
+              <IconTile icon="clipboard-outline" size={74} iconSize={30} radius={24} backgroundColor={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} borderColor={theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
+              <Text style={[theme.typography.title, { marginTop: 16, fontSize: 20, lineHeight: 24 }]}>No tests found</Text>
+              <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted, textAlign: "center", maxWidth: 280 }]}>
+                Create your first test or adjust the current filters to bring matching results back into view.
+              </Text>
               {canManage ? (
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("TestForm")}
-                  style={{
-                    marginTop: 16,
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    backgroundColor: theme.colors.primary,
-                  }}
-                >
-                  <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 13 }}>Create test</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", marginTop: 16, gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate("TestForm")}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 11,
+                      borderRadius: 14,
+                      backgroundColor: theme.colors.surfaceGlass,
+                      borderWidth: 1,
+                      borderColor: theme.colors.primary,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 13 }}>Create test</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setSearchTerm("")}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 11,
+                      borderRadius: 14,
+                      backgroundColor: theme.colors.surfaceGlass,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 13 }}>Clear filters</Text>
+                  </TouchableOpacity>
+                </View>
               ) : null}
             </View>
           ) : filteredSorted.length === 0 ? (
@@ -537,144 +646,159 @@ export default function TestsScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            filteredSorted.map((test) => {
-              const cfg = test.config_json ?? {};
-              const wordCount = Array.isArray(cfg.words) ? cfg.words.length : 0;
-              const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
-              const busy = actionLoadingId === test.id;
+            <>
+              {filteredSorted.map((test) => {
+                const cfg = test.config_json ?? {};
+                const wordCount = Array.isArray(cfg.words) ? cfg.words.length : 0;
+                const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
+                const busy = actionLoadingId === test.id;
 
-              return (
-                <View
-                  key={test.id}
-                  style={{
-                    marginBottom: 12,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surfaceAlt,
-                    padding: 14,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                    <View
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 22,
-                        backgroundColor: "#A560E8",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: 12,
-                      }}
-                    >
-                      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>
-                        {(test.name ?? "?").charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })}>
-                        <Text style={[theme.typography.title, { fontSize: 17 }]} numberOfLines={2}>
-                          {test.name ?? "Untitled"}
-                        </Text>
-                      </TouchableOpacity>
-                      <Text style={[theme.typography.caption, { marginTop: 4, fontWeight: "800", textTransform: "uppercase" }]}>
-                        {test.type ?? "Vocabulary"} · {test.status === "published" ? "Live" : "Draft"}
-                      </Text>
-                      {isAdmin ? (
-                        <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
-                          {test.teachers?.name ?? "—"}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: "rgba(59,130,246,0.12)",
-                        borderWidth: 1,
-                        borderColor: "rgba(59,130,246,0.25)",
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "800", color: "#2563EB" }}>{wordCount} words</Text>
-                    </View>
-                    <View
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: theme.colors.primarySoft,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                        {questionCount} questions
-                      </Text>
-                    </View>
-                  </View>
-
-                  {canManage ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12, gap: 8, alignItems: "center" }}>
+                return (
+                  <View
+                    key={test.id}
+                    style={{
+                      marginBottom: 10,
+                      minHeight: 64,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surfaceGlass,
+                      paddingHorizontal: 12,
+                      paddingVertical: 11,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                       <TouchableOpacity
                         onPress={() => navigation.navigate("TestForm", { testId: test.id })}
-                        disabled={busy}
-                        style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 6,
-                          borderWidth: 1,
-                          borderColor: theme.colors.border,
-                          backgroundColor: theme.colors.surface,
-                          opacity: busy ? 0.5 : 1,
-                        }}
+                        activeOpacity={0.85}
                       >
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.text }}>Edit</Text>
+                        {test.cover_image_url?.trim() ? (
+                          <Image
+                            source={{ uri: test.cover_image_url.trim() }}
+                            style={{ width: 44, height: 44, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.border }}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 13,
+                              borderWidth: 1,
+                              borderColor: theme.colors.border,
+                              backgroundColor: theme.isDark ? "#2A2230" : "#F6EFE4",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Ionicons name="image-outline" size={18} color={theme.colors.primary} />
+                          </View>
+                        )}
                       </TouchableOpacity>
+
                       <TouchableOpacity
-                        onPress={() => duplicateTest(test)}
-                        disabled={busy}
+                        style={{ flex: 1, minWidth: 0 }}
+                        onPress={() => navigation.navigate("TestForm", { testId: test.id })}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                          {test.name ?? "Untitled"}
+                        </Text>
+                        <Text style={{ marginTop: 2, fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }} numberOfLines={1}>
+                          Test
+                        </Text>
+                      </TouchableOpacity>
+
+                      <View
                         style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 6,
+                          borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: theme.colors.border,
-                          backgroundColor: theme.colors.surface,
-                          opacity: busy ? 0.5 : 1,
+                          borderColor: theme.isDark ? "rgba(96,165,250,0.28)" : AZULEJO_BLUE_BORDER,
+                          backgroundColor: theme.isDark ? "rgba(59,130,246,0.16)" : AZULEJO_BLUE_SOFT,
+                          paddingHorizontal: 7,
+                          paddingVertical: 4,
                         }}
                       >
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.text }}>Copy</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => deleteTest(test)}
-                        disabled={busy}
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.isDark ? "#60A5FA" : AZULEJO_BLUE }}>{wordCount}W</Text>
+                      </View>
+
+                      <View
                         style={{
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 6,
+                          borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: theme.colors.danger,
-                          backgroundColor: theme.colors.surface,
-                          opacity: busy ? 0.5 : 1,
+                          borderColor: theme.isDark ? theme.colors.border : "#E6D39A",
+                          backgroundColor: theme.isDark ? theme.colors.primarySoft : "#FFF5DA",
+                          paddingHorizontal: 7,
+                          paddingVertical: 4,
                         }}
                       >
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.danger }}>Delete</Text>
-                      </TouchableOpacity>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
+                      </View>
+
+                      {canManage ? (
+                        <>
+                          <TouchableOpacity
+                            onPress={() => navigation.navigate("TestForm", { testId: test.id })}
+                            disabled={busy}
+                            style={{
+                              minWidth: 54,
+                              borderRadius: 11,
+                              backgroundColor: theme.isDark ? theme.colors.primarySoft : theme.colors.surfaceGlass,
+                              borderWidth: 1,
+                              borderColor: theme.colors.primary,
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              opacity: busy ? 0.6 : 1,
+                              alignItems: "center",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => deleteTest(test)}
+                            disabled={busy}
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 11,
+                              borderWidth: 1,
+                              borderColor: theme.colors.danger,
+                              backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6",
+                              opacity: busy ? 0.6 : 1,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {busy ? (
+                              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.danger }}>...</Text>
+                            ) : (
+                              <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                            )}
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <TouchableOpacity
+                          onPress={() => openWebEdit(test.id)}
+                          style={{
+                            borderRadius: 11,
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                              backgroundColor: theme.colors.surfaceGlass,
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
-                  ) : (
-                    <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ marginTop: 12 }}>
-                      <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>View on web →</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })
+                  </View>
+                );
+              })}
+            </>
           )}
         </GlassCard>
+        </ScreenReveal>
       </ScrollView>
 
       {isAdmin && teacherMenuOpen ? (
@@ -748,14 +872,14 @@ function StatCard({
         flexGrow: 1,
         minWidth: "42%",
         flexBasis: "42%",
-        borderRadius: 14,
+        borderRadius: 16,
         borderWidth: 1,
-        borderColor: theme.colors.border,
+        borderColor: theme.isDark ? theme.colors.border : `${accent}33`,
         padding: 14,
         flexDirection: "row",
         alignItems: "center",
         gap: 12,
-        backgroundColor: theme.colors.surfaceAlt,
+        backgroundColor: theme.isDark ? theme.colors.surfaceAlt : "#FFFFFF",
       }}
     >
       <View
@@ -763,7 +887,7 @@ function StatCard({
           width: 44,
           height: 44,
           borderRadius: 12,
-          backgroundColor: `${accent}22`,
+          backgroundColor: theme.isDark ? `${accent}22` : `${accent}18`,
           alignItems: "center",
           justifyContent: "center",
         }}
@@ -779,3 +903,8 @@ function StatCard({
     </View>
   );
 }
+
+
+
+
+
