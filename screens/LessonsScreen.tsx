@@ -1191,8 +1191,8 @@ export default function LessonsScreen() {
                     },
                   ]}
                 >
-                  Try adjusting your search or filters, or create a new lesson to
-                  start building your library.
+                  Try adjusting your search or filters, or create a new lesson
+                  (vocabulary, conjugations, and prepositions) to start building your library.
                 </Text>
 
                 {canManage ? (

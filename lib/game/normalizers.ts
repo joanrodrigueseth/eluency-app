@@ -1,4 +1,19 @@
+import Constants from "expo-constants";
+
 import type { GameWord, LessonGamePayload, TestGamePayload } from "../../types/study-game";
+
+const API_BASE = (Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com").replace(/\/$/, "");
+
+/**
+ * React Native Image requires an absolute http(s) URL. API may return /api/lesson-asset?... paths.
+ */
+function absolutePublicAssetUrl(url: string): string {
+  const t = url.trim();
+  if (!t) return t;
+  if (/^https?:\/\//i.test(t)) return t;
+  if (t.startsWith("/")) return `${API_BASE}${t}`;
+  return t;
+}
 
 function stableToken(input: string) {
   return input
@@ -18,27 +33,128 @@ function toImageUrl(input?: string): string | undefined {
   return trimmed;
 }
 
+/** Image URL ready for <Image source={{ uri }} /> in the app. */
+function gameWordImageUrl(raw?: string | null): string | undefined {
+  const u = toImageUrl(raw ?? undefined);
+  if (!u) return undefined;
+  return absolutePublicAssetUrl(u);
+}
+
 export function normalizeLessonsToWords(lessons: LessonGamePayload[]): GameWord[] {
   const out: GameWord[] = [];
+  const pair = (l: LessonGamePayload) => (typeof l.language_pair === "string" && l.language_pair.trim() ? l.language_pair.trim() : "en-pt");
+
   for (const lesson of lessons) {
+    const lessonLanguagePair = pair(lesson);
+    const lessonLanguage = lesson.language?.trim() || null;
     for (let i = 0; i < (lesson.words ?? []).length; i += 1) {
-      const w = (lesson.words ?? [])[i];
-      const pt = String(w.pt ?? "").trim();
-      const en = String(w.en ?? "").trim();
-      if (!pt && !en) continue;
+      const w = (lesson.words ?? [])[i] as Record<string, unknown>;
+      const rowType =
+        w.rowType === "conjugation" ? "conjugation" : w.rowType === "preposition" ? "preposition" : "vocab";
+
+      if (rowType === "conjugation") {
+        const infinitive = String(w.infinitive ?? "").trim();
+        const conjugations = Array.isArray(w.conjugations) ? w.conjugations : [];
+        for (let ci = 0; ci < conjugations.length; ci += 1) {
+          const c = conjugations[ci] as { pronoun?: string; form_a?: string; form_b?: string };
+          const pronoun = String(c.pronoun ?? "").trim();
+          const answer = String(c.form_a ?? c.form_b ?? "").trim();
+          if (!answer || !infinitive) continue;
+          const prompt = pronoun ? `${pronoun} · ${infinitive}` : infinitive;
+          const token = stableToken(`${infinitive}-${pronoun}-${answer}`) || `${i}-${ci}`;
+          out.push({
+            id: `lesson-${lesson.id}-conj-${token}`,
+            lessonId: lesson.id,
+            lessonName: lesson.name,
+            lessonLanguagePair,
+            lessonLanguage,
+            sourceType: "lesson",
+            pt: answer,
+            en: infinitive,
+            sp: prompt,
+            se: answer,
+            imageUrl: undefined,
+            audioUrl: w.audio_url != null ? (w.audio_url as string | null) : null,
+            promptFormat: "text",
+            answerFormat: "specific",
+            practiceKind: "conjugation",
+            conjugationPrompt: prompt,
+            conjugationAnswer: answer,
+          });
+        }
+        continue;
+      }
+
+      if (rowType === "preposition") {
+        const preps = Array.isArray(w.prepositions) ? w.prepositions : [];
+        for (let pi = 0; pi < preps.length; pi += 1) {
+          const p = preps[pi] as { left?: string; right?: string; answer?: string; note?: string };
+          const left = String(p.left ?? "").trim();
+          const right = String(p.right ?? "").trim();
+          const answer = String(p.answer ?? "").trim();
+          if (!answer || (!left && !right)) continue;
+          const prompt = left && right ? `${left} + ${right}` : left || right;
+          const token = stableToken(`${left}-${right}-${answer}`) || `${i}-${pi}`;
+          out.push({
+            id: `lesson-${lesson.id}-prep-${token}`,
+            lessonId: lesson.id,
+            lessonName: lesson.name,
+            lessonLanguagePair,
+            lessonLanguage,
+            sourceType: "lesson",
+            pt: answer,
+            en: prompt,
+            sp: prompt,
+            se: answer,
+            imageUrl: undefined,
+            audioUrl: null,
+            promptFormat: "text",
+            answerFormat: "specific",
+            practiceKind: "preposition",
+            prepositionPrompt: prompt,
+            prepositionAnswer: answer,
+          });
+        }
+        continue;
+      }
+
+      const legacy = lessonLanguagePair === "en-pt";
+      const termA = legacy ? String(w.pt ?? "").trim() : String(w.term_a ?? w.pt ?? "").trim();
+      const termB = legacy ? String(w.en ?? "").trim() : String(w.term_b ?? w.en ?? "").trim();
+      if (!termA && !termB) continue;
+      const rawCtxA = legacy
+        ? typeof w.sp === "string"
+          ? w.sp.trim()
+          : ""
+        : String(w.context_a ?? "").trim();
+      const rawCtxB = legacy
+        ? typeof w.se === "string"
+          ? w.se.trim()
+          : ""
+        : String(w.context_b ?? "").trim();
+      const sp = rawCtxA || termA;
+      const se = rawCtxB || termB;
       out.push({
-        id: `lesson-${lesson.id}-${stableToken(`${pt}-${en}`) || i}`,
+        id: `lesson-${lesson.id}-${stableToken(`${termA}-${termB}`) || i}`,
         lessonId: lesson.id,
         lessonName: lesson.name,
+        lessonLanguagePair,
+        lessonLanguage,
         sourceType: "lesson",
-        pt,
-        en,
-        sp: w.sp ?? pt,
-        se: w.se ?? en,
-        imageUrl: toImageUrl(w.image_url ?? w.img),
-        audioUrl: w.audio_url ?? null,
-        promptFormat: w.audio_url ? "audio" : toImageUrl(w.image_url ?? w.img) ? "image" : "text",
+        pt: termA,
+        en: termB,
+        sp,
+        se,
+        imageUrl: gameWordImageUrl((w.image_url as string | undefined) ?? (w.img as string | undefined)),
+        audioUrl: (w.audio_url as string | null | undefined) ?? null,
+        promptFormat:
+          w.audio_url != null && String(w.audio_url).trim()
+            ? "audio"
+            : toImageUrl((w.image_url as string | undefined) ?? (w.img as string | undefined))
+              ? "image"
+              : "text",
         answerFormat: "specific",
+        practiceKind: "vocab",
       });
     }
   }
@@ -61,7 +177,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
         pt,
         en,
         pt_alt: Array.isArray(q.pt_alt) ? q.pt_alt : [],
-        imageUrl: toImageUrl(q.img),
+        imageUrl: gameWordImageUrl(q.image_url ?? q.img),
         audioUrl: q.audio_url ?? null,
         promptFormat: q.prompt_format ?? "text",
         answerFormat: q.answer_format ?? (q.require_specific_answer === false ? "open" : "specific"),
@@ -83,7 +199,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
         en,
         sp: rv.sp ?? pt,
         se: rv.se ?? en,
-        imageUrl: toImageUrl(rv.img),
+        imageUrl: gameWordImageUrl(rv.image_url ?? rv.img),
         audioUrl: rv.audio_url ?? null,
         promptFormat: rv.audio_url ? "audio" : toImageUrl(rv.img) ? "image" : "text",
         answerFormat: "specific",
@@ -94,11 +210,15 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
 }
 
 export function getDisplayPrompt(word: GameWord, direction: "pt-en" | "en-pt") {
+  if (word.practiceKind === "conjugation" && word.conjugationPrompt) return word.conjugationPrompt;
+  if (word.practiceKind === "preposition" && word.prepositionPrompt) return word.prepositionPrompt;
   if (direction === "pt-en") return word.pt || word.sp || "";
   return word.en || word.se || "";
 }
 
 export function getExpectedAnswer(word: GameWord, direction: "pt-en" | "en-pt") {
+  if (word.practiceKind === "conjugation" && word.conjugationAnswer) return word.conjugationAnswer;
+  if (word.practiceKind === "preposition" && word.prepositionAnswer) return word.prepositionAnswer;
   if (direction === "pt-en") return word.en || "";
   return word.pt || "";
 }

@@ -27,15 +27,28 @@ export type LessonGamePayload = {
   description?: string;
   gradeRange?: string;
   cover_image_url?: string;
+  /** Teacher-selected lesson language from dashboard (e.g. German); refines display labels with language_pair. */
+  language?: string | null;
+  /** e.g. en-pt, en-es — controls display labels (pt column = lang A, en column = lang B). */
+  language_pair?: string;
   words: Array<{
     id?: string;
+    rowType?: "vocab" | "conjugation" | "preposition";
     pt?: string;
     en?: string;
+    term_a?: string;
+    term_b?: string;
+    context_a?: string;
+    context_b?: string;
     sp?: string;
     se?: string;
     img?: string;
     image_url?: string;
     audio_url?: string | null;
+    infinitive?: string;
+    conjugations?: Array<{ pronoun?: string; form_a?: string; form_b?: string }>;
+    prepositionTitle?: string;
+    prepositions?: Array<{ left?: string; right?: string; answer?: string; note?: string }>;
   }>;
   tags?: string[];
   document_url?: string;
@@ -49,6 +62,8 @@ export type TestGamePayload = {
   words: Array<{
     pt?: string;
     en?: string;
+    /** Signed or absolute URL when API includes it alongside img. */
+    image_url?: string;
     img?: string;
     answer_format?: "open" | "specific" | "mcq";
     require_specific_answer?: boolean;
@@ -65,6 +80,7 @@ export type TestGamePayload = {
     en?: string;
     sp?: string;
     se?: string;
+    image_url?: string;
     img?: string;
     audio_url?: string | null;
   }>;
@@ -74,6 +90,9 @@ export type GameWord = {
   id: string;
   lessonId?: string;
   lessonName?: string;
+  lessonLanguagePair?: string;
+  /** Mirrors lessons.language from API for direction labels (e.g. DE → EN). */
+  lessonLanguage?: string | null;
   testId?: string;
   testName?: string;
   sourceType: "lesson" | "test" | "review";
@@ -89,6 +108,12 @@ export type GameWord = {
   mcqOptions?: { id: string; text: string }[];
   mcqCorrectOptionId?: string | null;
   fillBlankCharacterCount?: number;
+  /** Vocabulary row vs expanded conjugation/preposition drill */
+  practiceKind?: "vocab" | "conjugation" | "preposition";
+  conjugationPrompt?: string;
+  conjugationAnswer?: string;
+  prepositionPrompt?: string;
+  prepositionAnswer?: string;
 };
 
 export type VerifyAnswerPayload = {
@@ -115,6 +140,10 @@ export type StudyRecord = {
   mode: StudySessionMode;
   lessonId?: string | null;
   lessonName?: string | null;
+  /** Lesson content_json.language_pair for history labels (e.g. en-es). */
+  languagePair?: string | null;
+  /** lessons.language when session was a single lesson (direction labels). */
+  lessonLanguage?: string | null;
   score: number;
   totalWords: number;
   percentage: number;

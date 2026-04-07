@@ -1453,7 +1453,7 @@ export default function DashboardScreen() {
           <SectionHeader eyebrow="Shortcuts" title="Quick actions" subtitle="Large, more visual entry points into your next task." />
           {isAdmin ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="New Lessons" icon="book" helper="Create lesson content" twoPerRow />
+              <QuickActionCard label="New Lessons" icon="book" helper="Vocab, conjugations, prepositions" twoPerRow />
               <QuickActionCard label="New Tests" icon="clipboard" helper="Build an assessment" twoPerRow />
               <QuickActionCard label="Add Students" icon="school" helper="Invite or assign learners" twoPerRow />
               <QuickActionCard label="Add Teacher" icon="people" helper="Grow your team" twoPerRow />
@@ -1461,7 +1461,7 @@ export default function DashboardScreen() {
             </View>
           ) : (
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="New Lesson" icon="book" helper="Create lesson content" twoPerRow />
+              <QuickActionCard label="New Lesson" icon="book" helper="Vocab, conjugations, prepositions" twoPerRow />
               <QuickActionCard label="New Test" icon="clipboard" helper="Build an assessment" twoPerRow />
               <QuickActionCard label="Add Student" icon="school" helper="Invite a learner" twoPerRow />
               {isAdmin || isPrincipal ? <QuickActionCard label="Add Teacher" icon="people" helper="Add a teacher" twoPerRow /> : null}

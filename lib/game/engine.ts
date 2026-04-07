@@ -64,6 +64,8 @@ export function createRecord(args: {
   direction: StudyDirection;
   lessonId?: string | null;
   lessonName?: string | null;
+  languagePair?: string | null;
+  lessonLanguage?: string | null;
   correct: number;
   total: number;
 }): StudyRecord {
@@ -76,6 +78,8 @@ export function createRecord(args: {
     direction: args.direction,
     lessonId: args.lessonId ?? null,
     lessonName: args.lessonName ?? null,
+    languagePair: args.languagePair ?? null,
+    lessonLanguage: args.lessonLanguage ?? null,
     score: args.correct,
     totalWords: args.total,
     percentage,

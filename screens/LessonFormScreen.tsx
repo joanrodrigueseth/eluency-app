@@ -72,7 +72,14 @@ const CATEGORY_OPTIONS = [
   "Other",
 ] as const;
 const LANGUAGE_LEVELS = ["", "A1", "A2", "B1", "B2", "C1", "C2"] as const;
-const LESSON_LANGUAGES = ["Choose Language","Portuguese (BR)", "Spanish", "English", "French", "German", "Italian", "Japanese", "Korean", "Chinese (Mandarin)", "Arabic"] as const;
+const LESSON_LANGUAGES = ["Choose Language", "Portuguese (BR)", "Spanish", "English", "French", "German", "Italian", "Japanese", "Korean", "Chinese (Mandarin)", "Arabic"] as const;
+const CHOOSE_LANGUAGE_PLACEHOLDER = LESSON_LANGUAGES[0];
+
+const ROW_TYPE_TAB_LABEL: Record<RowType, string> = {
+  vocab: "Vocab",
+  conjugation: "Conjugation",
+  preposition: "Preposition",
+};
 const LANGUAGE_PAIRS = [
   { code: "en-pt", labelA: "Portuguese", labelB: "English" },
   { code: "en-es", labelA: "English", labelB: "Spanish" },
@@ -557,7 +564,7 @@ export default function LessonFormScreen() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("Vocabulary");
   const [languageLevel, setLanguageLevel] = useState("");
-  const [language, setLanguage] = useState<string>("(Choose Language)");
+  const [language, setLanguage] = useState<string>(CHOOSE_LANGUAGE_PLACEHOLDER);
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
   const [languagePair, setLanguagePair] = useState<string>("en-pt");
@@ -583,12 +590,28 @@ export default function LessonFormScreen() {
   const [languageOpen, setLanguageOpen] = useState(false);
 
   const pairMeta = useMemo(() => LANGUAGE_PAIRS.find((p) => p.code === languagePair) ?? LANGUAGE_PAIRS[0], [languagePair]);
-  const languageConfig = useMemo(() => LANGUAGE_CONFIG[language] ?? LANGUAGE_CONFIG["Portuguese (BR)"], [language]);
+  /** Unset / placeholder → same defaults as web lesson editor (PT conjugation templates, prepositions). */
+  const effectiveLessonLanguage = useMemo(() => {
+    if (!language || language === CHOOSE_LANGUAGE_PLACEHOLDER || language === "(Choose Language)") {
+      return "Portuguese (BR)";
+    }
+    return language;
+  }, [language]);
+  const languageConfig = useMemo(
+    () => LANGUAGE_CONFIG[effectiveLessonLanguage] ?? LANGUAGE_CONFIG["Portuguese (BR)"],
+    [effectiveLessonLanguage]
+  );
+  const languageForSave = useMemo(
+    () => (!language || language === CHOOSE_LANGUAGE_PLACEHOLDER || language === "(Choose Language)" ? "Portuguese (BR)" : language),
+    [language]
+  );
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes(planRaw.toLowerCase()), [isAdmin, planRaw]);
   const labelA = pairMeta.labelA;
   const labelB = pairMeta.labelB;
   const vocabCount = useMemo(() => words.length, [words]);
   const specialRowCount = useMemo(() => words.filter((w) => w.rowType !== "vocab").length, [words]);
+  const conjugationRowCount = useMemo(() => words.filter((w) => w.rowType === "conjugation").length, [words]);
+  const prepositionRowCount = useMemo(() => words.filter((w) => w.rowType === "preposition").length, [words]);
   const heroDescription = description.trim() || "Build a richer lesson with stronger metadata, cleaner cards, and vocabulary that is easier to scan.";
 
   const [pendingLanguage, setPendingLanguage] = useState<string | null>(null);
@@ -651,12 +674,14 @@ export default function LessonFormScreen() {
     setDescription(data.description ?? "");
     setCategory(data.grade_range ?? "Vocabulary");
     setLanguageLevel(data.language_level ?? "");
-    setLanguage(data.language ?? "Portuguese (BR)");
+    const cfg = data.content_json && typeof data.content_json === "object" ? data.content_json : {};
+    setLanguage(
+      data.language ?? (cfg as { instructional_language?: string }).instructional_language ?? "Portuguese (BR)"
+    );
     setCoverImageUrl(data.cover_image_url ?? "");
     setCoverPreviewUri(data.cover_image_url ?? "");
     setTeacherId(data.created_by ?? "");
 
-    const cfg = data.content_json && typeof data.content_json === "object" ? data.content_json : {};
     setLanguagePair((cfg as any).language_pair ?? "en-pt");
     setDocUrl((cfg as any).document_url ?? "");
     setDocName((cfg as any).document_name ?? "");
@@ -823,7 +848,7 @@ export default function LessonFormScreen() {
       setWords((prev) =>
         prev.concat(
           extracted.map((w: any) => ({
-            ...makeWord(languagePair, language, "vocab"),
+            ...makeWord(languagePair, effectiveLessonLanguage, "vocab"),
             termA: String(w.pt ?? w.term_a ?? ""),
             termB: String(w.en ?? w.term_b ?? ""),
             contextA: String(w.sp ?? w.context_a ?? ""),
@@ -868,7 +893,7 @@ export default function LessonFormScreen() {
       const generated = Array.isArray(json.words) ? json.words : [];
       if (!generated.length) return Alert.alert("AI", "No words generated.");
       const rows = generated.map((w: any) => ({
-        ...makeWord(languagePair, language, "vocab"),
+        ...makeWord(languagePair, effectiveLessonLanguage, "vocab"),
         termA: String(w.pt ?? w.term_a ?? ""),
         termB: String(w.en ?? w.term_b ?? ""),
         contextA: String(w.sp ?? w.context_a ?? ""),
@@ -975,6 +1000,7 @@ export default function LessonFormScreen() {
       });
     const content_json = {
       language_pair: languagePair,
+      instructional_language: languageForSave,
       document_url: docUrl.trim() || null,
       document_name: docName.trim() || null,
       words: serializedWords,
@@ -989,7 +1015,7 @@ export default function LessonFormScreen() {
           description: description.trim() || null,
           grade_range: category,
           language_level: languageLevel || null,
-          language,
+          language: languageForSave,
           cover_image_url: coverImageUrl.trim() || null,
           content_json,
           status: "published",
@@ -1010,7 +1036,7 @@ export default function LessonFormScreen() {
           description: description.trim() || null,
           grade_range: category,
           language_level: languageLevel || null,
-          language,
+          language: languageForSave,
           cover_image_url: coverImageUrl.trim() || null,
           content_json,
           status: "published",
@@ -1215,7 +1241,10 @@ export default function LessonFormScreen() {
 
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary Builder</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 16 }}>
+                    Vocabulary rows, verb conjugations, and preposition drills — same structure as the web dashboard.
+                  </Text>
                 </View>
 
                 {canUseAI ? (
@@ -1270,7 +1299,7 @@ export default function LessonFormScreen() {
                             {languageConfig.rowTypes.map((rt, idx) => (
                               <TouchableOpacity
                                 key={rt}
-                                onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...makeWord(languagePair, language, rt), key: x.key, image_url: x.image_url } : x)))}
+                                onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...makeWord(languagePair, effectiveLessonLanguage, rt), key: x.key, image_url: x.image_url } : x)))}
                                 style={{
                                   flex: 1,
                                   paddingVertical: 11,
@@ -1280,7 +1309,7 @@ export default function LessonFormScreen() {
                                   backgroundColor: w.rowType === rt ? theme.colors.primarySoft : "transparent",
                                 }}
                               >
-                                <Text style={{ fontSize: 11, fontWeight: "800", color: w.rowType === rt ? theme.colors.primary : theme.colors.textMuted, textTransform: "capitalize" }}>{rt}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: w.rowType === rt ? theme.colors.primary : theme.colors.textMuted }}>{ROW_TYPE_TAB_LABEL[rt]}</Text>
                               </TouchableOpacity>
                             ))}
                           </View>
@@ -1293,7 +1322,7 @@ export default function LessonFormScreen() {
                                 <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>#{i + 1}</Text>
                               </View>
                               <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
-                                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{w.rowType}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{ROW_TYPE_TAB_LABEL[w.rowType]}</Text>
                               </View>
                             </View>
                             {words.length > 1 ? (
@@ -1454,8 +1483,36 @@ export default function LessonFormScreen() {
 
                           {w.rowType === "conjugation" ? (
                             <>
-                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Conjugation rows are best for verb practice and tense review.</Text>
-                              <TextInput value={w.infinitive} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, infinitive: t } : x)))} placeholder="Verb / infinitive" placeholderTextColor={placeholderColor} style={pillStyle} />
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                                Verb conjugation practice: set the infinitive and tense, then fill the correct form for each pronoun (saved as in the web lesson editor).
+                              </Text>
+                              <View style={{ flexDirection: "row", gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Verb / Infinitive</Text>
+                                  <TextInput
+                                    value={w.infinitive}
+                                    onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, infinitive: t } : x)))}
+                                    placeholder="falar / sein / être"
+                                    placeholderTextColor={placeholderColor}
+                                    style={pillStyle}
+                                  />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Tense</Text>
+                                  <MiniDropdown
+                                    value={w.tense}
+                                    options={TENSE_OPTIONS}
+                                    placeholder="Tense"
+                                    isOpen={openInlineDropdown === `${w.key}-conj-tense`}
+                                    onToggle={() => setOpenInlineDropdown(openInlineDropdown === `${w.key}-conj-tense` ? null : `${w.key}-conj-tense`)}
+                                    onSelect={(t) => {
+                                      setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, tense: t } : x)));
+                                      setOpenInlineDropdown(null);
+                                    }}
+                                  />
+                                </View>
+                              </View>
+                              <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.primary, letterSpacing: 0.6, textTransform: "uppercase", marginTop: 4 }}>Pronoun → form</Text>
                               {w.conjugations.map((c, ci) => (
                                 <View key={`${w.key}-c-${ci}`} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                                   <View style={{ width: 100, flexShrink: 0, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center" }}>
@@ -1502,10 +1559,13 @@ export default function LessonFormScreen() {
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                       <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{`${vocabCount} ${vocabCount === 1 ? "item" : "items"}`}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
+                          {`${vocabCount} ${vocabCount === 1 ? "row" : "rows"}`}
+                          {specialRowCount > 0 ? ` · ${conjugationRowCount} conj. · ${prepositionRowCount} prep.` : ""}
+                        </Text>
                       </View>
                     </View>
-                    <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => [...prev, makeWord(languagePair, language, "vocab")]); }} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
+                    <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => [...prev, makeWord(languagePair, effectiveLessonLanguage, "vocab")]); }} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
                       <Text style={{ fontSize: 12, fontWeight: "800", color: "#fff" }}>+ Add row</Text>
                     </TouchableOpacity>
                   </View>

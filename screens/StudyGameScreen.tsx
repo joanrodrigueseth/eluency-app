@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Platform,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -14,7 +15,7 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
@@ -45,6 +46,7 @@ import {
 } from "../lib/game/engine";
 import { flushProgressSync, hydrateProgress, saveLocalProgress, scheduleProgressSync } from "../lib/game/progress";
 import { getDisplayPrompt, getExpectedAnswer, normalizeLessonsToWords, normalizeTestsToWords } from "../lib/game/normalizers";
+import { getDisplayLanguageMeta, historyDirectionLabel, labelDirectionForward, labelDirectionReverse } from "../lib/game/languagePair";
 import type {
   GameWord,
   LessonGamePayload,
@@ -63,6 +65,35 @@ type RootStackParamList = {
 
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
 type RuntimeScreen = "dashboard" | "lesson-detail" | "test-detail" | "session" | "results";
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+type LessonWordRow = NonNullable<LessonGamePayload["words"]>[number];
+
+/** Raw lesson row terms for detail UI (en-pt uses pt/en; other pairs use term_a/term_b). */
+function lessonListRowTerms(word: LessonWordRow, pair: string | undefined) {
+  const legacy = !pair || pair === "en-pt";
+  const termA = legacy ? String(word.pt ?? "").trim() : String(word.term_a ?? word.pt ?? "").trim();
+  const termB = legacy ? String(word.en ?? "").trim() : String(word.term_b ?? word.en ?? "").trim();
+  const ctxA = legacy
+    ? typeof word.sp === "string"
+      ? word.sp.trim()
+      : ""
+    : String(word.context_a ?? "").trim();
+  const ctxB = legacy
+    ? typeof word.se === "string"
+      ? word.se.trim()
+      : ""
+    : String(word.context_b ?? "").trim();
+  return { termA, termB, ctxA, ctxB };
+}
 
 function normalizeText(value: string) {
   return value
@@ -115,6 +146,8 @@ function getAcceptedAnswers(target: string, current: GameWord | undefined, direc
 
 function isInfinitiveWord(current: GameWord | undefined, target: string, source: string, targetLang: "pt" | "en") {
   if (!target || typeof target !== "string") return false;
+  /** Conjugation/preposition prompts contain the infinitive in text; do not treat as EN infinitive gloss. */
+  if (current?.practiceKind === "conjugation" || current?.practiceKind === "preposition") return false;
   if (/^\s*to\s+/i.test(target.trim())) return true;
   if (targetLang !== "en") return false;
   return /(ar|er|ir)$/i.test(String(source || "").trim());
@@ -200,6 +233,9 @@ export default function StudyGameScreen() {
   const [needsRetype, setNeedsRetype] = useState(false);
   const [showInfinitiveNote, setShowInfinitiveNote] = useState(false);
   const [geminiCorrection, setGeminiCorrection] = useState("");
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [mcqChoiceTexts, setMcqChoiceTexts] = useState<string[]>([]);
+  const [mcqChoiceOptions, setMcqChoiceOptions] = useState<{ id: string; text: string }[] | null>(null);
   const [sessionContext, setSessionContext] = useState<{ id: string | null; name: string | null }>({ id: null, name: null });
   const [sessionPool, setSessionPool] = useState<GameWord[]>([]);
   const [savedResume, setSavedResume] = useState<{
@@ -215,9 +251,63 @@ export default function StudyGameScreen() {
   } | null>(null);
   const audioPlayerRef = useRef<any>(null);
   const audioTempFileRef = useRef<string | null>(null);
+  const initialCatalogLoadedRef = useRef(false);
+  const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
+
+  const refreshCatalog = useCallback(async () => {
+    if (!sessionId) return;
+    const session = await getStudentSession(sessionId);
+    const [lessons, tests] = await Promise.all([
+      getAssignedLessons(session.student.assigned_lessons ?? []),
+      getAssignedTests(session.student.assigned_tests ?? []),
+    ]);
+    setLessonsData(lessons);
+    setTestsData(tests);
+    setLessonsWords(normalizeLessonsToWords(lessons));
+    setTestsWords(normalizeTestsToWords(tests));
+    setStudentName(session.student.name);
+    setTeacherName(session.teacher?.name ?? "Teacher");
+    setSelectedLessonDetail((prev) => {
+      if (!prev) return prev;
+      const next = lessons.find((l) => l.id === prev.id);
+      return next ?? prev;
+    });
+    setSelectedTestDetail((prev) => {
+      if (!prev) return prev;
+      if (prev.type === "lesson") {
+        const lesson = lessons.find((l) => l.id === prev.lesson.id);
+        return lesson ? { type: "lesson", lesson } : prev;
+      }
+      const test = tests.find((t) => t.id === prev.test.id);
+      return test ? { type: "test", test } : prev;
+    });
+  }, [sessionId]);
+
+  refreshCatalogRef.current = refreshCatalog;
+
+  const onCatalogPullRefresh = useCallback(async () => {
+    setCatalogRefreshing(true);
+    try {
+      await refreshCatalog();
+    } catch (e) {
+      Alert.alert("Atualizar", e instanceof Error ? e.message : "Não foi possível atualizar lições e testes.");
+    } finally {
+      setCatalogRefreshing(false);
+    }
+  }, [refreshCatalog]);
 
   const allWords = useMemo(() => [...lessonsWords, ...testsWords], [lessonsWords, testsWords]);
   const current = activeWords[idx];
+  const activeLanguagePair = useMemo(() => {
+    if (current?.lessonLanguagePair) return current.lessonLanguagePair;
+    if (sessionContext.id) return lessonsData.find((l) => l.id === sessionContext.id)?.language_pair ?? "en-pt";
+    return lessonsData[0]?.language_pair ?? "en-pt";
+  }, [current?.lessonLanguagePair, lessonsData, sessionContext.id]);
+  const activeLessonLanguage = useMemo(() => {
+    if (current?.lessonLanguage != null && String(current.lessonLanguage).trim()) return String(current.lessonLanguage).trim();
+    if (sessionContext.id) return lessonsData.find((l) => l.id === sessionContext.id)?.language?.trim() || null;
+    return null;
+  }, [current?.lessonLanguage, lessonsData, sessionContext.id]);
   const isFillBlank = current?.promptFormat === "fill_blank";
   const prompt = useMemo(() => {
     if (!current) return "";
@@ -229,6 +319,26 @@ export default function StudyGameScreen() {
     if (isFillBlank) return current.pt || "";
     return getExpectedAnswer(current, direction);
   }, [current, direction, isFillBlank]);
+
+  /** Label to show after wrong MCQ / Skip — test MCQ correct answer lives in option text, not always pt/en. */
+  const feedbackExpected = useMemo(() => {
+    if (!current) return "";
+    if (isFillBlank) return current.pt || "";
+    if (
+      current.answerFormat === "mcq" &&
+      Array.isArray(current.mcqOptions) &&
+      current.mcqOptions.length > 0 &&
+      current.mcqCorrectOptionId != null &&
+      String(current.mcqCorrectOptionId).length > 0
+    ) {
+      const id = String(current.mcqCorrectOptionId);
+      const opt = current.mcqOptions.find((o) => String(o.id) === id);
+      const label = typeof opt?.text === "string" ? opt.text.trim() : "";
+      if (label) return label;
+    }
+    return getExpectedAnswer(current, direction);
+  }, [current, direction, isFillBlank]);
+
   const sourceLang = isFillBlank ? "en" : direction === "pt-en" ? "pt" : "en";
   const targetLang = isFillBlank ? "pt" : direction === "pt-en" ? "en" : "pt";
   const acceptedAnswers = useMemo(() => getAcceptedAnswers(expected, current, direction), [current, direction, expected]);
@@ -238,6 +348,19 @@ export default function StudyGameScreen() {
     if (!sentence) return null;
     return maskWord(sentence, expected);
   }, [current, direction, expected]);
+
+  const showMcq =
+    runtimeScreen === "session" &&
+    !!current &&
+    !isFillBlank &&
+    (sessionMode === "multiple-choice" ||
+      (current.answerFormat === "mcq" && (current.mcqOptions?.length ?? 0) >= 2));
+
+  /** Avoid a large empty icon area between prompt and choices in text-only multiple choice. */
+  const showSessionIllustration =
+    sessionMode === "image" ||
+    (sessionMode === "listening" && !!current?.imageUrl) ||
+    (sessionMode !== "listening" && (!!current?.imageUrl || !showMcq));
 
   const getWordStat = useCallback(
     (word: GameWord) => {
@@ -291,6 +414,21 @@ export default function StudyGameScreen() {
     }, 0);
   }, [progress?.practiceHistory, progress?.testHistory]);
   const levelInfo = getLevelInfo(totalXP);
+
+  const lessonDetailDisplayMeta = useMemo(
+    () =>
+      selectedLessonDetail
+        ? getDisplayLanguageMeta(selectedLessonDetail.language_pair, selectedLessonDetail.language)
+        : getDisplayLanguageMeta("en-pt", null),
+    [selectedLessonDetail]
+  );
+
+  const testDetailDisplayMeta = useMemo(() => {
+    if (!selectedTestDetail) return getDisplayLanguageMeta("en-pt", null);
+    if (selectedTestDetail.type === "lesson")
+      return getDisplayLanguageMeta(selectedTestDetail.lesson.language_pair, selectedTestDetail.lesson.language);
+    return getDisplayLanguageMeta("en-pt", null);
+  }, [selectedTestDetail]);
 
   const lessonsOverview = useMemo(() => {
     const map = new Map<
@@ -500,12 +638,15 @@ export default function StudyGameScreen() {
     if (!progress) return;
     const total = activeWords.length;
     const percentage = gradePercentage(correctCount, total);
+    const sessionLesson = sessionContext.id != null ? lessonsData.find((l) => l.id === sessionContext.id) : null;
     const rec = createRecord({
       type: sessionType,
       mode: sessionMode,
       direction,
       lessonId: sessionContext.id,
       lessonName: sessionContext.name,
+      languagePair: sessionLesson?.language_pair ?? null,
+      lessonLanguage: sessionLesson?.language?.trim() || null,
       correct: correctCount,
       total,
     });
@@ -536,7 +677,7 @@ export default function StudyGameScreen() {
     setSavedResume(null);
     AsyncStorage.removeItem("eluency_lesson_resume").catch(() => {});
     setRuntimeScreen("results");
-  }, [activeWords.length, callTeacherCompletionEdge, correctCount, direction, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType]);
+  }, [activeWords.length, callTeacherCompletionEdge, correctCount, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType]);
 
   const answerCurrent = useCallback(async () => {
     if (!current || !progress) return;
@@ -624,7 +765,7 @@ export default function StudyGameScreen() {
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
     } else {
       triggerHaptic("error").catch(() => {});
-      setFeedback({ state: "wrong", text: `Expected: ${expected}` });
+      setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
     }
 
@@ -650,6 +791,7 @@ export default function StudyGameScreen() {
     applyProgress,
     current,
     expected,
+    feedbackExpected,
     finishSession,
     idx,
     input,
@@ -659,6 +801,129 @@ export default function StudyGameScreen() {
     targetLang,
     triggerHaptic,
   ]);
+
+  useEffect(() => {
+    if (runtimeScreen !== "session" || !current) {
+      setMcqChoiceTexts([]);
+      setMcqChoiceOptions(null);
+      return;
+    }
+    const structuredMcq = current.answerFormat === "mcq" && Array.isArray(current.mcqOptions) && current.mcqOptions.length >= 2;
+    const modeMcq = sessionMode === "multiple-choice";
+    if (structuredMcq && current.mcqOptions) {
+      setMcqChoiceOptions(shuffle(current.mcqOptions.map((o) => ({ id: String(o.id), text: String(o.text ?? "") }))));
+      setMcqChoiceTexts([]);
+      return;
+    }
+    if (!modeMcq) {
+      setMcqChoiceTexts([]);
+      setMcqChoiceOptions(null);
+      return;
+    }
+    const correct = getExpectedAnswer(current, direction);
+    if (!String(correct).trim()) {
+      setMcqChoiceTexts([]);
+      setMcqChoiceOptions(null);
+      return;
+    }
+    const pool = sessionPool.length >= 2 ? sessionPool : activeWords;
+    const others = pool.filter((w) => w.id !== current.id);
+    const wrongCandidates = shuffle(others)
+      .map((w) => getExpectedAnswer(w, direction))
+      .filter((t) => t && normalizeText(String(t)) !== normalizeText(String(correct)));
+    const wrong: string[] = [];
+    for (const w of wrongCandidates) {
+      if (wrong.length >= 3) break;
+      if (!wrong.some((x) => normalizeText(x) === normalizeText(w))) wrong.push(w);
+    }
+    let choices = shuffle([correct, ...wrong].filter((x) => String(x ?? "").trim()));
+    if (choices.length < 2) {
+      const fillers = ["?", "—", "…"].filter((f) => !choices.some((c) => normalizeText(c) === normalizeText(f)));
+      for (const f of fillers) {
+        if (choices.length >= 4) break;
+        choices.push(f);
+      }
+      choices = shuffle(choices);
+    }
+    setMcqChoiceOptions(null);
+    setMcqChoiceTexts(choices);
+  }, [activeWords, current, direction, idx, runtimeScreen, sessionMode, sessionPool]);
+
+  const handleMcqPick = useCallback(
+    async (choiceText: string, optionId?: string) => {
+      if (!current || !progress || feedback) return;
+      const isOpen = current.answerFormat === "open";
+      if (isOpen) {
+        applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
+        triggerHaptic("success").catch(() => {});
+        setCorrectCount((v) => v + 1);
+        setFeedback({ state: "correct", text: "Answer submitted." });
+        setTimeout(() => {
+          setFeedback(null);
+          setInput("");
+          setShowHint(false);
+          setNeedsRetype(false);
+          setShowInfinitiveNote(false);
+          setGeminiCorrection("");
+          if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+          else setIdx((v) => v + 1);
+        }, 700);
+        return;
+      }
+
+      let isCorrect = false;
+      if (
+        optionId != null &&
+        current.mcqCorrectOptionId != null &&
+        String(current.mcqCorrectOptionId).length > 0
+      ) {
+        isCorrect = String(optionId) === String(current.mcqCorrectOptionId);
+      } else {
+        const accepted = getAcceptedAnswers(expected, current, direction);
+        isCorrect = accepted.some((a) => normalizeText(String(a)) === normalizeText(choiceText));
+      }
+
+      applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, isCorrect) });
+
+      if (isCorrect) {
+        setShowInfinitiveNote(isInfinitiveWord(current, expected, prompt, targetLang));
+        triggerHaptic("success").catch(() => {});
+        setCorrectCount((v) => v + 1);
+        setFeedback({ state: "correct", text: "Correct!" });
+      } else {
+        setShowInfinitiveNote(false);
+        triggerHaptic("error").catch(() => {});
+        setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
+        setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+      }
+
+      setInput("");
+      const delay = isCorrect ? 700 : 1500;
+      setTimeout(() => {
+        setFeedback(null);
+        setShowHint(false);
+        setNeedsRetype(false);
+        setShowInfinitiveNote(false);
+        setGeminiCorrection("");
+        if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+        else setIdx((v) => v + 1);
+      }, delay);
+    },
+    [
+      activeWords.length,
+      applyProgress,
+      current,
+      expected,
+      feedbackExpected,
+      feedback,
+      finishSession,
+      idx,
+      progress,
+      prompt,
+      targetLang,
+      triggerHaptic,
+    ]
+  );
 
   const playPromptAudio = useCallback(async () => {
     if (!current || !sessionId) return;
@@ -750,6 +1015,7 @@ export default function StudyGameScreen() {
         setLessonsWords(normalizeLessonsToWords(lessons));
         setTestsWords(normalizeTestsToWords(tests));
         setProgress(hydrated);
+        initialCatalogLoadedRef.current = true;
         const raw = await AsyncStorage.getItem("eluency_lesson_resume").catch(() => null);
         if (raw && mounted) {
           try { setSavedResume(JSON.parse(raw)); } catch {}
@@ -774,11 +1040,33 @@ export default function StudyGameScreen() {
 
   useEffect(() => {
     if (!sessionId || !progress) return;
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
     const sub = AppState.addEventListener("change", (s) => {
-      if (s !== "active") flushProgressSync(sessionId, progress).catch(() => {});
+      if (s !== "active") {
+        flushProgressSync(sessionId, progress).catch(() => {});
+        return;
+      }
+      if (resumeTimer) clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
+        refreshCatalogRef.current?.().catch(() => {});
+        resumeTimer = null;
+      }, 400);
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      if (resumeTimer) clearTimeout(resumeTimer);
+    };
   }, [progress, sessionId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!sessionId || !initialCatalogLoadedRef.current) return;
+      const t = setTimeout(() => {
+        refreshCatalogRef.current?.().catch(() => {});
+      }, 200);
+      return () => clearTimeout(t);
+    }, [sessionId])
+  );
 
   useEffect(() => {
     if (runtimeScreen !== "session" || !current) return;
@@ -886,7 +1174,10 @@ export default function StudyGameScreen() {
             </Text>
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}>
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
+            refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
+          >
             {activeTab === "home" ? (
               <>
                 <GlassCard style={{ borderRadius: 18, marginBottom: 14, backgroundColor: ui.card }} padding={14}>
@@ -1222,7 +1513,8 @@ export default function StudyGameScreen() {
                           <View style={{ flex: 1, marginRight: 10 }}>
                             <Text style={{ fontWeight: "600", color: "#222" }} numberOfLines={1}>{record.lessonName || "Lesson test"}</Text>
                             <Text style={{ color: "#7A7A7A", fontSize: 12, marginTop: 2 }}>
-                              {record.date ? new Date(record.date).toLocaleDateString() : ""} • {record.direction === "pt-en" ? "BR → EN" : "EN → BR"}
+                              {record.date ? new Date(record.date).toLocaleDateString() : ""} •{" "}
+                              {historyDirectionLabel(record.direction, record.languagePair, record.lessonLanguage)}
                             </Text>
                           </View>
                           <View
@@ -1380,7 +1672,10 @@ export default function StudyGameScreen() {
             <Text style={{ fontWeight: "800", fontSize: 18, color: ui.text }}>Lesson</Text>
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}>
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
+            refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
+          >
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedLessonDetail.cover_image_url ? (
@@ -1461,7 +1756,9 @@ export default function StudyGameScreen() {
                   }
                   style={{ flex: 1, borderRadius: 10, backgroundColor: ui.primary, paddingVertical: 10, alignItems: "center" }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>BR → EN</Text>
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+                    {labelDirectionForward(selectedLessonDetail.language_pair, selectedLessonDetail.language)}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() =>
@@ -1472,35 +1769,79 @@ export default function StudyGameScreen() {
                   }
                   style={{ flex: 1, borderRadius: 10, borderWidth: 1.5, borderColor: ui.primary, backgroundColor: ui.card, paddingVertical: 10, alignItems: "center" }}
                 >
-                  <Text style={{ color: ui.primary, fontWeight: "700", fontSize: 14 }}>EN → BR</Text>
+                  <Text style={{ color: ui.primary, fontWeight: "700", fontSize: 14 }}>
+                    {labelDirectionReverse(selectedLessonDetail.language_pair, selectedLessonDetail.language)}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </GlassCard>
 
-            <Text style={{ color: ui.muted, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>VOCABULARY ({selectedLessonDetail.words.length})</Text>
-            {selectedLessonDetail.words.map((word, index) => (
-              <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  {(word.image_url || word.img) ? (
-                    <Image source={{ uri: word.image_url || word.img || "" }} style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }} resizeMode="cover" />
-                  ) : (
-                    <View style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ fontSize: 20 }}>📘</Text>
+            <Text style={{ color: ui.muted, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>LESSON CONTENT ({selectedLessonDetail.words.length})</Text>
+            {selectedLessonDetail.words.map((word, index) => {
+              if (word.rowType === "conjugation") {
+                return (
+                  <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
+                    <Text style={{ color: ui.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.6, marginBottom: 6 }}>CONJUGATION</Text>
+                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 18 }}>{word.infinitive?.trim() || "—"}</Text>
+                    {(word.conjugations ?? []).map((c, ci) => (
+                      <View key={`conj-${selectedLessonDetail.id}-${index}-${ci}`} style={{ flexDirection: "row", marginTop: 10, gap: 10, alignItems: "flex-start" }}>
+                        <Text style={{ color: ui.muted, fontSize: 13, fontWeight: "700", width: 118 }}>{c.pronoun || "—"}</Text>
+                        <Text style={{ color: ui.text, fontSize: 15, flex: 1 }}>{(c.form_a || c.form_b || "").trim() || "—"}</Text>
+                      </View>
+                    ))}
+                  </GlassCard>
+                );
+              }
+              if (word.rowType === "preposition") {
+                return (
+                  <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
+                    <Text style={{ color: ui.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.6, marginBottom: 6 }}>PREPOSITION</Text>
+                    <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, marginBottom: 8 }}>{word.prepositionTitle?.trim() || "—"}</Text>
+                    {(word.prepositions ?? []).map((p, pi) => (
+                      <Text key={`prep-${selectedLessonDetail.id}-${index}-${pi}`} style={{ color: ui.text, fontSize: 14, marginTop: 4 }}>
+                        {String(p.left ?? "").trim()} + {String(p.right ?? "").trim()} → {String(p.answer ?? "").trim()}
+                      </Text>
+                    ))}
+                  </GlassCard>
+                );
+              }
+              const row = lessonListRowTerms(word, selectedLessonDetail.language_pair);
+              return (
+                <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {(word.image_url || word.img) ? (
+                      <Image source={{ uri: word.image_url || word.img || "" }} style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                    ) : (
+                      <View style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ fontSize: 20 }}>📘</Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={{ color: ui.text, fontWeight: "800", fontSize: 20 }}>
+                        {lessonDetailDisplayMeta.shortA}  {row.termA || "-"}
+                      </Text>
+                      <Text style={{ color: ui.muted, fontSize: 18, marginTop: 2 }}>
+                        {lessonDetailDisplayMeta.shortB}  {row.termB || "-"}
+                      </Text>
                     </View>
-                  )}
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 20 }}>BR  {word.pt || "-"}</Text>
-                    <Text style={{ color: ui.muted, fontSize: 18, marginTop: 2 }}>US  {word.en || "-"}</Text>
                   </View>
-                </View>
-                {(word.sp || word.se) ? (
-                  <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10 }}>
-                    {word.sp ? <Text style={{ color: ui.text, fontSize: 14, marginBottom: 4 }}>BR  {word.sp}</Text> : null}
-                    {word.se ? <Text style={{ color: ui.muted, fontSize: 14 }}>US  {word.se}</Text> : null}
-                  </View>
-                ) : null}
-              </GlassCard>
-            ))}
+                  {(row.ctxA || row.ctxB) ? (
+                    <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10 }}>
+                      {row.ctxA ? (
+                        <Text style={{ color: ui.text, fontSize: 14, marginBottom: 4 }}>
+                          {lessonDetailDisplayMeta.shortA}  {row.ctxA}
+                        </Text>
+                      ) : null}
+                      {row.ctxB ? (
+                        <Text style={{ color: ui.muted, fontSize: 14 }}>
+                          {lessonDetailDisplayMeta.shortB}  {row.ctxB}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </GlassCard>
+              );
+            })}
           </ScrollView>
         </>
       ) : null}
@@ -1543,7 +1884,10 @@ export default function StudyGameScreen() {
             <Text style={{ fontWeight: "800", fontSize: 18, color: ui.text }}>Test</Text>
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}>
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
+            refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
+          >
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedTestDetail.type === "test" && selectedTestDetail.test.cover_image_url ? (
@@ -1613,19 +1957,31 @@ export default function StudyGameScreen() {
                       <Text style={{ fontSize: 20 }}>📘</Text>
                     </View>
                   )}
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 20 }}>BR  {word.pt || "-"}</Text>
-                    <Text style={{ color: ui.muted, fontSize: 18, marginTop: 2 }}>US  {word.en || "-"}</Text>
-                  </View>
-                </View>
-                {(word.sp || word.se) ? (
-                  <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10 }}>
-                    {word.sp ? <Text style={{ color: ui.text, fontSize: 14, marginBottom: 4 }}>BR  {word.sp}</Text> : null}
-                    {word.se ? <Text style={{ color: ui.muted, fontSize: 14 }}>US  {word.se}</Text> : null}
-                  </View>
-                ) : null}
-              </GlassCard>
-            ))}
+                          <View style={{ flex: 1, marginLeft: 10 }}>
+                            <Text style={{ color: ui.text, fontWeight: "800", fontSize: 20 }}>
+                              {testDetailDisplayMeta.shortA}  {word.pt || "-"}
+                            </Text>
+                            <Text style={{ color: ui.muted, fontSize: 18, marginTop: 2 }}>
+                              {testDetailDisplayMeta.shortB}  {word.en || "-"}
+                            </Text>
+                          </View>
+                        </View>
+                        {(word.sp || word.se) ? (
+                          <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10 }}>
+                            {word.sp ? (
+                              <Text style={{ color: ui.text, fontSize: 14, marginBottom: 4 }}>
+                                {testDetailDisplayMeta.shortA}  {word.sp}
+                              </Text>
+                            ) : null}
+                            {word.se ? (
+                              <Text style={{ color: ui.muted, fontSize: 14 }}>
+                                {testDetailDisplayMeta.shortB}  {word.se}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </GlassCard>
+                    ))}
           </ScrollView>
         </>
       ) : null}
@@ -1712,17 +2068,38 @@ export default function StudyGameScreen() {
                     </Text>
                   </View>
                   <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
-                    {sessionMode === "listening" ? "LISTEN" : sessionMode === "image" ? "LOOK" : isFillBlank ? "FILL BLANK" : "TRANSLATE"}
+                    {sessionMode === "listening"
+                      ? "LISTEN"
+                      : sessionMode === "image"
+                        ? "LOOK"
+                        : isFillBlank
+                          ? "FILL BLANK"
+                          : showMcq
+                            ? "MULTIPLE CHOICE"
+                            : "TRANSLATE"}
                   </Text>
                 </View>
+                <Text
+                  style={{
+                    color: ui.muted,
+                    fontSize: 11,
+                    fontWeight: "800",
+                    textAlign: "center",
+                    marginBottom: 10,
+                  }}
+                >
+                  {direction === "pt-en"
+                    ? labelDirectionForward(activeLanguagePair, activeLessonLanguage)
+                    : labelDirectionReverse(activeLanguagePair, activeLessonLanguage)}
+                </Text>
 
-                {(sessionMode !== "listening" || current.imageUrl) ? (
+                {(sessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
                   <View style={{ alignItems: "center", marginBottom: 10 }}>
                     <View
                       style={{
-                        width: sessionMode === "image" ? 220 : 150,
-                        height: sessionMode === "image" ? 220 : 150,
-                        borderRadius: sessionMode === "image" ? 28 : 22,
+                        width: sessionMode === "image" || !!current.imageUrl ? 220 : 150,
+                        height: sessionMode === "image" || !!current.imageUrl ? 220 : 150,
+                        borderRadius: sessionMode === "image" || !!current.imageUrl ? 28 : 22,
                         backgroundColor: ui.borderSoft,
                         alignItems: "center",
                         justifyContent: "center",
@@ -1732,7 +2109,9 @@ export default function StudyGameScreen() {
                       {current.imageUrl ? (
                         <Image source={{ uri: current.imageUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                       ) : (
-                        <Text style={{ fontSize: sessionMode === "image" ? 60 : 48 }}>{current.sourceType === "test" ? "📝" : "📚"}</Text>
+                        <Text style={{ fontSize: sessionMode === "image" || !!current.imageUrl ? 60 : 48 }}>
+                          {current.sourceType === "test" ? "📝" : "📚"}
+                        </Text>
                       )}
                     </View>
                   </View>
@@ -1776,6 +2155,75 @@ export default function StudyGameScreen() {
                   </View>
                 ) : null}
 
+                {/* Same flow as typing/listening: prompt (+ hint) first, then answer area — MCQ options stay high in the card. */}
+                {showMcq ? (
+                  <View style={{ gap: 8, marginTop: sessionType === "test" ? 12 : showHint && sentenceHint ? 12 : 10 }}>
+                    {mcqChoiceOptions && mcqChoiceOptions.length >= 2
+                      ? mcqChoiceOptions.map((opt) => (
+                          <TouchableOpacity
+                            key={opt.id}
+                            onPress={() => handleMcqPick(opt.text, opt.id)}
+                            disabled={!!feedback}
+                            activeOpacity={0.85}
+                            style={{
+                              borderRadius: 12,
+                              borderWidth: 1,
+                              borderColor: ui.border,
+                              backgroundColor: ui.card,
+                              paddingVertical: 14,
+                              paddingHorizontal: 14,
+                            }}
+                          >
+                            <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: "center" }}>{opt.text}</Text>
+                          </TouchableOpacity>
+                        ))
+                      : mcqChoiceTexts.length >= 2
+                        ? mcqChoiceTexts.map((choice, ci) => (
+                            <TouchableOpacity
+                              key={`${choice}-${ci}`}
+                              onPress={() => handleMcqPick(choice)}
+                              disabled={!!feedback}
+                              activeOpacity={0.85}
+                              style={{
+                                borderRadius: 12,
+                                borderWidth: 1,
+                                borderColor: ui.border,
+                                backgroundColor: ui.card,
+                                paddingVertical: 14,
+                                paddingHorizontal: 14,
+                              }}
+                            >
+                              <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: "center" }}>{choice}</Text>
+                            </TouchableOpacity>
+                          ))
+                        : (
+                          <Text style={{ color: ui.muted, textAlign: "center", fontSize: 14 }}>Preparing choices…</Text>
+                        )}
+                  </View>
+                ) : null}
+
+                {showMcq && feedback ? (
+                  <View
+                    style={{
+                      marginTop: 10,
+                      padding: 10,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontWeight: "700",
+                        fontSize: 13,
+                        color: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger,
+                      }}
+                    >
+                      {feedback.text}
+                    </Text>
+                  </View>
+                ) : null}
+
                 {showInfinitiveNote ? (
                   <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10 }}>
                     <Text style={{ color: ui.text, fontSize: 13 }}>Infinitives in English often use to + verb.</Text>
@@ -1802,24 +2250,26 @@ export default function StudyGameScreen() {
                 gap: 5,
               }}
             >
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder={needsRetype ? "Type the exact answer..." : "Type your answer..."}
-                placeholderTextColor="#98A0B2"
-                style={{
-                  borderWidth: 1,
-                  borderColor: ui.border,
-                  borderRadius: 10,
-                  backgroundColor: ui.card,
-                  color: ui.text,
-                  paddingHorizontal: 12,
-                  paddingVertical: 9,
-                  fontSize: 15,
-                }}
-              />
+              {!showMcq ? (
+                <TextInput
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder={needsRetype ? "Type the exact answer..." : "Type your answer..."}
+                  placeholderTextColor="#98A0B2"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: ui.border,
+                    borderRadius: 10,
+                    backgroundColor: ui.card,
+                    color: ui.text,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    fontSize: 15,
+                  }}
+                />
+              ) : null}
 
-              {feedback ? (
+              {feedback && !showMcq ? (
                 <View style={{ padding: 8, borderRadius: 8, borderWidth: 1, borderColor: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger }}>
                   <Text style={{ fontWeight: "700", fontSize: 13, color: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger }}>
                     {feedback.text}
@@ -1828,19 +2278,21 @@ export default function StudyGameScreen() {
               ) : null}
 
               <View style={{ flexDirection: "row", gap: 8 }}>
-                <TouchableOpacity
-                  onPress={() => answerCurrent().catch(() => {})}
-                  style={{ flex: 1, borderRadius: 12, backgroundColor: ui.primary, paddingVertical: 10, alignItems: "center" }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Submit ↵</Text>
-                </TouchableOpacity>
+                {!showMcq ? (
+                  <TouchableOpacity
+                    onPress={() => answerCurrent().catch(() => {})}
+                    style={{ flex: 1, borderRadius: 12, backgroundColor: ui.primary, paddingVertical: 10, alignItems: "center" }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Submit ↵</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {sessionMode !== "listening" || sessionType === "test" ? (
                   <TouchableOpacity
                     onPress={() => {
                       applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, false) });
                       triggerHaptic("error").catch(() => {});
                       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
-                      setFeedback({ state: "wrong", text: `Expected: ${expected}` });
+                      setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
                       if (sessionType === "test") {
                         setTimeout(() => {
                           setFeedback(null);
@@ -1857,7 +2309,16 @@ export default function StudyGameScreen() {
                       setNeedsRetype(true);
                       setInput("");
                     }}
-                    style={{ borderRadius: 12, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, paddingHorizontal: 14, justifyContent: "center", alignItems: "center" }}
+                    style={{
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: ui.border,
+                      backgroundColor: ui.card,
+                      paddingHorizontal: 14,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      flex: showMcq ? 1 : undefined,
+                    }}
                   >
                     <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 14 }}>Skip</Text>
                   </TouchableOpacity>

@@ -11,6 +11,18 @@ import type {
 
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
+/** RN/Android can cache GETs; lessons/tests must reflect dashboard edits immediately. */
+function fetchNoStore(pathAndQuery: string): Promise<Response> {
+  const sep = pathAndQuery.includes("?") ? "&" : "?";
+  const url = `${apiBaseUrl}${pathAndQuery}${sep}_=${Date.now()}`;
+  return fetch(url, {
+    headers: {
+      "Cache-Control": "no-cache, no-store",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 async function parseJsonSafe<T>(res: Response): Promise<T | null> {
   try {
     return (await res.json()) as T;
@@ -20,7 +32,7 @@ async function parseJsonSafe<T>(res: Response): Promise<T | null> {
 }
 
 export async function getStudentSession(sessionId: string): Promise<StudentSessionPayload> {
-  const res = await fetch(`${apiBaseUrl}/api/students/session?session=${encodeURIComponent(sessionId)}`);
+  const res = await fetchNoStore(`/api/students/session?session=${encodeURIComponent(sessionId)}`);
   const json = await parseJsonSafe<StudentSessionPayload & { error?: string }>(res);
   if (!res.ok || !json || (json as any).error) {
     throw new Error((json as any)?.error ?? "Failed to load student session");
@@ -30,7 +42,7 @@ export async function getStudentSession(sessionId: string): Promise<StudentSessi
 
 export async function getAssignedLessons(lessonIds: string[]): Promise<LessonGamePayload[]> {
   if (!lessonIds.length) return [];
-  const res = await fetch(`${apiBaseUrl}/api/lessons?lessonIds=${encodeURIComponent(lessonIds.join(","))}`);
+  const res = await fetchNoStore(`/api/lessons?lessonIds=${encodeURIComponent(lessonIds.join(","))}`);
   const json = await parseJsonSafe<{ data?: LessonGamePayload[]; error?: string }>(res);
   if (!res.ok || !json || json.error) throw new Error(json?.error ?? "Failed to load lessons");
   return Array.isArray(json.data) ? json.data : [];
@@ -38,14 +50,14 @@ export async function getAssignedLessons(lessonIds: string[]): Promise<LessonGam
 
 export async function getAssignedTests(testIds: string[]): Promise<TestGamePayload[]> {
   if (!testIds.length) return [];
-  const res = await fetch(`${apiBaseUrl}/api/tests?testIds=${encodeURIComponent(testIds.join(","))}`);
+  const res = await fetchNoStore(`/api/tests?testIds=${encodeURIComponent(testIds.join(","))}`);
   const json = await parseJsonSafe<{ data?: TestGamePayload[]; error?: string }>(res);
   if (!res.ok || !json || json.error) throw new Error(json?.error ?? "Failed to load tests");
   return Array.isArray(json.data) ? json.data : [];
 }
 
 export async function getRemoteProgress(sessionId: string): Promise<StudyProgress | null> {
-  const res = await fetch(`${apiBaseUrl}/api/game/progress?session=${encodeURIComponent(sessionId)}`);
+  const res = await fetchNoStore(`/api/game/progress?session=${encodeURIComponent(sessionId)}`);
   const json = await parseJsonSafe<{ progress?: StudyProgress; error?: string }>(res);
   if (!res.ok) return null;
   return json?.progress ?? null;
