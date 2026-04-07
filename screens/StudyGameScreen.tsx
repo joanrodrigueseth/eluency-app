@@ -45,7 +45,13 @@ import {
   updateWordStats,
 } from "../lib/game/engine";
 import { flushProgressSync, hydrateProgress, saveLocalProgress, scheduleProgressSync } from "../lib/game/progress";
-import { getDisplayPrompt, getExpectedAnswer, normalizeLessonsToWords, normalizeTestsToWords } from "../lib/game/normalizers";
+import {
+  expandConjugationTablesForMode,
+  getDisplayPrompt,
+  getExpectedAnswer,
+  normalizeLessonsToWords,
+  normalizeTestsToWords,
+} from "../lib/game/normalizers";
 import { getDisplayLanguageMeta, historyDirectionLabel, labelDirectionForward, labelDirectionReverse } from "../lib/game/languagePair";
 import type {
   GameWord,
@@ -147,10 +153,17 @@ function getAcceptedAnswers(target: string, current: GameWord | undefined, direc
 function isInfinitiveWord(current: GameWord | undefined, target: string, source: string, targetLang: "pt" | "en") {
   if (!target || typeof target !== "string") return false;
   /** Conjugation/preposition prompts contain the infinitive in text; do not treat as EN infinitive gloss. */
-  if (current?.practiceKind === "conjugation" || current?.practiceKind === "preposition") return false;
+  if (current?.practiceKind === "conjugation" || current?.practiceKind === "conjugation-table" || current?.practiceKind === "preposition")
+    return false;
   if (/^\s*to\s+/i.test(target.trim())) return true;
   if (targetLang !== "en") return false;
   return /(ar|er|ir)$/i.test(String(source || "").trim());
+}
+
+function titleCaseVerb(s: string) {
+  const t = (s ?? "").trim();
+  if (!t) return "—";
+  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 function maskWord(sentence: string, wordToHide: string) {
@@ -236,6 +249,9 @@ export default function StudyGameScreen() {
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [mcqChoiceTexts, setMcqChoiceTexts] = useState<string[]>([]);
   const [mcqChoiceOptions, setMcqChoiceOptions] = useState<{ id: string; text: string }[] | null>(null);
+  /** Full conjugation table (typing mode), aligned with web `rowType === 'conjugation'`. */
+  const [conjugationInputs, setConjugationInputs] = useState<string[]>([]);
+  const [conjugationRowFeedback, setConjugationRowFeedback] = useState<(boolean | null)[]>([]);
   const [sessionContext, setSessionContext] = useState<{ id: string | null; name: string | null }>({ id: null, name: null });
   const [sessionPool, setSessionPool] = useState<GameWord[]>([]);
   const [savedResume, setSavedResume] = useState<{
@@ -298,6 +314,20 @@ export default function StudyGameScreen() {
 
   const allWords = useMemo(() => [...lessonsWords, ...testsWords], [lessonsWords, testsWords]);
   const current = activeWords[idx];
+  const isConjugationDrill = current?.practiceKind === "conjugation";
+  const isConjugationTable = current?.practiceKind === "conjugation-table";
+
+  useEffect(() => {
+    if (!current || current.practiceKind !== "conjugation-table" || !current.conjugationTable) {
+      setConjugationInputs([]);
+      setConjugationRowFeedback([]);
+      return;
+    }
+    const n = current.conjugationTable.entries.length;
+    setConjugationInputs(Array.from({ length: n }, () => ""));
+    setConjugationRowFeedback([]);
+  }, [current?.id, idx]);
+
   const activeLanguagePair = useMemo(() => {
     if (current?.lessonLanguagePair) return current.lessonLanguagePair;
     if (sessionContext.id) return lessonsData.find((l) => l.id === sessionContext.id)?.language_pair ?? "en-pt";
@@ -324,6 +354,9 @@ export default function StudyGameScreen() {
   const feedbackExpected = useMemo(() => {
     if (!current) return "";
     if (isFillBlank) return current.pt || "";
+    if (current.practiceKind === "conjugation-table" && current.conjugationTable) {
+      return current.conjugationTable.entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; ");
+    }
     if (
       current.answerFormat === "mcq" &&
       Array.isArray(current.mcqOptions) &&
@@ -344,6 +377,7 @@ export default function StudyGameScreen() {
   const acceptedAnswers = useMemo(() => getAcceptedAnswers(expected, current, direction), [current, direction, expected]);
   const sentenceHint = useMemo(() => {
     if (!current) return null;
+    if (current.practiceKind === "conjugation-table") return null;
     const sentence = direction === "pt-en" ? current.se : current.sp;
     if (!sentence) return null;
     return maskWord(sentence, expected);
@@ -356,11 +390,15 @@ export default function StudyGameScreen() {
     (sessionMode === "multiple-choice" ||
       (current.answerFormat === "mcq" && (current.mcqOptions?.length ?? 0) >= 2));
 
-  /** Avoid a large empty icon area between prompt and choices in text-only multiple choice. */
+  /** Match web: no big emoji block for conjugation / preposition when there is no image. */
+  const hidePlaceholderIllustration =
+    current?.practiceKind === "conjugation" ||
+    current?.practiceKind === "conjugation-table" ||
+    current?.practiceKind === "preposition";
   const showSessionIllustration =
     sessionMode === "image" ||
     (sessionMode === "listening" && !!current?.imageUrl) ||
-    (sessionMode !== "listening" && (!!current?.imageUrl || !showMcq));
+    (sessionMode !== "listening" && (!!current?.imageUrl || (!showMcq && !hidePlaceholderIllustration)));
 
   const getWordStat = useCallback(
     (word: GameWord) => {
@@ -603,8 +641,9 @@ export default function StudyGameScreen() {
     ) => {
       if (!progress) return;
       const baseWords = scopedWords?.length ? scopedWords : allWords;
+      const expandedBase = expandConjugationTablesForMode(baseWords, mode);
       const selected = pickSessionWords(
-        baseWords,
+        expandedBase,
         type,
         mode,
         progress.preferences.practiceLength || 15,
@@ -627,8 +666,10 @@ export default function StudyGameScreen() {
       setNeedsRetype(false);
       setShowInfinitiveNote(false);
       setGeminiCorrection("");
+      setConjugationInputs([]);
+      setConjugationRowFeedback([]);
       setSessionContext({ id: context?.id ?? null, name: context?.name ?? null });
-      setSessionPool(baseWords);
+      setSessionPool(expandedBase);
       setRuntimeScreen("session");
     },
     [allWords, mistakeWordIds, progress]
@@ -802,8 +843,57 @@ export default function StudyGameScreen() {
     triggerHaptic,
   ]);
 
+  const submitConjugationTable = useCallback(async () => {
+    if (!current || !progress || current.practiceKind !== "conjugation-table" || !current.conjugationTable) return;
+    if (conjugationRowFeedback.length > 0) return;
+    const entries = current.conjugationTable.entries;
+    const results = entries.map((entry, i) => {
+      const userVal = normalizeText(conjugationInputs[i] ?? "");
+      const correct = normalizeText(String(entry.form_a || entry.form_b || "").trim());
+      return userVal.length > 0 && correct.length > 0 && userVal === correct;
+    });
+    const done = results.length > 0 && results.every(Boolean);
+    const anyRight = results.some(Boolean);
+    setConjugationRowFeedback(results);
+    applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, done) });
+    if (done) {
+      triggerHaptic("success").catch(() => {});
+      setCorrectCount((v) => v + 1);
+      setFeedback({ state: "correct", text: "Correct!" });
+    } else if (anyRight) {
+      triggerHaptic("warning").catch(() => {});
+      setFeedback({ state: "close", text: "Some forms need correction. Check the highlighted rows." });
+    } else {
+      triggerHaptic("error").catch(() => {});
+      setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+      const lines = entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; ");
+      setFeedback({ state: "wrong", text: `Expected: ${lines}` });
+    }
+    setTimeout(() => {
+      setFeedback(null);
+      setConjugationRowFeedback([]);
+      if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+      else setIdx((v) => v + 1);
+    }, done ? 900 : 2200);
+  }, [
+    activeWords.length,
+    applyProgress,
+    conjugationInputs,
+    conjugationRowFeedback.length,
+    current,
+    finishSession,
+    idx,
+    progress,
+    triggerHaptic,
+  ]);
+
   useEffect(() => {
     if (runtimeScreen !== "session" || !current) {
+      setMcqChoiceTexts([]);
+      setMcqChoiceOptions(null);
+      return;
+    }
+    if (current.practiceKind === "conjugation-table") {
       setMcqChoiceTexts([]);
       setMcqChoiceOptions(null);
       return;
@@ -950,7 +1040,13 @@ export default function StudyGameScreen() {
       return;
     }
 
-    const text = prompt || current.pt || current.en;
+    let speakText = prompt || current.pt || current.en;
+    if (current.practiceKind === "conjugation-table" && current.conjugationTable?.infinitive) {
+      speakText = current.conjugationTable.infinitive;
+    } else if (current.practiceKind === "conjugation" && current.conjugationInfinitive) {
+      speakText = current.conjugationInfinitive;
+    }
+    const text = speakText;
     if (!text) return;
     setTtsLoading(true);
     try {
@@ -2067,17 +2163,25 @@ export default function StudyGameScreen() {
                       {current.lessonName || current.testName || "Lesson"}
                     </Text>
                   </View>
-                  <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
-                    {sessionMode === "listening"
-                      ? "LISTEN"
-                      : sessionMode === "image"
-                        ? "LOOK"
-                        : isFillBlank
-                          ? "FILL BLANK"
-                          : showMcq
-                            ? "MULTIPLE CHOICE"
-                            : "TRANSLATE"}
-                  </Text>
+                  {isConjugationTable ? null : isConjugationDrill ? (
+                    sessionMode === "listening" || showMcq ? (
+                      <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
+                        {sessionMode === "listening" ? "LISTEN" : "MULTIPLE CHOICE"}
+                      </Text>
+                    ) : null
+                  ) : (
+                    <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
+                      {sessionMode === "listening"
+                        ? "LISTEN"
+                        : sessionMode === "image"
+                          ? "LOOK"
+                          : isFillBlank
+                            ? "FILL BLANK"
+                            : showMcq
+                              ? "MULTIPLE CHOICE"
+                              : "TRANSLATE"}
+                    </Text>
+                  )}
                 </View>
                 <Text
                   style={{
@@ -2086,11 +2190,14 @@ export default function StudyGameScreen() {
                     fontWeight: "800",
                     textAlign: "center",
                     marginBottom: 10,
+                    letterSpacing: isConjugationDrill || isConjugationTable ? 1.2 : 0,
                   }}
                 >
-                  {direction === "pt-en"
-                    ? labelDirectionForward(activeLanguagePair, activeLessonLanguage)
-                    : labelDirectionReverse(activeLanguagePair, activeLessonLanguage)}
+                  {isConjugationDrill || isConjugationTable
+                    ? "CONJUGATE"
+                    : direction === "pt-en"
+                      ? labelDirectionForward(activeLanguagePair, activeLessonLanguage)
+                      : labelDirectionReverse(activeLanguagePair, activeLessonLanguage)}
                 </Text>
 
                 {(sessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
@@ -2117,30 +2224,177 @@ export default function StudyGameScreen() {
                   </View>
                 ) : null}
 
-                {/* Word + audio button inline, centred as a unit */}
-                <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 10, paddingHorizontal: 4 }}>
-                  <Text
-                    style={{
-                      flexShrink: 1,
-                      fontSize: 30,
-                      color: ui.text,
-                      fontWeight: "900",
-                      lineHeight: 36,
-                      textAlign: "center",
-                    }}
-                  >
-                    {sessionMode === "listening" ? "Tap to listen" : prompt}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => playPromptAudio().catch(() => {})}
-                    disabled={ttsLoading}
-                    style={{ marginLeft: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-                  >
-                    <Ionicons name="volume-medium-outline" size={16} color={ui.muted} />
-                  </TouchableOpacity>
-                </View>
+                {isConjugationTable && current.conjugationTable ? (
+                  <>
+                    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 14, paddingHorizontal: 4 }}>
+                      <Text
+                        style={{
+                          flexShrink: 1,
+                          fontSize: 32,
+                          color: ui.text,
+                          fontWeight: "900",
+                          lineHeight: 38,
+                          textAlign: "center",
+                        }}
+                      >
+                        {titleCaseVerb(current.conjugationTable.infinitive)}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => playPromptAudio().catch(() => {})}
+                        disabled={ttsLoading}
+                        style={{
+                          marginLeft: 8,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 17,
+                          backgroundColor: ui.borderSoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Ionicons name="volume-medium-outline" size={16} color={ui.muted} />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ gap: 10 }}>
+                      {current.conjugationTable.entries.map((entry, ri) => {
+                        const fb = conjugationRowFeedback[ri];
+                        const highlight =
+                          conjugationRowFeedback.length > 0 ? (fb === true ? ui.success : fb === false ? ui.danger : ui.border) : ui.border;
+                        return (
+                          <View key={`${entry.pronoun}-${ri}`} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                            <Text style={{ width: 108, color: ui.text, fontWeight: "800", fontSize: 13 }} numberOfLines={2}>
+                              {entry.pronoun.toUpperCase()}
+                            </Text>
+                            <TextInput
+                              value={conjugationInputs[ri] ?? ""}
+                              onChangeText={(t) => {
+                                setConjugationInputs((prev) => {
+                                  const next = [...prev];
+                                  next[ri] = t;
+                                  return next;
+                                });
+                              }}
+                              placeholder="…"
+                              placeholderTextColor="#98A0B2"
+                              autoCapitalize="none"
+                              editable={conjugationRowFeedback.length === 0}
+                              style={{
+                                flex: 1,
+                                borderWidth: 1,
+                                borderColor: highlight,
+                                borderRadius: 10,
+                                backgroundColor: ui.borderSoft,
+                                color: ui.text,
+                                paddingHorizontal: 12,
+                                paddingVertical: 10,
+                                fontSize: 15,
+                              }}
+                            />
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => submitConjugationTable().catch(() => {})}
+                      disabled={conjugationRowFeedback.length > 0}
+                      style={{
+                        marginTop: 16,
+                        borderRadius: 12,
+                        backgroundColor: ui.primary,
+                        paddingVertical: 14,
+                        alignItems: "center",
+                        flexDirection: "row",
+                        justifyContent: "center",
+                        gap: 8,
+                        opacity: conjugationRowFeedback.length > 0 ? 0.55 : 1,
+                      }}
+                    >
+                      <Ionicons name="return-down-forward-outline" size={18} color="#fff" />
+                      <Text style={{ color: "#fff", fontSize: 16, fontWeight: "800" }}>Submit</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : isConjugationDrill ? (
+                  <>
+                    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 12, paddingHorizontal: 4 }}>
+                      <Text
+                        style={{
+                          flexShrink: 1,
+                          fontSize: 32,
+                          color: ui.text,
+                          fontWeight: "900",
+                          lineHeight: 38,
+                          textAlign: "center",
+                        }}
+                      >
+                        {titleCaseVerb(current.conjugationInfinitive || prompt || "—")}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => playPromptAudio().catch(() => {})}
+                        disabled={ttsLoading}
+                        style={{
+                          marginLeft: 8,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 17,
+                          backgroundColor: ui.borderSoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Ionicons name="volume-medium-outline" size={16} color={ui.muted} />
+                      </TouchableOpacity>
+                    </View>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "flex-end",
+                        justifyContent: "center",
+                        marginBottom: 6,
+                        flexWrap: "wrap",
+                        gap: 6,
+                      }}
+                    >
+                      <Text style={{ color: ui.primary, fontWeight: "900", fontSize: 22 }}>
+                        {(current.conjugationPronoun ?? "").toUpperCase()}
+                      </Text>
+                      <View
+                        style={{
+                          minWidth: 140,
+                          height: 3,
+                          backgroundColor: ui.text,
+                          marginBottom: 5,
+                          borderRadius: 2,
+                        }}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 10, paddingHorizontal: 4 }}>
+                    <Text
+                      style={{
+                        flexShrink: 1,
+                        fontSize: 30,
+                        color: ui.text,
+                        fontWeight: "900",
+                        lineHeight: 36,
+                        textAlign: "center",
+                      }}
+                    >
+                      {sessionMode === "listening" ? "Tap to listen" : prompt}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => playPromptAudio().catch(() => {})}
+                      disabled={ttsLoading}
+                      style={{ marginLeft: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                    >
+                      <Ionicons name="volume-medium-outline" size={16} color={ui.muted} />
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-                {sessionType !== "test" ? (
+                {sessionType !== "test" && !isConjugationTable && !isConjugationDrill ? (
                   <TouchableOpacity
                     onPress={() => setShowHint((v) => !v)}
                     style={{ borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, paddingVertical: 11, alignItems: "center" }}
@@ -2157,7 +2411,7 @@ export default function StudyGameScreen() {
 
                 {/* Same flow as typing/listening: prompt (+ hint) first, then answer area — MCQ options stay high in the card. */}
                 {showMcq ? (
-                  <View style={{ gap: 8, marginTop: sessionType === "test" ? 12 : showHint && sentenceHint ? 12 : 10 }}>
+                  <View style={{ gap: 8, marginTop: sessionType === "test" ? 12 : showHint && sentenceHint ? 12 : isConjugationDrill ? 14 : 10 }}>
                     {mcqChoiceOptions && mcqChoiceOptions.length >= 2
                       ? mcqChoiceOptions.map((opt) => (
                           <TouchableOpacity
@@ -2174,7 +2428,7 @@ export default function StudyGameScreen() {
                               paddingHorizontal: 14,
                             }}
                           >
-                            <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: "center" }}>{opt.text}</Text>
+                            <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: isConjugationDrill ? "left" : "center" }}>{opt.text}</Text>
                           </TouchableOpacity>
                         ))
                       : mcqChoiceTexts.length >= 2
@@ -2193,7 +2447,7 @@ export default function StudyGameScreen() {
                                 paddingHorizontal: 14,
                               }}
                             >
-                              <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: "center" }}>{choice}</Text>
+                              <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: isConjugationDrill ? "left" : "center" }}>{choice}</Text>
                             </TouchableOpacity>
                           ))
                         : (
@@ -2250,7 +2504,7 @@ export default function StudyGameScreen() {
                 gap: 5,
               }}
             >
-              {!showMcq ? (
+              {!showMcq && !isConjugationTable ? (
                 <TextInput
                   value={input}
                   onChangeText={setInput}
@@ -2278,7 +2532,7 @@ export default function StudyGameScreen() {
               ) : null}
 
               <View style={{ flexDirection: "row", gap: 8 }}>
-                {!showMcq ? (
+                {!showMcq && !isConjugationTable ? (
                   <TouchableOpacity
                     onPress={() => answerCurrent().catch(() => {})}
                     style={{ flex: 1, borderRadius: 12, backgroundColor: ui.primary, paddingVertical: 10, alignItems: "center" }}
@@ -2293,7 +2547,7 @@ export default function StudyGameScreen() {
                       triggerHaptic("error").catch(() => {});
                       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
                       setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
-                      if (sessionType === "test") {
+                      if (sessionType === "test" || current.practiceKind === "conjugation-table") {
                         setTimeout(() => {
                           setFeedback(null);
                           setInput("");
@@ -2301,6 +2555,7 @@ export default function StudyGameScreen() {
                           setNeedsRetype(false);
                           setShowInfinitiveNote(false);
                           setGeminiCorrection("");
+                          setConjugationRowFeedback([]);
                           if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
                           else setIdx((v) => v + 1);
                         }, 2000);
@@ -2317,7 +2572,7 @@ export default function StudyGameScreen() {
                       paddingHorizontal: 14,
                       justifyContent: "center",
                       alignItems: "center",
-                      flex: showMcq ? 1 : undefined,
+                      flex: showMcq || isConjugationTable ? 1 : undefined,
                     }}
                   >
                     <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 14 }}>Skip</Text>

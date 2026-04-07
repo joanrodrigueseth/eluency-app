@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 
-import type { GameWord, LessonGamePayload, TestGamePayload } from "../../types/study-game";
+import type { GameWord, LessonGamePayload, StudySessionMode, TestGamePayload } from "../../types/study-game";
 
 const API_BASE = (Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com").replace(/\/$/, "");
 
@@ -55,33 +55,34 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[]): GameWord[
       if (rowType === "conjugation") {
         const infinitive = String(w.infinitive ?? "").trim();
         const conjugations = Array.isArray(w.conjugations) ? w.conjugations : [];
-        for (let ci = 0; ci < conjugations.length; ci += 1) {
-          const c = conjugations[ci] as { pronoun?: string; form_a?: string; form_b?: string };
-          const pronoun = String(c.pronoun ?? "").trim();
-          const answer = String(c.form_a ?? c.form_b ?? "").trim();
-          if (!answer || !infinitive) continue;
-          const prompt = pronoun ? `${pronoun} · ${infinitive}` : infinitive;
-          const token = stableToken(`${infinitive}-${pronoun}-${answer}`) || `${i}-${ci}`;
-          out.push({
-            id: `lesson-${lesson.id}-conj-${token}`,
-            lessonId: lesson.id,
-            lessonName: lesson.name,
-            lessonLanguagePair,
-            lessonLanguage,
-            sourceType: "lesson",
-            pt: answer,
-            en: infinitive,
-            sp: prompt,
-            se: answer,
-            imageUrl: undefined,
-            audioUrl: w.audio_url != null ? (w.audio_url as string | null) : null,
-            promptFormat: "text",
-            answerFormat: "specific",
-            practiceKind: "conjugation",
-            conjugationPrompt: prompt,
-            conjugationAnswer: answer,
-          });
-        }
+        const entries = conjugations.map((c: { pronoun?: string; form_a?: string; form_b?: string }) => ({
+          pronoun: String(c.pronoun ?? "").trim(),
+          form_a: String(c.form_a ?? "").trim(),
+          form_b: String(c.form_b ?? "").trim(),
+        }));
+        const withPronouns = entries.filter((e) => e.pronoun);
+        if (!infinitive || withPronouns.length === 0) continue;
+        const hasAnyKey = withPronouns.some((e) => e.form_a || e.form_b);
+        if (!hasAnyKey) continue;
+        out.push({
+          id: `lesson-${lesson.id}-conj-table-${i}`,
+          lessonId: lesson.id,
+          lessonName: lesson.name,
+          lessonLanguagePair,
+          lessonLanguage,
+          sourceType: "lesson",
+          pt: "",
+          en: infinitive,
+          sp: infinitive,
+          se: "",
+          imageUrl: undefined,
+          audioUrl: w.audio_url != null ? (w.audio_url as string | null) : null,
+          promptFormat: "text",
+          answerFormat: "specific",
+          practiceKind: "conjugation-table",
+          conjugationTable: { infinitive, entries: withPronouns },
+          conjugationInfinitive: infinitive,
+        });
         continue;
       }
 
@@ -210,6 +211,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
 }
 
 export function getDisplayPrompt(word: GameWord, direction: "pt-en" | "en-pt") {
+  if (word.practiceKind === "conjugation-table" && word.conjugationTable?.infinitive) return word.conjugationTable.infinitive;
   if (word.practiceKind === "conjugation" && word.conjugationPrompt) return word.conjugationPrompt;
   if (word.practiceKind === "preposition" && word.prepositionPrompt) return word.prepositionPrompt;
   if (direction === "pt-en") return word.pt || word.sp || "";
@@ -217,9 +219,51 @@ export function getDisplayPrompt(word: GameWord, direction: "pt-en" | "en-pt") {
 }
 
 export function getExpectedAnswer(word: GameWord, direction: "pt-en" | "en-pt") {
+  if (word.practiceKind === "conjugation-table") return "";
   if (word.practiceKind === "conjugation" && word.conjugationAnswer) return word.conjugationAnswer;
   if (word.practiceKind === "preposition" && word.prepositionAnswer) return word.prepositionAnswer;
   if (direction === "pt-en") return word.en || "";
   return word.pt || "";
+}
+
+/**
+ * Web game: full conjugation row for typing; MCQ/listening expand to one card per pronoun.
+ */
+export function expandConjugationTablesForMode(words: GameWord[], mode: StudySessionMode): GameWord[] {
+  const out: GameWord[] = [];
+  for (const w of words) {
+    if (w.practiceKind !== "conjugation-table" || !w.conjugationTable) {
+      out.push(w);
+      continue;
+    }
+    if (mode === "multiple-choice" || mode === "listening") {
+      const { infinitive, entries } = w.conjugationTable;
+      for (let ci = 0; ci < entries.length; ci++) {
+        const c = entries[ci];
+        const answer = String(c.form_a ?? c.form_b ?? "").trim();
+        const pronoun = String(c.pronoun ?? "").trim();
+        if (!answer || !infinitive || !pronoun) continue;
+        const prompt = `${pronoun} · ${infinitive}`;
+        const token = stableToken(`${infinitive}-${pronoun}-${answer}`) || `${ci}`;
+        out.push({
+          ...w,
+          id: `${w.id}-p-${token}`,
+          practiceKind: "conjugation",
+          conjugationTable: undefined,
+          conjugationInfinitive: infinitive,
+          conjugationPronoun: pronoun,
+          conjugationPrompt: prompt,
+          conjugationAnswer: answer,
+          pt: answer,
+          en: infinitive,
+          sp: prompt,
+          se: answer,
+        });
+      }
+    } else {
+      out.push(w);
+    }
+  }
+  return out;
 }
 

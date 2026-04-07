@@ -109,7 +109,15 @@ export type GameWord = {
   mcqCorrectOptionId?: string | null;
   fillBlankCharacterCount?: number;
   /** Vocabulary row vs expanded conjugation/preposition drill */
-  practiceKind?: "vocab" | "conjugation" | "preposition";
+  practiceKind?: "vocab" | "conjugation" | "conjugation-table" | "preposition";
+  /** Set for single-pronoun conjugation (MCQ / typing) — matches web _conjugInfinitive / _conjugPronoun */
+  conjugationInfinitive?: string;
+  conjugationPronoun?: string;
+  /** Full verb row for typing mode (web `rowType === 'conjugation'`). */
+  conjugationTable?: {
+    infinitive: string;
+    entries: { pronoun: string; form_a: string; form_b?: string }[];
+  };
   conjugationPrompt?: string;
   conjugationAnswer?: string;
   prepositionPrompt?: string;
