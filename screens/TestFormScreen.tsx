@@ -1636,8 +1636,11 @@ export default function TestFormScreen() {
                       </View>
                     ) : null}
 
-                    {/* Image block — shown above question for image format, or optionally for mcq */}
-                    {(q.prompt_format === "image" || q.answer_format === "mcq") ? (
+                    {/* Image block — match web: available for text/audio/image prompts and mcq answers */}
+                    {(q.prompt_format === "text" ||
+                      q.prompt_format === "audio" ||
+                      q.prompt_format === "image" ||
+                      q.answer_format === "mcq") ? (
                       <View style={{ gap: 8 }}>
                         <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 2 }}>{q.prompt_format === "image" ? "Image prompt" : "Optional image"}</Text>
                         {q.image_url.trim() ? (
