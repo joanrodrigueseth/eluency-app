@@ -5,7 +5,9 @@
       "Bash(node -e ':*)",
       "Bash(python3 -)",
       "Bash(node \"c:/Users/nate-/OneDrive/Desktop/Projects/App/eluency-app/fix_drawer.js\")",
-      "Bash(node \"c:/Users/nate-/OneDrive/Desktop/Projects/App/eluency-app/patch_dashboard.js\")"
+      "Bash(node \"c:/Users/nate-/OneDrive/Desktop/Projects/App/eluency-app/patch_dashboard.js\")",
+      "Bash(npx tsc:*)",
+      "Bash(python3 -c ':*)"
     ]
   }
 }

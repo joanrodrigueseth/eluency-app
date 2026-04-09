@@ -393,10 +393,8 @@ export default function DashboardScreen() {
   const [studentsCount, setStudentsCount] = useState(0);
   const [teachersCount, setTeachersCount] = useState(0);
   const [adminPlanCounts, setAdminPlanCounts] = useState({
-    free: 0,
-    tutor: 0,
+    basic: 0,
     standard: 0,
-    pro: 0,
     school: 0,
     internal: 0,
   });
@@ -417,11 +415,8 @@ export default function DashboardScreen() {
  
   const PLAN_PRICE_MONTHLY = useMemo(
     () => ({
-      free: 0,
-      tutor: 14.99,
+      basic: 0,
       standard: 29.99,
-      teacher: 29.99,
-      pro: 49.99,
       school: 0,
       internal: 0,
     }),
@@ -643,26 +638,24 @@ export default function DashboardScreen() {
           const planRows = (plansRows ?? []) as { plan: string | null }[];
  
           const localPlanCounts = {
-            free: 0,
-            tutor: 0,
+            basic: 0,
             standard: 0,
-            pro: 0,
             school: 0,
             internal: 0,
           };
- 
+
           for (const row of planRows) {
-            const p = (row?.plan ?? "free").toLowerCase().trim();
-            if (p === "standard" || p === "teacher") localPlanCounts.standard++;
+            const p = (row?.plan ?? "basic").toLowerCase().trim();
+            if (p === "standard" || p === "teacher" || p === "tutor") localPlanCounts.standard++;
+            else if (p === "basic" || p === "free") localPlanCounts.basic++;
+            else if (p === "pro") localPlanCounts.school++;
             else if (p === "internal") localPlanCounts.internal++;
             else if (p in localPlanCounts) (localPlanCounts as any)[p]++;
-            else localPlanCounts.free++;
+            else localPlanCounts.basic++;
           }
- 
+
           const revenueMonthly =
-            localPlanCounts.tutor * PLAN_PRICE_MONTHLY.tutor +
-            localPlanCounts.standard * PLAN_PRICE_MONTHLY.standard +
-            localPlanCounts.pro * PLAN_PRICE_MONTHLY.pro;
+            localPlanCounts.standard * PLAN_PRICE_MONTHLY.standard;
  
           setAdminPlanCounts(localPlanCounts);
           setAdminRevenueMonthly(revenueMonthly);
@@ -1475,10 +1468,8 @@ export default function DashboardScreen() {
           <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
             <SectionHeader eyebrow="Platform" title="Key KPIs" subtitle="Plan distribution plus recurring monthly revenue." />
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <CompactMetric label="Free" value={adminPlanCounts.free} accent="#F7F8FA" />
-              <CompactMetric label="Tutor" value={adminPlanCounts.tutor} accent="#EDF5FF" />
-              <CompactMetric label="Teacher" value={adminPlanCounts.standard} accent="#F4EEFF" />
-              <CompactMetric label="Pro" value={adminPlanCounts.pro} accent="#FFF6E5" />
+              <CompactMetric label="Basic" value={adminPlanCounts.basic} accent="#F7F8FA" />
+              <CompactMetric label="Standard" value={adminPlanCounts.standard} accent="#F4EEFF" />
               <CompactMetric label="School" value={adminPlanCounts.school} accent="#EEF8F2" />
               <CompactMetric label="Internal" value={adminPlanCounts.internal} accent="#F5F5F7" />
               <View

@@ -385,6 +385,23 @@ export default function TrialTeacherRegistrationScreen() {
 
           <GlassCard>
             <View style={{ gap: 18 }}>
+              <View
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.primarySoft,
+                  padding: 14,
+                }}
+              >
+                <Text style={[theme.typography.bodyStrong, { color: theme.colors.primary }]}>
+                  All new accounts start on Basic
+                </Text>
+                <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
+                  Basic includes lesson and test creation, lesson pack access, 1 student, and full AI tools.
+                </Text>
+              </View>
+
               <AppTextField
                 label="Full Name"
                 placeholder="Your name"

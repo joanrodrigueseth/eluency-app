@@ -28,7 +28,7 @@ import { supabase } from "../lib/supabase";
 import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { DEFAULT_RULES, ensureQuestionDefaults, ensureTestSettings, uid } from "../lib/testDesignMobile";
-import { getStudentLimitForPlan, normalizePlanUi } from "../lib/teacherRolePlanRules";
+import { normalizePlanUi } from "../lib/teacherRolePlanRules";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
 
@@ -113,7 +113,7 @@ type LinkedLessonWordRow = {
   sourceLessonWordKey: string;
 };
 
-const AI_ELIGIBLE_PLANS = ["teacher", "standard", "pro", "school", "internal"];
+const AI_ELIGIBLE_PLANS = ["basic", "standard", "school", "internal"];
 const base64ByteSize = (base64: string) => {
   const len = base64.length;
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
@@ -258,7 +258,7 @@ export default function TestFormScreen() {
   const [saving, setSaving] = useState(false);
   const [currentUserId, setCurrentUserId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [planUi, setPlanUi] = useState("Free");
+  const [planUi, setPlanUi] = useState("Basic");
 
   const [name, setName] = useState("");
   const [type, setType] = useState<string>("Vocabulary");
@@ -513,17 +513,6 @@ export default function TestFormScreen() {
             }
           }
           setTeacherId(user.id);
-          const limit = getStudentLimitForPlan(p);
-          const isFreeCap = p === "Free" && limit <= 5;
-          if (r !== "admin" && isFreeCap) {
-            const { count } = await supabase.from("tests").select("*", { count: "exact", head: true }).eq("teacher_id", user.id);
-            if ((count ?? 0) >= 5) {
-              Alert.alert("Limit reached", "Free plan allows 5 tests. Upgrade or delete a test first.", [
-                { text: "OK", onPress: () => navigation.goBack() },
-              ]);
-              return;
-            }
-          }
           await loadLessonsForTeacher(user.id);
         }
       } catch (e) {

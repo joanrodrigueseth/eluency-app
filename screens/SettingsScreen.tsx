@@ -17,6 +17,7 @@ import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
+import { normalizePlanUi } from "../lib/teacherRolePlanRules";
 
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
@@ -86,7 +87,7 @@ export default function SettingsScreen() {
 
         if (teacher) {
           setPlanInfo({
-            plan: teacher.plan ?? "Free",
+            plan: normalizePlanUi(teacher.plan),
             student_limit: teacher.student_limit ?? null,
             lesson_limit: teacher.lesson_limit ?? null,
             test_limit: teacher.test_limit ?? null,
@@ -535,7 +536,7 @@ export default function SettingsScreen() {
                 <View style={{ marginTop: 12, gap: 10 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={theme.typography.caption}>Current plan</Text>
-                    <Text style={[theme.typography.caption, { fontWeight: "700" }]}>{planInfo?.plan ?? "Free"}</Text>
+                    <Text style={[theme.typography.caption, { fontWeight: "700" }]}>{planInfo?.plan ?? "Basic"}</Text>
                   </View>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={theme.typography.caption}>Students</Text>

@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   FlatList,
   Image,
   Linking,
@@ -27,15 +26,11 @@ import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole } from "../lib/teacherRolePlanRules";
 import {
   AccessType,
-  ADVANCED_LEVELS,
-  BEGINNER_LEVELS,
   CATEGORY_OPTIONS,
   CEFR_OPTIONS,
   getTeacherPackAction,
-  INTERMEDIATE_LEVELS,
   LessonRow,
   PackCardType,
-  PackLessonDetail,
   PackStatus,
   PACK_LANGUAGES,
   slugifyTitle,
@@ -71,6 +66,8 @@ const apiBaseUrl =
 const NEW_PACK_CEFR = ["A1", "A1–A2", "A2", "A2–B1", "B1", "B1–B2", "B2", "C1"];
 
 const ACCESS_OPTIONS: AccessType[] = ["free", "included", "paid"];
+const SORT_OPTIONS = ["default", "alpha", "words"] as const;
+type SortBy = (typeof SORT_OPTIONS)[number];
 
 function accessPillStyle(
   theme: ReturnType<typeof useAppTheme>,
@@ -82,6 +79,24 @@ function accessPillStyle(
     return { bg: "rgba(14,165,233,0.12)", text: "#0284C7", border: "rgba(14,165,233,0.35)" };
   return { bg: theme.colors.violetSoft, text: theme.colors.violet, border: theme.colors.borderStrong };
 }
+
+const CATEGORY_META: Record<
+  string,
+  { icon: keyof typeof Ionicons.glyphMap; bg: string; text: string }
+> = {
+  "Foundations (Beginner Core)": { icon: "book-outline", bg: "rgba(245,158,11,0.14)", text: "#D97706" },
+  "CEFR A2-C1": { icon: "trending-up-outline", bg: "rgba(99,102,241,0.14)", text: "#4F46E5" },
+  "People & Daily Life": { icon: "people-outline", bg: "rgba(14,165,233,0.14)", text: "#0284C7" },
+  "Home & Living": { icon: "home-outline", bg: "rgba(249,115,22,0.14)", text: "#EA580C" },
+  "Food & Dining": { icon: "restaurant-outline", bg: "rgba(244,63,94,0.14)", text: "#E11D48" },
+  "Work & Professional": { icon: "briefcase-outline", bg: "rgba(100,116,139,0.14)", text: "#475569" },
+  Education: { icon: "school-outline", bg: "rgba(139,92,246,0.14)", text: "#7C3AED" },
+  "Sports & Activities": { icon: "trophy-outline", bg: "rgba(234,179,8,0.14)", text: "#CA8A04" },
+  Travel: { icon: "airplane-outline", bg: "rgba(6,182,212,0.14)", text: "#0891B2" },
+  "Nature & Animals": { icon: "leaf-outline", bg: "rgba(34,197,94,0.14)", text: "#16A34A" },
+  Technology: { icon: "hardware-chip-outline", bg: "rgba(59,130,246,0.14)", text: "#2563EB" },
+  "Health & Safety": { icon: "heart-outline", bg: "rgba(239,68,68,0.14)", text: "#DC2626" },
+};
 
 async function uploadPackCoverFromUri(uri: string, mimeType?: string | null): Promise<string> {
   const response = await fetch(uri);
@@ -124,28 +139,70 @@ function Pill({
   );
 }
 
+function getLessonWordCount(lesson: LessonRow) {
+  return lesson.content_json?.words?.filter((word) => word.rowType !== "conjugation").length ?? 0;
+}
+
+function getLessonConjugationCount(lesson: LessonRow) {
+  return lesson.content_json?.words?.filter((word) => word.rowType === "conjugation").length ?? 0;
+}
+
 function CollapsibleSection({
   label,
   count,
+  addedCount,
+  icon,
+  iconBg,
+  iconColor,
+  canAddAll,
+  onAddAll,
   defaultOpen,
   theme,
   children,
 }: {
   label: string;
   count: number;
+  addedCount?: number;
+  icon?: keyof typeof Ionicons.glyphMap;
+  iconBg?: string;
+  iconColor?: string;
+  canAddAll?: boolean;
+  onAddAll?: () => void;
   defaultOpen: boolean;
   theme: ReturnType<typeof useAppTheme>;
-  children: ReactNode;
+  children: (sortBy: SortBy) => ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [sortBy, setSortBy] = useState<SortBy>("default");
+  const pct = count > 0 && typeof addedCount === "number" ? Math.round((addedCount / count) * 100) : 0;
   return (
-    <View style={{ marginBottom: 20 }}>
+    <View style={{ marginBottom: 26 }}>
       <TouchableOpacity
         onPress={() => setOpen((v) => !v)}
         activeOpacity={0.85}
-        style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}
+        style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: open ? 10 : 8 }}
       >
-        <Text style={[theme.typography.bodyStrong, { fontSize: 13, textTransform: "uppercase", letterSpacing: 1 }]}>
+        {icon ? (
+          <View
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 12,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: iconBg || theme.colors.primarySoft,
+            }}
+          >
+            <Ionicons name={icon} size={15} color={iconColor || theme.colors.primary} />
+          </View>
+        ) : null}
+        <Text
+          style={[
+            theme.typography.bodyStrong,
+            { flex: 1, fontSize: 13, textTransform: "uppercase", letterSpacing: 1 },
+          ]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
         <View
@@ -153,14 +210,95 @@ function CollapsibleSection({
             paddingHorizontal: 8,
             paddingVertical: 2,
             borderRadius: 999,
-            backgroundColor: theme.colors.primarySoft,
+            backgroundColor: iconBg || theme.colors.primarySoft,
           }}
         >
-          <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{count}</Text>
+          <Text style={{ fontSize: 11, fontWeight: "800", color: iconColor || theme.colors.primary }}>{count}</Text>
         </View>
         <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={theme.colors.textMuted} />
       </TouchableOpacity>
-      {open ? children : null}
+
+      {open ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              borderRadius: 10,
+              padding: 2,
+              backgroundColor: theme.colors.surfaceAlt,
+            }}
+          >
+            {SORT_OPTIONS.map((value) => (
+              <TouchableOpacity
+                key={value}
+                onPress={() => setSortBy(value)}
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 5,
+                  borderRadius: 8,
+                  backgroundColor: sortBy === value ? theme.colors.primary : "transparent",
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 9,
+                    fontWeight: "800",
+                    color: sortBy === value ? theme.colors.primaryText : theme.colors.textMuted,
+                  }}
+                >
+                  {value === "default" ? "DEF" : value === "alpha" ? "A-Z" : "WORDS"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {canAddAll && onAddAll ? (
+            <TouchableOpacity
+              onPress={onAddAll}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: theme.colors.primary,
+                backgroundColor: theme.colors.primarySoft,
+              }}
+            >
+              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>ADD ALL</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      {typeof addedCount === "number" && count > 0 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <View
+            style={{
+              flex: 1,
+              height: 6,
+              borderRadius: 999,
+              overflow: "hidden",
+              backgroundColor: theme.colors.border,
+            }}
+          >
+            <View
+              style={{
+                width: `${pct}%`,
+                height: "100%",
+                borderRadius: 999,
+                backgroundColor: pct === 100 ? theme.colors.success : theme.colors.primary,
+              }}
+            />
+          </View>
+          <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>
+            {addedCount}/{count}
+          </Text>
+        </View>
+      ) : null}
+
+      {open ? children(sortBy) : null}
     </View>
   );
 }
@@ -242,7 +380,7 @@ export default function LessonPacksScreen() {
 
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentRole, setCurrentRole] = useState("teacher");
-  const [currentPlan, setCurrentPlan] = useState("Free");
+  const [currentPlan, setCurrentPlan] = useState("Basic");
   const [currentName, setCurrentName] = useState("Teacher");
 
   const [lessons, setLessons] = useState<LessonRow[]>([]);
@@ -250,14 +388,17 @@ export default function LessonPacksScreen() {
   const [packLessonMap, setPackLessonMap] = useState<Record<string, string[]>>({});
 
   const [query, setQuery] = useState("");
-  const [filterAccess, setFilterAccess] = useState<"all" | AccessType>("all");
   const [filterCefr, setFilterCefr] = useState("all");
   const [filterLanguage, setFilterLanguage] = useState("all");
   const [editModal, setEditModal] = useState<PackCardType | null>(null);
   const [viewLessonsPack, setViewLessonsPack] = useState<PackCardType | null>(null);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [installingPackId, setInstallingPackId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [installingLessonId, setInstallingLessonId] = useState<string | null>(null);
+  const [viewingLesson, setViewingLesson] = useState<LessonRow | null>(null);
+  const [sessionAddedCount, setSessionAddedCount] = useState(0);
+  const [cefrPickerOpen, setCefrPickerOpen] = useState(false);
+  const [languageFilterOpen, setLanguageFilterOpen] = useState(false);
 
   const canManage = (currentRole ?? "").toLowerCase().trim() === "admin";
 
@@ -282,7 +423,7 @@ export default function LessonPacksScreen() {
       if (meError) throw meError;
 
       const normalizedRole = (me?.role ?? "teacher") as string;
-      const normalizedPlan = coercePlanForRole(me?.role ?? "teacher", me?.plan ?? "Free");
+      const normalizedPlan = coercePlanForRole(me?.role ?? "teacher", me?.plan ?? "Basic");
       setCurrentRole(normalizedRole);
       setCurrentPlan(normalizedPlan);
       setCurrentName(me?.name || "Teacher");
@@ -298,7 +439,7 @@ export default function LessonPacksScreen() {
       }
 
       const lessonsQuery = (supabase.from("lessons") as any)
-        .select("id, title, status, grade_range, language_level, created_by")
+        .select("id, title, status, grade_range, language_level, language, created_by, cover_image_url, content_json")
         .order("created_at", { ascending: false });
 
       const [packsRes, lessonsRes, linksRes] = await Promise.all([
@@ -336,21 +477,36 @@ export default function LessonPacksScreen() {
         nextPackLessonMap[row.pack_id].push(row.lesson_id);
       }
 
-      const nextPacks: PackCardType[] = packRows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description || "",
-        lessonCount: nextPackLessonMap[row.id]?.length || 0,
-        cefrLevel: row.cefr_level || "",
-        creator: creatorNameMap.get(row.created_by || "") || "Unknown",
-        accessType: (row.access_type || "free") as AccessType,
-        priceLabel: row.price_label || null,
-        coverImageUrl: row.cover_image_url || null,
-        isFeatured: !!row.is_featured,
-        category: row.category || "",
-        language: row.language || "",
-        status: (row.status || "draft") as PackStatus,
-      }));
+      const lessonRowMap = new Map(lessonRows.map((lesson) => [lesson.id, lesson]));
+      const nextPacks: PackCardType[] = packRows.map((row) => {
+        const lessonIds = nextPackLessonMap[row.id] || [];
+        let wordCount = 0;
+        let conjugationCount = 0;
+
+        for (const lessonId of lessonIds) {
+          const lesson = lessonRowMap.get(lessonId);
+          wordCount += lesson ? getLessonWordCount(lesson) : 0;
+          conjugationCount += lesson ? getLessonConjugationCount(lesson) : 0;
+        }
+
+        return {
+          id: row.id,
+          title: row.title,
+          description: row.description || "",
+          lessonCount: lessonIds.length,
+          wordCount,
+          conjugationCount,
+          cefrLevel: row.cefr_level || "",
+          creator: creatorNameMap.get(row.created_by || "") || "Unknown",
+          accessType: (row.access_type || "free") as AccessType,
+          priceLabel: row.price_label || null,
+          coverImageUrl: row.cover_image_url || null,
+          isFeatured: !!row.is_featured,
+          category: row.category || "",
+          language: row.language || "",
+          status: (row.status || "draft") as PackStatus,
+        };
+      });
 
       setLessons(lessonRows);
       setPacks(nextPacks);
@@ -368,46 +524,36 @@ export default function LessonPacksScreen() {
     loadData(true);
   }, [loadData]);
 
-  const filteredPacks = useMemo(() => {
-    return packs
-      .filter(
-        (pack) =>
-          (filterAccess === "all" || pack.accessType === filterAccess) &&
-          (filterCefr === "all" || pack.cefrLevel === filterCefr) &&
-          (filterLanguage === "all" || pack.language === filterLanguage) &&
-          (pack.title.toLowerCase().includes(query.toLowerCase()) ||
-            pack.description.toLowerCase().includes(query.toLowerCase()) ||
-            pack.creator.toLowerCase().includes(query.toLowerCase()))
-      )
-      .sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0));
-  }, [packs, query, filterAccess, filterCefr, filterLanguage]);
-
   const lessonDetailMap = useMemo(() => new Map(lessons.map((l) => [l.id, l])), [lessons]);
 
-  const featuredPacks = useMemo(() => filteredPacks.filter((p) => p.isFeatured), [filteredPacks]);
-  const beginnerPacks = useMemo(
-    () => filteredPacks.filter((p) => !p.isFeatured && BEGINNER_LEVELS.has(p.cefrLevel)),
-    [filteredPacks]
-  );
-  const intermediatePacks = useMemo(
-    () => filteredPacks.filter((p) => !p.isFeatured && INTERMEDIATE_LEVELS.has(p.cefrLevel)),
-    [filteredPacks]
-  );
-  const advancedPacks = useMemo(
-    () => filteredPacks.filter((p) => !p.isFeatured && ADVANCED_LEVELS.has(p.cefrLevel)),
-    [filteredPacks]
-  );
-  const otherPacks = useMemo(
-    () =>
-      filteredPacks.filter(
-        (p) =>
-          !p.isFeatured &&
-          !BEGINNER_LEVELS.has(p.cefrLevel) &&
-          !INTERMEDIATE_LEVELS.has(p.cefrLevel) &&
-          !ADVANCED_LEVELS.has(p.cefrLevel)
-      ),
-    [filteredPacks]
-  );
+  const filteredPacks = useMemo(() => {
+    const queryLower = query.trim().toLowerCase();
+    return packs
+      .filter((pack) => {
+        if (filterCefr !== "all" && pack.cefrLevel !== filterCefr) return false;
+        if (filterLanguage !== "all") {
+          const hasLanguageMatch = (packLessonMap[pack.id] || []).some((lessonId) => {
+            const lesson = lessonDetailMap.get(lessonId);
+            return lesson?.language?.trim() === filterLanguage;
+          });
+          if (!hasLanguageMatch) return false;
+        }
+        if (!queryLower) return true;
+
+        const packMatches =
+          pack.title.toLowerCase().includes(queryLower) ||
+          pack.description.toLowerCase().includes(queryLower) ||
+          pack.creator.toLowerCase().includes(queryLower);
+
+        if (packMatches) return true;
+
+        return (packLessonMap[pack.id] || []).some((lessonId) => {
+          const lesson = lessonDetailMap.get(lessonId);
+          return lesson?.title?.toLowerCase().includes(queryLower);
+        });
+      })
+      .sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0));
+  }, [filterCefr, filterLanguage, lessonDetailMap, packLessonMap, packs, query]);
 
   const myLessonTitles = useMemo(() => {
     return new Set(
@@ -435,26 +581,93 @@ export default function LessonPacksScreen() {
     [packs]
   );
   const availableLanguages = useMemo(
-    () => Array.from(new Set(packs.map((p) => p.language).filter(Boolean))).sort(),
-    [packs]
+    () =>
+      Array.from(
+        new Set(
+          lessons
+            .map((lesson) => lesson.language?.trim())
+            .filter((language): language is string => Boolean(language))
+        )
+      ).sort(),
+    [lessons]
+  );
+  const languageLessonCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    const seen = new Set<string>();
+
+    for (const pack of packs) {
+      if (filterCefr !== "all" && pack.cefrLevel !== filterCefr) continue;
+      const queryLower = query.trim().toLowerCase();
+      if (queryLower) {
+        const packMatches =
+          pack.title.toLowerCase().includes(queryLower) ||
+          pack.description.toLowerCase().includes(queryLower) ||
+          pack.creator.toLowerCase().includes(queryLower);
+
+        const lessonMatches = (packLessonMap[pack.id] || []).some((lessonId) => {
+          const lesson = lessonDetailMap.get(lessonId);
+          return lesson?.title?.toLowerCase().includes(queryLower);
+        });
+
+        if (!packMatches && !lessonMatches) continue;
+      }
+
+      for (const lessonId of packLessonMap[pack.id] || []) {
+        const lesson = lessonDetailMap.get(lessonId);
+        const language = lesson?.language?.trim();
+        if (!lesson || !language) continue;
+        const seenKey = `${language}::${lesson.id}`;
+        if (seen.has(seenKey)) continue;
+        seen.add(seenKey);
+        counts.set(language, (counts.get(language) || 0) + 1);
+      }
+    }
+
+    return counts;
+  }, [filterCefr, lessonDetailMap, packLessonMap, packs, query]);
+  const totalVisibleLessonCount = useMemo(
+    () => Array.from(languageLessonCounts.values()).reduce((sum, count) => sum + count, 0),
+    [languageLessonCounts]
   );
 
-  const getLessonsForPack = (packId: string): PackLessonDetail[] => {
+  const canAddLesson = useMemo(
+    () => !["starter", "view-only"].includes(currentPlan.toLowerCase().trim()) || canManage,
+    [canManage, currentPlan]
+  );
+
+  const getLessonsForPack = (packId: string): LessonRow[] => {
     const lessonIds = packLessonMap[packId] || [];
     return lessonIds
-      .map((id) => {
-        const l = lessonDetailMap.get(id);
-        if (!l) return null;
-        return {
-          id: l.id,
-          title: l.title,
-          level: l.language_level ?? null,
-          gradeRange: l.grade_range ?? null,
-          status: l.status,
-        };
-      })
-      .filter((x): x is PackLessonDetail => x !== null);
+      .map((id) => lessonDetailMap.get(id))
+      .filter((x): x is LessonRow => x !== null && x !== undefined);
   };
+
+  const getCategoryLessons = useCallback(
+    (packsForCategory: PackCardType[], sortBy: SortBy) => {
+      const seen = new Set<string>();
+      const collected: LessonRow[] = [];
+
+      for (const pack of packsForCategory) {
+        for (const lessonId of packLessonMap[pack.id] || []) {
+          if (seen.has(lessonId)) continue;
+          seen.add(lessonId);
+          const lesson = lessonDetailMap.get(lessonId);
+          if (lesson) collected.push(lesson);
+        }
+      }
+
+      if (sortBy === "alpha") {
+        return [...collected].sort((a, b) => a.title.localeCompare(b.title));
+      }
+
+      if (sortBy === "words") {
+        return [...collected].sort((a, b) => getLessonWordCount(b) - getLessonWordCount(a));
+      }
+
+      return collected;
+    },
+    [lessonDetailMap, packLessonMap]
+  );
 
   const duplicatePackLessonsToTeacher = async (pack: PackCardType) => {
     if (!currentUserId) {
@@ -524,6 +737,57 @@ export default function LessonPacksScreen() {
     }
   };
 
+  const duplicateSingleLessonToTeacher = async (lesson: LessonRow) => {
+    if (!currentUserId) {
+      Alert.alert("Error", "Missing current user");
+      return;
+    }
+
+    setInstallingLessonId(lesson.id);
+    try {
+      const { data: fullLesson, error: fetchError } = await (supabase.from("lessons") as any)
+        .select("*")
+        .eq("id", lesson.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const {
+        id: _id,
+        slug: _slug,
+        teacher_id: _teacherId,
+        created_at: _createdAt,
+        updated_at: _updatedAt,
+        deleted_at: _deletedAt,
+        ...rest
+      } = fullLesson as Record<string, unknown> & { title?: string };
+
+      const titleStr = fullLesson.title ?? "Lesson";
+      const baseSlug = slugifyTitle(titleStr) || "lesson-copy";
+      const uniqueSlug = `${baseSlug}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const { error: insertError } = await (supabase.from("lessons") as any).insert({
+        ...rest,
+        title: titleStr,
+        slug: uniqueSlug,
+        teacher_id: currentUserId,
+        created_by: currentUserId,
+        updated_by: currentUserId,
+        status: "published",
+      });
+
+      if (insertError) throw insertError;
+
+      await loadData(false);
+      setSessionAddedCount((count) => count + 1);
+      Alert.alert("Added", `"${lesson.title}" was added to your lessons.`);
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to add lesson");
+    } finally {
+      setInstallingLessonId(null);
+    }
+  };
+
   const handleTeacherAction = async (pack: PackCardType, action: TeacherPackAction) => {
     if (action.kind === "upgrade") {
       const ok = await Linking.canOpenURL(action.href);
@@ -546,13 +810,12 @@ export default function LessonPacksScreen() {
   };
 
   const clearFilters = () => {
-    setFilterAccess("all");
+    setLanguageFilterOpen(false);
     setFilterCefr("all");
     setFilterLanguage("all");
     setQuery("");
   };
 
-  const winW = Dimensions.get("window").width;
   /** RN flexWrap+gap+fixed width is unreliable; real grid = two flex:1 columns. */
   const GRID_COLUMN_GAP = 10;
   const LIST_THUMB_SIZE = 56;
@@ -703,179 +966,172 @@ export default function LessonPacksScreen() {
     );
   };
 
-  const renderTwoColumnPackGrid = (packs: PackCardType[]) => {
-    const left = packs.filter((_, i) => i % 2 === 0);
-    const right = packs.filter((_, i) => i % 2 === 1);
-    const half = GRID_COLUMN_GAP / 2;
-    return (
-      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-        <View style={{ flex: 1, minWidth: 0, paddingRight: half }}>
-          {left.map((p) => renderPackCard(p))}
-        </View>
-        <View style={{ flex: 1, minWidth: 0, paddingLeft: half }}>
-          {right.map((p) => renderPackCard(p))}
-        </View>
-      </View>
-    );
-  };
-
-  const renderPackSections = () => (
-    <View>
-      {featuredPacks.length > 0 ? (
-        <View style={{ marginBottom: 24 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <Ionicons name="star" size={16} color="#D97706" />
-            <Text style={[theme.typography.bodyStrong, { fontSize: 13, color: "#D97706", textTransform: "uppercase" }]}>
-              Featured
-            </Text>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>{featuredPacks.length}</Text>
-            </View>
-          </View>
-          {renderTwoColumnPackGrid(featuredPacks)}
-        </View>
-      ) : null}
-
-      <CollapsibleSection label="Beginner" count={beginnerPacks.length} defaultOpen={beginnerPacks.length > 0} theme={theme}>
-        {renderTwoColumnPackGrid(beginnerPacks)}
-      </CollapsibleSection>
-      <CollapsibleSection
-        label="Intermediate"
-        count={intermediatePacks.length}
-        defaultOpen={intermediatePacks.length > 0}
-        theme={theme}
-      >
-        {renderTwoColumnPackGrid(intermediatePacks)}
-      </CollapsibleSection>
-      <CollapsibleSection label="Advanced" count={advancedPacks.length} defaultOpen={advancedPacks.length > 0} theme={theme}>
-        {renderTwoColumnPackGrid(advancedPacks)}
-      </CollapsibleSection>
-      {otherPacks.length > 0 ? (
-        <CollapsibleSection label="Other" count={otherPacks.length} defaultOpen theme={theme}>
-          {renderTwoColumnPackGrid(otherPacks)}
-        </CollapsibleSection>
-      ) : null}
-    </View>
-  );
-
-  const renderListPackRow = (pack: PackCardType) => {
-    const action = getTeacherPackAction(pack.accessType, currentRole, currentPlan, apiBaseUrl);
-    const isAdded = addedPackIds.has(pack.id);
-    const installing = installingPackId === pack.id;
-    const acc = accessPillStyle(theme, pack.accessType);
-    const thumb = LIST_THUMB_SIZE;
+  const renderLessonCard = (lesson: LessonRow) => {
+    const wordCount = getLessonWordCount(lesson);
+    const conjCount = getLessonConjugationCount(lesson);
+    const isAdded = myLessonTitles.has(lesson.title.toLowerCase().trim());
+    const installing = installingLessonId === lesson.id;
     return (
       <View
-        key={`list-${pack.id}`}
+        key={`lcard-${lesson.id}`}
         style={{
-          flexDirection: "row",
-          alignItems: "center",
-          paddingVertical: 10,
-          paddingHorizontal: 12,
+          width: "100%",
           marginBottom: 10,
           borderRadius: 14,
           borderWidth: 1,
           borderColor: theme.colors.border,
           backgroundColor: theme.colors.surfaceAlt,
+          overflow: "hidden",
         }}
       >
         <View
           style={{
-            width: thumb,
-            height: thumb,
-            borderRadius: 12,
+            height: 80,
+            backgroundColor: theme.colors.surfaceGlass,
+            alignItems: "center",
+            justifyContent: "center",
+            borderBottomWidth: 1,
+            borderBottomColor: theme.colors.border,
+          }}
+        >
+          {lesson.cover_image_url ? (
+            <Image source={{ uri: lesson.cover_image_url }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+          ) : (
+            <Ionicons name="document-text-outline" size={28} color={theme.colors.textMuted} style={{ opacity: 0.35 }} />
+          )}
+          {isAdded && !canManage ? (
+            <View style={{ position: "absolute", top: 6, right: 6 }}>
+              <Pill colors={{ bg: theme.colors.successSoft, text: theme.colors.success, border: theme.colors.success }}>Added</Pill>
+            </View>
+          ) : null}
+        </View>
+        <View style={{ padding: 10 }}>
+          <Text style={[theme.typography.bodyStrong, { fontSize: 13 }]} numberOfLines={2}>{lesson.title}</Text>
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+            {wordCount > 0 ? (
+              <Pill colors={{ bg: "rgba(14,165,233,0.12)", text: "#0284C7", border: "rgba(14,165,233,0.35)" }}>{wordCount}w</Pill>
+            ) : null}
+            {conjCount > 0 ? (
+              <Pill colors={{ bg: "rgba(139,92,246,0.12)", text: "#7C3AED", border: "rgba(139,92,246,0.35)" }}>{conjCount}c</Pill>
+            ) : null}
+            {wordCount === 0 && conjCount === 0 ? (
+              <Pill colors={{ bg: "rgba(249,115,22,0.12)", text: "#EA580C", border: "rgba(249,115,22,0.35)" }}>Empty</Pill>
+            ) : null}
+          </View>
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+            <TouchableOpacity
+              onPress={() => setViewingLesson(lesson)}
+              style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 10, fontWeight: "800" }}>VIEW</Text>
+            </TouchableOpacity>
+            {canManage ? null : (
+              <TouchableOpacity
+                onPress={() => { if (!isAdded && canAddLesson) duplicateSingleLessonToTeacher(lesson); }}
+                disabled={installing || isAdded || !canAddLesson}
+                style={{
+                  flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
+                  backgroundColor: isAdded ? theme.colors.successSoft : canAddLesson ? theme.colors.primary : theme.colors.border,
+                  opacity: installing ? 0.5 : 1,
+                }}
+              >
+                {installing ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: isAdded ? theme.colors.success : "#fff" }}>
+                    {isAdded ? "ADDED" : canAddLesson ? "ADD" : "UPGRADE"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderLessonListRow = (lesson: LessonRow) => {
+    const wordCount = getLessonWordCount(lesson);
+    const conjCount = getLessonConjugationCount(lesson);
+    const isAdded = myLessonTitles.has(lesson.title.toLowerCase().trim());
+    const installing = installingLessonId === lesson.id;
+    return (
+      <View
+        key={`lrow-${lesson.id}`}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginBottom: 8,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          backgroundColor: theme.colors.surfaceAlt,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => setViewingLesson(lesson)}
+          activeOpacity={0.85}
+          style={{
+            width: LIST_THUMB_SIZE,
+            height: LIST_THUMB_SIZE,
+            borderRadius: 10,
             overflow: "hidden",
             marginRight: 12,
             borderWidth: 1,
             borderColor: theme.colors.border,
-            backgroundColor: pack.isFeatured ? "rgba(251,191,36,0.2)" : theme.colors.surfaceGlass,
+            backgroundColor: theme.colors.surfaceGlass,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {pack.coverImageUrl ? (
-            <Image
-              key={`${pack.id}-thumb-${pack.coverImageUrl}`}
-              source={{ uri: pack.coverImageUrl }}
-              style={{ width: thumb, height: thumb }}
-              resizeMode="cover"
-            />
+          {lesson.cover_image_url ? (
+            <Image source={{ uri: lesson.cover_image_url }} style={{ width: LIST_THUMB_SIZE, height: LIST_THUMB_SIZE }} resizeMode="cover" />
           ) : (
-            <View
-              style={{
-                width: thumb,
-                height: thumb,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons name="layers-outline" size={22} color={theme.colors.textMuted} />
-            </View>
+            <Ionicons name="document-text-outline" size={20} color={theme.colors.textMuted} />
           )}
-        </View>
-        <View style={{ flex: 1, minWidth: 0, marginRight: 8, justifyContent: "center" }}>
-          <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]} numberOfLines={2}>
-            {pack.title}
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6, marginHorizontal: -3 }}>
-            {pack.isFeatured ? (
-              <View style={{ marginHorizontal: 3, marginBottom: 4 }}>
-                <Pill colors={{ bg: "rgba(245,158,11,0.2)", text: "#D97706", border: "#F59E0B" }}>Featured</Pill>
-              </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setViewingLesson(lesson)}
+          activeOpacity={0.85}
+          style={{ flex: 1, minWidth: 0, marginRight: 8 }}
+        >
+          <Text style={[theme.typography.bodyStrong, { fontSize: 13 }]} numberOfLines={2}>{lesson.title}</Text>
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+            {wordCount > 0 ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{wordCount}w</Text>
+            ) : null}
+            {conjCount > 0 ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{conjCount}c</Text>
             ) : null}
             {isAdded && !canManage ? (
-              <View style={{ marginHorizontal: 3, marginBottom: 4 }}>
-                <Pill colors={{ bg: theme.colors.successSoft, text: theme.colors.success, border: theme.colors.success }}>
-                  Added
-                </Pill>
-              </View>
+              <Pill colors={{ bg: theme.colors.successSoft, text: theme.colors.success, border: theme.colors.success }}>Added</Pill>
             ) : null}
-            <View style={{ marginHorizontal: 3, marginBottom: 4 }}>
-              <Pill colors={acc}>{pack.accessType}</Pill>
-            </View>
           </View>
-        </View>
-        <View style={{ flexDirection: "row", flexShrink: 0, alignItems: "center" }}>
+        </TouchableOpacity>
+        <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
           <TouchableOpacity
-            onPress={() => setViewLessonsPack(pack)}
-            style={{
-              padding: 10,
-              marginRight: 6,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-            }}
+            onPress={() => setViewingLesson(lesson)}
+            style={{ padding: 8, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}
           >
-            <Ionicons name="list-outline" size={18} color={theme.colors.primary} />
+            <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
           </TouchableOpacity>
-          {canManage ? (
+          {canManage ? null : (
             <TouchableOpacity
-              onPress={() => setEditModal(pack)}
+              onPress={() => { if (!isAdded && canAddLesson) duplicateSingleLessonToTeacher(lesson); }}
+              disabled={installing || isAdded || !canAddLesson}
               style={{
-                padding: 10,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-              }}
-            >
-              <Ionicons name="settings-outline" size={18} color={theme.colors.primary} />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              onPress={() => handleTeacherAction(pack, action)}
-              disabled={installing || action.kind === "disabled"}
-              style={{
-                maxWidth: 112,
-                paddingHorizontal: 10,
-                paddingVertical: 10,
-                borderRadius: 10,
-                backgroundColor: theme.colors.primary,
-                opacity: installing || action.kind === "disabled" ? 0.45 : 1,
+                paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
+                backgroundColor: isAdded ? theme.colors.successSoft : canAddLesson ? theme.colors.primary : theme.colors.border,
+                opacity: installing ? 0.5 : 1,
               }}
             >
               {installing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={{ fontSize: 9, fontWeight: "800", color: "#fff", textAlign: "center" }} numberOfLines={3}>
-                  {action.label}
+                <Text style={{ fontSize: 10, fontWeight: "800", color: isAdded ? theme.colors.success : "#fff" }}>
+                  {isAdded ? "ADDED" : canAddLesson ? "ADD" : "UP"}
                 </Text>
               )}
             </TouchableOpacity>
@@ -885,37 +1141,58 @@ export default function LessonPacksScreen() {
     );
   };
 
-  const renderPackSectionsList = () => (
-    <View>
-      {featuredPacks.length > 0 ? (
-        <View style={{ marginBottom: 20 }}>
-          <Text style={[theme.typography.bodyStrong, { marginBottom: 10, textTransform: "uppercase", fontSize: 12 }]}>
-            Featured · {featuredPacks.length}
-          </Text>
-          {featuredPacks.map((p) => renderListPackRow(p))}
-        </View>
-      ) : null}
-      <CollapsibleSection label="Beginner" count={beginnerPacks.length} defaultOpen={beginnerPacks.length > 0} theme={theme}>
-        <View>{beginnerPacks.map((p) => renderListPackRow(p))}</View>
-      </CollapsibleSection>
-      <CollapsibleSection
-        label="Intermediate"
-        count={intermediatePacks.length}
-        defaultOpen={intermediatePacks.length > 0}
-        theme={theme}
-      >
-        <View>{intermediatePacks.map((p) => renderListPackRow(p))}</View>
-      </CollapsibleSection>
-      <CollapsibleSection label="Advanced" count={advancedPacks.length} defaultOpen={advancedPacks.length > 0} theme={theme}>
-        <View>{advancedPacks.map((p) => renderListPackRow(p))}</View>
-      </CollapsibleSection>
-      {otherPacks.length > 0 ? (
-        <CollapsibleSection label="Other" count={otherPacks.length} defaultOpen theme={theme}>
-          <View>{otherPacks.map((p) => renderListPackRow(p))}</View>
-        </CollapsibleSection>
-      ) : null}
-    </View>
-  );
+  const renderTwoColumnLessonGrid = (lessons: LessonRow[]) => {
+    const left = lessons.filter((_, i) => i % 2 === 0);
+    const right = lessons.filter((_, i) => i % 2 === 1);
+    const half = GRID_COLUMN_GAP / 2;
+    return (
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+        <View style={{ flex: 1, minWidth: 0, paddingRight: half }}>{left.map((l) => renderLessonCard(l))}</View>
+        <View style={{ flex: 1, minWidth: 0, paddingLeft: half }}>{right.map((l) => renderLessonCard(l))}</View>
+      </View>
+    );
+  };
+
+  const renderCategorySections = () => {
+    const allCategories = [...CATEGORY_OPTIONS, "Other"];
+    return (
+      <View>
+        {allCategories.map((cat, idx) => {
+          const packsForCat = cat === "Other"
+            ? filteredPacks.filter((p) => !CATEGORY_OPTIONS.includes(p.category))
+            : filteredPacks.filter((p) => p.category === cat);
+          if (packsForCat.length === 0) return null;
+          const meta = CATEGORY_META[cat];
+          const catAllLessons = getCategoryLessons(packsForCat, "default");
+          const catAddedCount = catAllLessons.filter((l) => myLessonTitles.has(l.title.toLowerCase().trim())).length;
+          const unadded = catAllLessons.filter((l) => !myLessonTitles.has(l.title.toLowerCase().trim()));
+          return (
+            <CollapsibleSection
+              key={cat}
+              label={cat}
+              count={catAllLessons.length}
+              addedCount={!canManage ? catAddedCount : undefined}
+              icon={meta?.icon}
+              iconBg={meta?.bg}
+              iconColor={meta?.text}
+              canAddAll={!canManage && canAddLesson && unadded.length > 0}
+              onAddAll={() => unadded.forEach((l) => duplicateSingleLessonToTeacher(l))}
+              defaultOpen={idx === 0}
+              theme={theme}
+            >
+              {(sortBy) => {
+                const catLessons = getCategoryLessons(packsForCat, sortBy);
+                if (catLessons.length === 0) return (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 12 }]}>No lessons yet.</Text>
+                );
+                return <View>{catLessons.map((l) => renderLessonListRow(l))}</View>;
+              }}
+            </CollapsibleSection>
+          );
+        })}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -998,7 +1275,7 @@ export default function LessonPacksScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1, paddingHorizontal: 10 }}>
           <Text style={theme.typography.label}>Library</Text>
-          <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Lesson Packs</Text>
+          <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Lesson Browser</Text>
         </View>
         {canManage ? (
           <TouchableOpacity
@@ -1032,11 +1309,11 @@ export default function LessonPacksScreen() {
         ) : null}
 
         <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <Text style={[theme.typography.title, { fontSize: 22 }]}>Lesson Packs</Text>
+          <Text style={[theme.typography.title, { fontSize: 22 }]}>Lesson Browser</Text>
           <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
             {canManage
-              ? `Welcome back, ${currentName}. You can create and manage all packs.`
-              : `Welcome back, ${currentName}. Browse published packs and add those available on your plan.`}
+              ? `Welcome back, ${currentName}. You can create and manage lesson categories.`
+              : `Welcome back, ${currentName}. Browse published lessons and add those available on your plan.`}
           </Text>
           {!canManage ? (
             <View style={{ marginTop: 10 }}>
@@ -1049,73 +1326,90 @@ export default function LessonPacksScreen() {
         </GlassCard>
 
         <GlassCard style={{ borderRadius: 16 }} padding={16}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available packs</Text>
-            <View style={{ flexDirection: "row", borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
-              <TouchableOpacity
-                onPress={() => setViewMode("grid")}
-                style={{
-                  padding: 8,
-                  borderRadius: 10,
-                  backgroundColor: viewMode === "grid" ? theme.colors.primary : "transparent",
-                }}
-              >
-                <Ionicons name="grid-outline" size={18} color={viewMode === "grid" ? "#fff" : theme.colors.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setViewMode("list")}
-                style={{
-                  padding: 8,
-                  borderRadius: 10,
-                  backgroundColor: viewMode === "list" ? theme.colors.primary : "transparent",
-                }}
-              >
-                <Ionicons name="list-outline" size={18} color={viewMode === "list" ? "#fff" : theme.colors.textMuted} />
-              </TouchableOpacity>
-            </View>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available Lessons</Text>
+            <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+              Browse lessons by category and add the ones you want to your library.
+            </Text>
           </View>
 
-          <Text style={[theme.typography.caption, { marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }]}>
-            What language are you teaching?
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ marginBottom: 12, zIndex: 20 }}>
             <TouchableOpacity
-              onPress={() => setFilterLanguage("all")}
+              onPress={() => setLanguageFilterOpen((open) => !open)}
               style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
                 paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 10,
-                marginRight: 8,
+                paddingVertical: 12,
+                borderRadius: 12,
                 borderWidth: 1,
-                borderColor: filterLanguage === "all" ? theme.colors.primary : theme.colors.border,
-                backgroundColor: filterLanguage === "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                borderColor: filterLanguage !== "all" ? theme.colors.primary : theme.colors.border,
+                backgroundColor: filterLanguage !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
               }}
             >
-              <Text style={{ fontWeight: "700", fontSize: 12 }}>All</Text>
+              <Text style={{ flex: 1, fontSize: 12, fontWeight: "700", color: theme.colors.text }}>
+                {filterLanguage === "all"
+                  ? `Language: All (${totalVisibleLessonCount})`
+                  : `Language: ${filterLanguage} (${languageLessonCounts.get(filterLanguage) || 0})`}
+              </Text>
+              <Ionicons
+                name={languageFilterOpen ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={filterLanguage !== "all" ? theme.colors.primary : theme.colors.textMuted}
+              />
             </TouchableOpacity>
-            {availableLanguages.map((lang) => (
-              <TouchableOpacity
-                key={lang}
-                onPress={() => setFilterLanguage(lang)}
+
+            {languageFilterOpen ? (
+              <View
                 style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderRadius: 10,
-                  marginRight: 8,
+                  marginTop: 6,
+                  borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: filterLanguage === lang ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: filterLanguage === lang ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surface,
+                  overflow: "hidden",
+                  maxHeight: 240,
                 }}
               >
-                <Text style={{ fontWeight: "700", fontSize: 12 }}>{lang}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                <ScrollView nestedScrollEnabled>
+                  {["all", ...availableLanguages].map((item) => {
+                    const count = item === "all" ? totalVisibleLessonCount : languageLessonCounts.get(item) || 0;
+                    const selected = filterLanguage === item;
+                    return (
+                      <TouchableOpacity
+                        key={item}
+                        onPress={() => {
+                          setFilterLanguage(item);
+                          setLanguageFilterOpen(false);
+                        }}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 12,
+                          backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
+                          borderBottomWidth: item === availableLanguages[availableLanguages.length - 1] ? 0 : 1,
+                          borderBottomColor: theme.colors.border,
+                        }}
+                      >
+                        <Text style={{ color: theme.colors.text, fontWeight: selected ? "700" : "500" }}>
+                          {item === "all" ? `All Languages (${count})` : `${item} (${count})`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+          </View>
 
           <TextInput
             value={query}
-            onChangeText={setQuery}
-            placeholder="Search packs, descriptions, creators…"
+            onChangeText={(value) => {
+              setLanguageFilterOpen(false);
+              setQuery(value);
+            }}
+            placeholder="Search lessons, categories, creators..."
             placeholderTextColor={theme.colors.textMuted}
             style={{
               borderWidth: 1,
@@ -1130,60 +1424,31 @@ export default function LessonPacksScreen() {
           />
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-            {(["all", "free", "included", "paid"] as const).map((v) => (
-              <TouchableOpacity
-                key={v}
-                onPress={() => setFilterAccess(v)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: filterAccess === v ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: filterAccess === v ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                }}
-              >
-                <Text style={{ fontSize: 10, fontWeight: "800" }}>{v === "all" ? "ALL ACCESS" : v.toUpperCase()}</Text>
-              </TouchableOpacity>
-            ))}
-            {availableCefrLevels.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxWidth: winW - 80 }}>
-                <TouchableOpacity
-                  onPress={() => setFilterCefr("all")}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 10,
-                    marginRight: 8,
-                    borderWidth: 1,
-                    borderColor: filterCefr === "all" ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: filterCefr === "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text style={{ fontSize: 10, fontWeight: "800" }}>ALL LEVELS</Text>
-                </TouchableOpacity>
-                {availableCefrLevels.map((lv) => (
-                  <TouchableOpacity
-                    key={lv}
-                    onPress={() => setFilterCefr(lv)}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      borderRadius: 10,
-                      marginRight: 8,
-                      borderWidth: 1,
-                      borderColor: filterCefr === lv ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: filterCefr === lv ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: "800" }}>{lv}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            ) : null}
+            <TouchableOpacity
+              onPress={() => {
+                setLanguageFilterOpen(false);
+                setCefrPickerOpen(true);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: filterCefr !== "all" ? theme.colors.primary : theme.colors.border,
+                backgroundColor: filterCefr !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+              }}
+            >
+              <Text style={{ fontSize: 10, fontWeight: "800" }}>
+                {filterCefr === "all" ? "LEVEL" : filterCefr}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={filterCefr !== "all" ? theme.colors.primary : theme.colors.textMuted} />
+            </TouchableOpacity>
           </View>
 
-          {(filterAccess !== "all" || filterCefr !== "all" || filterLanguage !== "all" || query.length > 0) && (
+          {(filterCefr !== "all" || filterLanguage !== "all" || query.length > 0) && (
             <TouchableOpacity onPress={clearFilters} style={{ marginBottom: 16 }}>
               <Text style={{ color: theme.colors.danger, fontWeight: "700", fontSize: 12 }}>Clear filters</Text>
             </TouchableOpacity>
@@ -1193,7 +1458,7 @@ export default function LessonPacksScreen() {
             <View style={{ paddingVertical: 40, alignItems: "center" }}>
               <Ionicons name="layers-outline" size={48} color={theme.colors.textMuted} style={{ opacity: 0.25 }} />
               <Text style={[theme.typography.caption, { marginTop: 12, textTransform: "uppercase" }]}>
-                {packs.length === 0 ? "No packs yet" : "No packs match your filters"}
+                {packs.length === 0 ? "No lessons yet" : "No lessons match your filters"}
               </Text>
               {packs.length === 0 && canManage ? (
                 <View style={{ marginTop: 16, alignSelf: "stretch" }}>
@@ -1207,12 +1472,121 @@ export default function LessonPacksScreen() {
               ) : null}
             </View>
           ) : (
-            <View key={viewMode} collapsable={false} style={{ width: "100%" }}>
-              {viewMode === "grid" ? renderPackSections() : renderPackSectionsList()}
+            <View style={{ width: "100%" }}>
+              {renderCategorySections()}
             </View>
           )}
         </GlassCard>
       </ScrollView>
+
+      {/* CEFR picker modal */}
+      <Modal visible={cefrPickerOpen} animationType="slide" transparent onRequestClose={() => setCefrPickerOpen(false)}>
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+          activeOpacity={1}
+          onPress={() => setCefrPickerOpen(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={{ backgroundColor: theme.colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, borderWidth: 1, borderColor: theme.colors.border }}>
+              <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <Text style={theme.typography.title}>Filter by CEFR Level</Text>
+              </View>
+              <FlatList
+                data={["all", ...availableCefrLevels]}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => { setFilterCefr(item); setCefrPickerOpen(false); }}
+                    style={{ paddingVertical: 14, paddingHorizontal: 20, backgroundColor: filterCefr === item ? theme.colors.primarySoft : "transparent" }}
+                  >
+                    <Text style={[theme.typography.body, item === "all" ? { color: theme.colors.textMuted } : {}]}>
+                      {item === "all" ? "— All Levels —" : item}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Lesson words modal */}
+      {viewingLesson ? (
+        <Modal visible animationType="slide" onRequestClose={() => setViewingLesson(null)}>
+          <View style={{ flex: 1, backgroundColor: theme.colors.background, paddingTop: 48 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 12 }}>
+              <TouchableOpacity onPress={() => setViewingLesson(null)} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Text style={theme.typography.caption}>Lesson preview</Text>
+                <Text style={theme.typography.title} numberOfLines={1}>{viewingLesson.title}</Text>
+              </View>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}>
+              {(() => {
+                const words = viewingLesson.content_json?.words?.filter((w) => w.rowType !== "conjugation") ?? [];
+                const conjs = viewingLesson.content_json?.words?.filter((w) => w.rowType === "conjugation") ?? [];
+                return (
+                  <>
+                    {words.length > 0 ? (
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={[theme.typography.bodyStrong, { marginBottom: 10, textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }]}>
+                          Vocabulary · {words.length}
+                        </Text>
+                        {words.map((w, i) => (
+                          <View key={i} style={{ flexDirection: "row", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                            <Text style={[theme.typography.body, { flex: 1 }]}>{w.term_a || w.pt || w.en || ""}</Text>
+                            <Text style={[theme.typography.body, { flex: 1, color: theme.colors.textMuted }]}>{w.term_b || w.en || ""}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {conjs.length > 0 ? (
+                      <View>
+                        <Text style={[theme.typography.bodyStrong, { marginBottom: 10, textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }]}>
+                          Conjugations · {conjs.length}
+                        </Text>
+                        {conjs.map((c, ci) => (
+                          <View key={ci} style={{ marginBottom: 16 }}>
+                            <Text style={[theme.typography.bodyStrong, { marginBottom: 6 }]}>{c.infinitive || ""}</Text>
+                            {(c.conjugations || []).map((pair, pi) => (
+                              <View key={pi} style={{ flexDirection: "row", paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                                <Text style={[theme.typography.caption, { width: 80, color: theme.colors.textMuted }]}>{pair.pronoun}</Text>
+                                <Text style={theme.typography.body}>{pair.form_a}{pair.form_b ? ` / ${pair.form_b}` : ""}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {words.length === 0 && conjs.length === 0 ? (
+                      <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>No content in this lesson yet.</Text>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </Modal>
+      ) : null}
+
+      {/* Session footer */}
+      {sessionAddedCount > 0 && !canManage ? (
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: Math.max(insets.bottom, 16), paddingTop: 12, paddingHorizontal: 20, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[theme.typography.bodyStrong, { fontSize: 13 }]}>
+                {sessionAddedCount} lesson{sessionAddedCount !== 1 ? "s" : ""} added this session
+              </Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Open Lessons on the web to edit them.</Text>
+            </View>
+            <TouchableOpacity onPress={() => setSessionAddedCount(0)} style={{ padding: 8 }}>
+              <Ionicons name="close" size={18} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       <ViewLessonsModal
         visible={!!viewLessonsPack}
@@ -1256,7 +1630,7 @@ function ViewLessonsModal({
 }: {
   visible: boolean;
   pack: PackCardType | null;
-  lessons: PackLessonDetail[];
+  lessons: LessonRow[];
   onClose: () => void;
   theme: ReturnType<typeof useAppTheme>;
 }) {
@@ -1277,43 +1651,81 @@ function ViewLessonsModal({
           {lessons.length === 0 ? (
             <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>No lessons in this pack.</Text>
           ) : (
-            lessons.map((lesson, index) => (
-              <View
-                key={lesson.id}
-                style={{
-                  flexDirection: "row",
-                  gap: 12,
-                  padding: 14,
-                  marginBottom: 10,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.surfaceAlt,
-                }}
-              >
+            lessons.map((lesson, index) => {
+              const words = lesson.content_json?.words?.filter((w) => w.rowType !== "conjugation") ?? [];
+              const conjs = lesson.content_json?.words?.filter((w) => w.rowType === "conjugation") ?? [];
+              return (
                 <View
+                  key={lesson.id}
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
+                    padding: 14,
+                    marginBottom: 12,
+                    borderRadius: 14,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
-                    alignItems: "center",
-                    justifyContent: "center",
+                    backgroundColor: theme.colors.surfaceAlt,
                   }}
                 >
-                  <Text style={{ fontWeight: "800", color: theme.colors.primary }}>{index + 1}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={theme.typography.bodyStrong}>{lesson.title}</Text>
-                  {lesson.level || lesson.gradeRange ? (
-                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
-                      {[lesson.level, lesson.gradeRange].filter(Boolean).join(" · ")}
-                    </Text>
+                  <View style={{ flexDirection: "row", gap: 12, marginBottom: 8 }}>
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.primary }}>{index + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={theme.typography.bodyStrong}>{lesson.title}</Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+                        {words.length > 0 ? (
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                            {words.length} word{words.length !== 1 ? "s" : ""}
+                          </Text>
+                        ) : null}
+                        {conjs.length > 0 ? (
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                            {conjs.length} conjugation{conjs.length !== 1 ? "s" : ""}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                  {words.length > 0 ? (
+                    <View style={{ gap: 4, marginBottom: conjs.length > 0 ? 8 : 0 }}>
+                      {words.map((w, wi) => (
+                        <View key={wi} style={{ flexDirection: "row", gap: 8 }}>
+                          <Text style={[theme.typography.caption, { color: theme.colors.primary, width: 18 }]}>{wi + 1}.</Text>
+                          <Text style={[theme.typography.caption, { flex: 1 }]}>
+                            {w.term_a || w.pt || w.en || ""}{(w.term_b || w.en) && (w.term_a || w.pt) ? ` — ${w.term_b || w.en}` : ""}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {conjs.length > 0 ? (
+                    <View style={{ gap: 4 }}>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 2 }]}>
+                        Conjugations: {lesson.content_json?.words?.find((w) => w.rowType === "conjugation")?.infinitive || ""}
+                      </Text>
+                      {conjs.map((c, ci) =>
+                        (c.conjugations || []).map((pair, pi) => (
+                          <View key={`${ci}-${pi}`} style={{ flexDirection: "row", gap: 8 }}>
+                            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, width: 60 }]}>{pair.pronoun}</Text>
+                            <Text style={theme.typography.caption}>{pair.form_a}{pair.form_b ? ` / ${pair.form_b}` : ""}</Text>
+                          </View>
+                        ))
+                      )}
+                    </View>
                   ) : null}
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
       </View>
@@ -1818,7 +2230,7 @@ function NewPackModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [cefrLevel, setCefrLevel] = useState("A1–A2");
-  const [category, setCategory] = useState("General");
+  const [category, setCategory] = useState("");
   const [accessType, setAccessType] = useState<AccessType>("free");
   const [priceLabel, setPriceLabel] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");

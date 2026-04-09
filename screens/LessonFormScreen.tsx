@@ -72,9 +72,24 @@ const CATEGORY_OPTIONS = [
   "Register & Formality",
   "Other",
 ] as const;
+const LESSON_PACK_CATEGORIES = [
+  "Foundations (Beginner Core)",
+  "CEFR A2-C1",
+  "People & Daily Life",
+  "Home & Living",
+  "Food & Dining",
+  "Work & Professional",
+  "Education",
+  "Sports & Activities",
+  "Travel",
+  "Nature & Animals",
+  "Technology",
+  "Health & Safety",
+] as const;
 const LANGUAGE_LEVELS = ["", "A1", "A2", "B1", "B2", "C1", "C2"] as const;
 const LESSON_LANGUAGES = ["Choose Language", "Portuguese (BR)", "Spanish", "English", "French", "German", "Italian", "Japanese", "Korean", "Chinese (Mandarin)", "Arabic"] as const;
 const CHOOSE_LANGUAGE_PLACEHOLDER = LESSON_LANGUAGES[0];
+const EMPTY_LESSON_PACK_CATEGORY = "(None)";
 
 const ROW_TYPE_TAB_LABEL: Record<RowType, string> = {
   vocab: "Vocab",
@@ -87,7 +102,7 @@ const LANGUAGE_PAIRS = [
   { code: "en-fr", labelA: "English", labelB: "French" },
   { code: "pt-es", labelA: "Portuguese", labelB: "Spanish" },
 ] as const;
-const AI_ELIGIBLE_PLANS = ["teacher", "standard", "pro", "school", "internal"];
+const AI_ELIGIBLE_PLANS = ["basic", "standard", "school", "internal"];
 const TENSE_OPTIONS = ["", "Present", "Past", "Future", "Present Perfect", "Past Perfect", "Future Perfect", "Conditional", "Subjunctive", "Imperative", "Infinitive", "Gerund", "Participle"] as const;
 const GRAMMAR_OPTIONS = ["", "Noun", "Verb", "Adjective", "Adverb", "Preposition", "Pronoun", "Conjunction", "Phrase", "Idiom", "Expression", "Other"] as const;
 
@@ -564,6 +579,7 @@ export default function LessonFormScreen() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("Vocabulary");
+  const [lessonCategory, setLessonCategory] = useState("");
   const [languageLevel, setLanguageLevel] = useState("");
   const [language, setLanguage] = useState<string>(CHOOSE_LANGUAGE_PLACEHOLDER);
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
@@ -589,6 +605,7 @@ export default function LessonFormScreen() {
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [lessonCategoryOpen, setLessonCategoryOpen] = useState(false);
 
   const pairMeta = useMemo(() => LANGUAGE_PAIRS.find((p) => p.code === languagePair) ?? LANGUAGE_PAIRS[0], [languagePair]);
   /** Unset / placeholder → same defaults as web lesson editor (PT conjugation templates, prepositions). */
@@ -662,6 +679,7 @@ export default function LessonFormScreen() {
     setCategoryOpen(false);
     setLevelOpen(false);
     setLanguageOpen(false);
+    setLessonCategoryOpen(false);
     setOpenInlineDropdown(null);
     setTooltipVisible(null);
   };
@@ -673,9 +691,12 @@ export default function LessonFormScreen() {
 
     setTitle(data.title ?? "");
     setDescription(data.description ?? "");
-    setCategory(data.grade_range ?? "Vocabulary");
-    setLanguageLevel(data.language_level ?? "");
     const cfg = data.content_json && typeof data.content_json === "object" ? data.content_json : {};
+    const inferredInstructionalCategory = String((cfg as any).instructional_category ?? data.grade_range ?? "Vocabulary");
+    const storedLessonCategory = String((cfg as any).lesson_category ?? "");
+    setCategory(inferredInstructionalCategory);
+    setLessonCategory(storedLessonCategory);
+    setLanguageLevel(data.language_level ?? "");
     setLanguage(
       data.language ?? (cfg as { instructional_language?: string }).instructional_language ?? "Portuguese (BR)"
     );
@@ -718,7 +739,113 @@ export default function LessonFormScreen() {
       };
     });
     setWords(mapped.length ? mapped : [makeWord((cfg as any).language_pair ?? "en-pt", data.language ?? "Portuguese (BR)", "vocab")]);
+
+    if (!storedLessonCategory) {
+      const { data: links, error: linksError } = await (supabase.from("lesson_pack_lessons") as any)
+        .select("pack_id")
+        .eq("lesson_id", lessonId);
+      if (linksError) throw linksError;
+
+      const packIds = Array.isArray(links) ? links.map((link: any) => String(link.pack_id ?? "")).filter(Boolean) : [];
+      if (packIds.length > 0) {
+        const { data: packs, error: packsError } = await (supabase.from("lesson_packs") as any)
+          .select("id, title, category")
+          .in("id", packIds);
+        if (packsError) throw packsError;
+
+        const matchedPack = ((packs || []) as any[]).find((pack) =>
+          LESSON_PACK_CATEGORIES.includes(String(pack.title ?? "") as (typeof LESSON_PACK_CATEGORIES)[number]) ||
+          LESSON_PACK_CATEGORIES.includes(String(pack.category ?? "") as (typeof LESSON_PACK_CATEGORIES)[number])
+        );
+
+        if (matchedPack) {
+          setLessonCategory(String(matchedPack.title ?? matchedPack.category ?? ""));
+        }
+      }
+    }
   }, [lessonId]);
+
+  const syncLessonCategoryLink = useCallback(async (savedLessonId: string, selectedLessonCategory: string, actingUserId: string) => {
+    const normalizedCategory = selectedLessonCategory.trim();
+    const { data: existingLinks, error: existingLinksError } = await (supabase.from("lesson_pack_lessons") as any)
+      .select("pack_id")
+      .eq("lesson_id", savedLessonId);
+    if (existingLinksError) throw existingLinksError;
+
+    const existingPackIds = Array.isArray(existingLinks)
+      ? existingLinks.map((link: any) => String(link.pack_id ?? "")).filter(Boolean)
+      : [];
+
+    let existingCategoryPackIds: string[] = [];
+    if (existingPackIds.length > 0) {
+      const { data: existingPacks, error: existingPacksError } = await (supabase.from("lesson_packs") as any)
+        .select("id, title, category")
+        .in("id", existingPackIds);
+      if (existingPacksError) throw existingPacksError;
+
+      existingCategoryPackIds = ((existingPacks || []) as any[])
+        .filter((pack) =>
+          LESSON_PACK_CATEGORIES.includes(String(pack.title ?? "") as (typeof LESSON_PACK_CATEGORIES)[number]) ||
+          LESSON_PACK_CATEGORIES.includes(String(pack.category ?? "") as (typeof LESSON_PACK_CATEGORIES)[number])
+        )
+        .map((pack) => String(pack.id ?? ""))
+        .filter(Boolean);
+    }
+
+    if (!normalizedCategory) {
+      if (existingCategoryPackIds.length > 0) {
+        const { error: deleteError } = await (supabase.from("lesson_pack_lessons") as any)
+          .delete()
+          .eq("lesson_id", savedLessonId)
+          .in("pack_id", existingCategoryPackIds);
+        if (deleteError) throw deleteError;
+      }
+      return;
+    }
+
+    let { data: pack, error: packLookupError } = await (supabase.from("lesson_packs") as any)
+      .select("id")
+      .eq("title", normalizedCategory)
+      .maybeSingle();
+    if (packLookupError) throw packLookupError;
+
+    if (!pack?.id) {
+      const categorySlug = normalizedCategory.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const { data: createdPack, error: createdPackError } = await (supabase.from("lesson_packs") as any)
+        .insert({
+          title: normalizedCategory,
+          slug: categorySlug,
+          category: normalizedCategory,
+          status: "published",
+          access_type: "free",
+          created_by: actingUserId,
+          updated_by: actingUserId,
+        })
+        .select("id")
+        .single();
+      if (createdPackError) throw createdPackError;
+      pack = createdPack;
+    }
+
+    const targetPackId = String(pack?.id ?? "");
+    const linksToRemove = existingCategoryPackIds.filter((packId) => packId !== targetPackId);
+    if (linksToRemove.length > 0) {
+      const { error: deleteError } = await (supabase.from("lesson_pack_lessons") as any)
+        .delete()
+        .eq("lesson_id", savedLessonId)
+        .in("pack_id", linksToRemove);
+      if (deleteError) throw deleteError;
+    }
+
+    if (targetPackId) {
+      const { error: upsertError } = await (supabase.from("lesson_pack_lessons") as any)
+        .upsert(
+          [{ pack_id: targetPackId, lesson_id: savedLessonId, sort_order: 0 }],
+          { onConflict: "pack_id,lesson_id" }
+        );
+      if (upsertError) throw upsertError;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1008,6 +1135,8 @@ export default function LessonFormScreen() {
     const content_json = {
       language_pair: languagePair,
       instructional_language: languageForSave,
+      instructional_category: category,
+      lesson_category: lessonCategory.trim() || null,
       document_url: docUrl.trim() || null,
       document_name: docName.trim() || null,
       words: serializedWords,
@@ -1016,6 +1145,7 @@ export default function LessonFormScreen() {
     setSaving(true);
     try {
       const ownerId = isAdmin ? (teacherId || currentUserId) : currentUserId;
+      let savedLessonId = lessonId ?? "";
       if (isEdit && lessonId) {
         const payload: Record<string, unknown> = {
           title: title.trim(),
@@ -1037,7 +1167,7 @@ export default function LessonFormScreen() {
         if (error) throw error;
       } else {
         const slug = `${title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Math.random().toString(36).slice(2, 7)}`;
-        const { error } = await (supabase.from("lessons") as any).insert({
+        const { data: insertedLesson, error } = await (supabase.from("lessons") as any).insert({
           title: title.trim(),
           slug,
           description: description.trim() || null,
@@ -1050,8 +1180,13 @@ export default function LessonFormScreen() {
           teacher_id: ownerId,
           created_by: ownerId,
           updated_by: currentUserId,
-        });
+        }).select("id").single();
         if (error) throw error;
+        savedLessonId = String(insertedLesson?.id ?? "");
+      }
+
+      if (isAdmin && savedLessonId && currentUserId) {
+        await syncLessonCategoryLink(savedLessonId, lessonCategory, currentUserId);
       }
       triggerSuccessHaptic();
       Alert.alert("Saved", isEdit ? "Lesson updated." : "Lesson created.");
@@ -1224,9 +1359,23 @@ export default function LessonFormScreen() {
                     onSelect={(value) => { setLanguageLevel(value); setLevelOpen(false); }}
                   />
                   <DropdownField label="Category" value={category} options={CATEGORY_OPTIONS} placeholder="Select category" open={categoryOpen}
-                    onToggle={() => { setLevelOpen(false); setLanguageOpen(false); setCategoryOpen((p) => !p); }}
+                    onToggle={() => { setLevelOpen(false); setLanguageOpen(false); setLessonCategoryOpen(false); setCategoryOpen((p) => !p); }}
                     onSelect={(value) => { setCategory(value); setCategoryOpen(false); }}
                   />
+                  {isAdmin ? (
+                    <DropdownField
+                      label="Add to Lesson Category"
+                      value={lessonCategory || EMPTY_LESSON_PACK_CATEGORY}
+                      options={[EMPTY_LESSON_PACK_CATEGORY, ...LESSON_PACK_CATEGORIES]}
+                      placeholder="Select lesson category"
+                      open={lessonCategoryOpen}
+                      onToggle={() => { setCategoryOpen(false); setLevelOpen(false); setLanguageOpen(false); setLessonCategoryOpen((p) => !p); }}
+                      onSelect={(value) => {
+                        setLessonCategory(value === EMPTY_LESSON_PACK_CATEGORY ? "" : value);
+                        setLessonCategoryOpen(false);
+                      }}
+                    />
+                  ) : null}
                 </View>
               </View>
 

@@ -173,7 +173,7 @@ export default function TestsScreen() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const planUi = normalizePlanUi(planRaw);
-  const isFreePlan = planUi === "Free";
+  const isBasicPlan = planUi === "Basic";
 
   useEffect(() => {
     const loopOne = Animated.loop(
@@ -542,7 +542,7 @@ export default function TestsScreen() {
           <StatCard
             theme={theme}
             label="Total"
-            value={!isAdmin && isFreePlan ? `${testsForView.length}/5` : String(testsForView.length)}
+            value={String(testsForView.length)}
             icon="grid-outline"
             accent={theme.isDark ? theme.colors.primary : AZULEJO_BLUE}
           />
@@ -550,10 +550,10 @@ export default function TestsScreen() {
         </View>
         </ScreenReveal>
 
-        {!isAdmin && isFreePlan ? (
+        {!isAdmin && isBasicPlan ? (
           <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14}>
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              Free plan includes up to 5 tests. Upgrade for unlimited.
+              Basic includes full test creation with AI tools and a 1 student cap. Upgrade for a larger classroom.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Subscription")}
