@@ -52,35 +52,29 @@ const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
 const PLAN_TYPES = [
-  { id: "free" as const, label: "Free", icon: "person-outline" as const },
-  { id: "tutor" as const, label: "Tutor", icon: "flame-outline" as const },
-  { id: "standard" as const, label: "Teacher", icon: "star-outline" as const },
-  { id: "pro" as const, label: "Pro", icon: "flash-outline" as const },
+  { id: "basic" as const, label: "Basic", icon: "person-outline" as const },
+  { id: "standard" as const, label: "Standard", icon: "star-outline" as const },
   { id: "school" as const, label: "School", icon: "school-outline" as const },
   { id: "internal" as const, label: "Internal", icon: "settings-outline" as const },
 ];
 
 const PLAN_TO_LIMIT: Record<string, number> = {
-  free: 5,
-  tutor: 10,
+  basic: 1,
   standard: 30,
-  pro: 60,
   school: 999,
   internal: 999,
 };
 
 /** PLAN_TYPES `id` -> DB plan string (same as Eluency web / RLS checks). */
 function planUiIdToDbPlan(uiId: string): string {
-  const id = (uiId ?? "free").toLowerCase().trim();
+  const id = (uiId ?? "basic").toLowerCase().trim();
   const map: Record<string, string> = {
-    free: "Free",
-    tutor: "Tutor",
+    basic: "Basic",
     standard: "Standard",
-    pro: "Pro",
     school: "School",
     internal: "Internal",
   };
-  return map[id] ?? "Free";
+  return map[id] ?? "Basic";
 }
 
 const ROLE_OPTIONS = [
@@ -113,7 +107,7 @@ export default function TeachersScreen() {
   const [editingTeacher, setEditingTeacher] = useState<TeacherRow | null>(null);
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState("teacher");
-  const [editPlan, setEditPlan] = useState("free");
+  const [editPlan, setEditPlan] = useState("basic");
   const [editStudentLimit, setEditStudentLimit] = useState("");
   const [editActive, setEditActive] = useState(true);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -124,7 +118,7 @@ export default function TeachersScreen() {
   const [addEmail, setAddEmail] = useState("");
   const [addPassword, setAddPassword] = useState("");
   const [addAccountRole, setAddAccountRole] = useState<"teacher" | "principal">("teacher");
-  const [addPlanUi, setAddPlanUi] = useState("free");
+  const [addPlanUi, setAddPlanUi] = useState("basic");
   const [addPrincipalUserId, setAddPrincipalUserId] = useState("");
   const [addPrincipals, setAddPrincipals] = useState<
     { user_id: string; name: string | null; email: string | null; org_id: string | null }[]
@@ -266,7 +260,7 @@ export default function TeachersScreen() {
   const getPlanCount = useCallback(
     (plan: string) => {
       const p = plan.toLowerCase();
-      return adminTeachersOnly.filter((t) => (t.plan?.toLowerCase() || "free") === p).length;
+      return adminTeachersOnly.filter((t) => (t.plan?.toLowerCase() || "basic") === p).length;
     },
     [adminTeachersOnly]
   );
@@ -274,10 +268,8 @@ export default function TeachersScreen() {
   const stats = useMemo(
     () => ({
       school: getPlanCount("school"),
-      pro: getPlanCount("pro"),
       standard: getPlanCount("standard"),
-      tutor: getPlanCount("tutor"),
-      free: getPlanCount("free"),
+      basic: getPlanCount("basic"),
       internal: getPlanCount("internal"),
     }),
     [getPlanCount]
@@ -288,7 +280,7 @@ export default function TeachersScreen() {
   const filteredTeachers = useMemo(() => {
     if (!isAdmin) return teachers;
     if (!filter) return adminVisibleTeachers;
-    return adminVisibleTeachers.filter((t) => (t.plan?.toLowerCase() || "free") === filter.toLowerCase());
+    return adminVisibleTeachers.filter((t) => (t.plan?.toLowerCase() || "basic") === filter.toLowerCase());
   }, [adminVisibleTeachers, filter, isAdmin, teachers]);
 
   const principalTeacherLimit = useMemo(() => {
@@ -321,14 +313,14 @@ export default function TeachersScreen() {
   }, [filteredTeachers, searchTerm]);
 
   const planTotal =
-    stats.free + stats.tutor + stats.standard + stats.pro + stats.school + stats.internal;
+    stats.basic + stats.standard + stats.school + stats.internal;
 
   const openAddTeacher = () => {
     setAddName("");
     setAddEmail("");
     setAddPassword("");
     setAddAccountRole("teacher");
-    setAddPlanUi("free");
+    setAddPlanUi("basic");
     setAddPrincipalUserId("");
     setAddModalVisible(true);
   };
@@ -714,14 +706,10 @@ export default function TeachersScreen() {
                 >
                   {PLAN_TYPES.map((plan) => {
                     const count =
-                      plan.id === "free"
-                        ? stats.free
-                        : plan.id === "tutor"
-                        ? stats.tutor
+                      plan.id === "basic"
+                        ? stats.basic
                         : plan.id === "standard"
                         ? stats.standard
-                        : plan.id === "pro"
-                        ? stats.pro
                         : plan.id === "school"
                         ? stats.school
                         : stats.internal;
@@ -824,10 +812,8 @@ export default function TeachersScreen() {
                   >
                     {planTotal > 0 ? (
                       <>
-                        <View style={{ height: "100%", width: `${(stats.free / planTotal) * 100}%`, backgroundColor: "#94a3b8" }} />
-                        <View style={{ height: "100%", width: `${(stats.tutor / planTotal) * 100}%`, backgroundColor: "#f97316" }} />
+                        <View style={{ height: "100%", width: `${(stats.basic / planTotal) * 100}%`, backgroundColor: "#94a3b8" }} />
                         <View style={{ height: "100%", width: `${(stats.standard / planTotal) * 100}%`, backgroundColor: theme.colors.primary }} />
-                        <View style={{ height: "100%", width: `${(stats.pro / planTotal) * 100}%`, backgroundColor: "#06b6d4" }} />
                         <View style={{ height: "100%", width: `${(stats.school / planTotal) * 100}%`, backgroundColor: "#6366f1" }} />
                         <View style={{ height: "100%", width: `${(stats.internal / planTotal) * 100}%`, backgroundColor: "#475569" }} />
                       </>
@@ -1025,7 +1011,7 @@ export default function TeachersScreen() {
                             }}
                           >
                             <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                              {(t.plan ?? "Free").toString()}
+                              {normalizePlanUi(t.plan)}
                             </Text>
                           </View>
                           <View
@@ -1562,7 +1548,7 @@ export default function TeachersScreen() {
                         })}
                       </View>
                       <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
-                        Teacher: Free/Tutor/Standard/Pro. Principal: School only.
+                        Teacher: Basic or Standard. Principal: School only.
                       </Text>
                     </View>
 
@@ -1652,7 +1638,7 @@ export default function TeachersScreen() {
                     }}
                   >
                     <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-                      Principal: new teachers use plan Free and join your school (org). Capacity limits apply like on
+                      Principal: new teachers use plan Basic and join your school (org). Capacity limits apply like on
                       the web.
                     </Text>
                     {currentTeacher?.plan ? (

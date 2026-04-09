@@ -166,7 +166,7 @@ export default function StudentsScreen() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [currentUserId, setCurrentUserId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [planName, setPlanName] = useState("Free");
+  const [planName, setPlanName] = useState("Basic");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -218,7 +218,7 @@ export default function StudentsScreen() {
 
       const admin = (me?.role ?? "").toLowerCase().trim() === "admin";
       setIsAdmin(admin);
-      const coerced = coercePlanForRole(me?.role ?? "teacher", me?.plan ?? "Free");
+      const coerced = coercePlanForRole(me?.role ?? "teacher", me?.plan ?? "Basic");
       setPlanName(normalizePlanUi(coerced));
 
       let query = (supabase.from("students") as any)
@@ -492,11 +492,11 @@ export default function StudentsScreen() {
         </View>
         </ScreenReveal>
 
-        {!isAdmin && planName === "Free" ? (
+        {!isAdmin && planName === "Basic" ? (
           <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
-            <Text style={theme.typography.bodyStrong}>You are on the Free plan</Text>
+            <Text style={theme.typography.bodyStrong}>You are on the Basic plan</Text>
             <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
-              Higher plans include more students and unlimited lessons.
+              Basic includes full lessons, tests, AI tools, and 1 active student. Upgrade when you need more seats.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Subscription")}

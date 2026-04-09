@@ -56,7 +56,10 @@ type LessonRow = {
   created_at: string | null;
   cover_image_url?: string | null;
   created_by?: string | null;
+  teacher_id?: string | null;
   language?: string | null;
+  language_level?: string | null;
+  grade_range?: string | null;
   teachers?: { name: string } | null;
 };
 
@@ -71,6 +74,19 @@ const apiBaseUrl =
   "https://www.eluency.com";
 
 const PAGE_SIZE = 10;
+const LESSON_LANGUAGES = [
+  "Portuguese (BR)",
+  "Spanish",
+  "English",
+  "French",
+  "German",
+  "Italian",
+  "Japanese",
+  "Korean",
+  "Chinese (Mandarin)",
+  "Arabic",
+] as const;
+const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 
 const LIGHT_BG = "#F6F3EE";
 const CARD_BG = "#FFFCF8";
@@ -198,6 +214,13 @@ function truncate(text?: string | null, max = 120) {
   return `${clean.slice(0, max).trimEnd()}...`;
 }
 
+function slugifyLessonTitle(value?: string | null) {
+  return (value ?? "lesson")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function FadeInSection({
   children,
   delay = 0,
@@ -312,11 +335,21 @@ export default function LessonsScreen() {
   const [page, setPage] = useState(1);
   const [teacherView, setTeacherView] = useState<"mine" | string>("mine");
   const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
-  const [lessonPackNames, setLessonPackNames] = useState<
-    Record<string, string[]>
-  >({});
+  const [packMap, setPackMap] = useState<Record<string, { id: string; title: string }[]>>({});
+  const [allPacks, setAllPacks] = useState<{ id: string; title: string }[]>([]);
   const [languageFilter, setLanguageFilter] = useState("all");
+  const [packFilter, setPackFilter] = useState("all");
+  const [levelFilters, setLevelFilters] = useState<string[]>([]);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+  const [duplicateLoadingId, setDuplicateLoadingId] = useState<string | null>(null);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [selectedLessonIds, setSelectedLessonIds] = useState<string[]>([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [bulkLanguage, setBulkLanguage] = useState("");
+  const [bulkPackId, setBulkPackId] = useState("");
+  const [bulkLoading, setBulkLoading] = useState<null | "duplicate" | "assign" | "language" | "category" | "remove-category">(null);
+  const [sortKey, setSortKey] = useState<"created_at" | "title">("created_at");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0.7)).current;
@@ -417,7 +450,7 @@ export default function LessonsScreen() {
 
       let query = (supabase.from("lessons") as any)
         .select(
-          "id, title, description, status, created_at, cover_image_url, created_by, language"
+          "id, title, description, status, created_at, cover_image_url, created_by, teacher_id, language, language_level, grade_range, content_json"
         )
         .order("created_at", { ascending: false });
 
@@ -432,7 +465,7 @@ export default function LessonsScreen() {
 
       if (admin && rows.length) {
         const ownerIds = Array.from(
-          new Set(rows.map((r) => r.created_by).filter(Boolean))
+          new Set(rows.map((r) => r.teacher_id ?? r.created_by).filter(Boolean))
         ) as string[];
 
         if (ownerIds.length) {
@@ -452,8 +485,8 @@ export default function LessonsScreen() {
 
           rows = rows.map((r) => ({
             ...r,
-            teachers: r.created_by
-              ? { name: byId.get(r.created_by) ?? "" }
+            teachers: (r.teacher_id ?? r.created_by)
+              ? { name: byId.get((r.teacher_id ?? r.created_by) as string) ?? "" }
               : null,
           }));
         }
@@ -481,31 +514,40 @@ export default function LessonsScreen() {
           const { data: packData } = await (supabase.from(
             "lesson_packs"
           ) as any)
-            .select("id, name")
+            .select("id, title")
             .in("id", packIds);
 
           const packNameById = new Map<string, string>(
-            ((packData ?? []) as { id: string; name: string }[]).map((p) => [
+            ((packData ?? []) as { id: string; title: string }[]).map((p) => [
               p.id,
-              p.name,
+              p.title,
             ])
           );
 
-          const map: Record<string, string[]> = {};
+          const map: Record<string, { id: string; title: string }[]> = {};
+          const packsSeen = new Map<string, string>();
 
           for (const link of links) {
             const name = packNameById.get(link.pack_id);
             if (!name) continue;
             if (!map[link.lesson_id]) map[link.lesson_id] = [];
-            map[link.lesson_id].push(name);
+            map[link.lesson_id].push({ id: link.pack_id, title: name });
+            packsSeen.set(link.pack_id, name);
           }
 
-          setLessonPackNames(map);
+          setPackMap(map);
+          setAllPacks(
+            Array.from(packsSeen.entries())
+              .map(([id, title]) => ({ id, title }))
+              .sort((a, b) => a.title.localeCompare(b.title))
+          );
         } else {
-          setLessonPackNames({});
+          setPackMap({});
+          setAllPacks([]);
         }
       } else {
-        setLessonPackNames({});
+        setPackMap({});
+        setAllPacks([]);
       }
     } catch (e: unknown) {
       Alert.alert(
@@ -529,7 +571,7 @@ export default function LessonsScreen() {
     const map = new Map<string, { name: string; count: number }>();
 
     for (const lesson of lessons) {
-      const teacherId = lesson.created_by;
+      const teacherId = lesson.teacher_id ?? lesson.created_by;
       const teacherName = lesson.teachers?.name;
 
       if (teacherId && teacherName && teacherId !== currentUserId) {
@@ -549,9 +591,9 @@ export default function LessonsScreen() {
   const lessonsForView = useMemo(() => {
     if (!isAdmin) return lessons;
     if (teacherView === "mine") {
-      return lessons.filter((lesson) => lesson.created_by === currentUserId);
+      return lessons.filter((lesson) => (lesson.teacher_id ?? lesson.created_by) === currentUserId);
     }
-    return lessons.filter((lesson) => lesson.created_by === teacherView);
+    return lessons.filter((lesson) => (lesson.teacher_id ?? lesson.created_by) === teacherView);
   }, [currentUserId, isAdmin, lessons, teacherView]);
 
   const languageOptions = useMemo(
@@ -568,27 +610,42 @@ export default function LessonsScreen() {
 
   const filtered = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-
-    return lessonsForView.filter((lesson) => {
+    const filteredLessons = lessonsForView.filter((lesson) => {
       const matchesSearch =
         (lesson.title ?? "").toLowerCase().includes(query) ||
         (lesson.description ?? "").toLowerCase().includes(query) ||
         (lesson.teachers?.name ?? "").toLowerCase().includes(query) ||
-        (lessonPackNames[lesson.id] ?? []).some((pack) =>
-          pack.toLowerCase().includes(query)
+        (packMap[lesson.id] ?? []).some((pack) =>
+          pack.title.toLowerCase().includes(query)
         );
 
       const matchesLanguage =
         languageFilter === "all" ||
         (lesson.language ?? "").trim() === languageFilter;
 
-      return matchesSearch && matchesLanguage;
+      const matchesPack =
+        packFilter === "all" ||
+        (packMap[lesson.id] ?? []).some((pack) => pack.id === packFilter);
+
+      const matchesLevel =
+        levelFilters.length === 0 ||
+        levelFilters.includes((lesson.language_level ?? "").trim());
+
+      return matchesSearch && matchesLanguage && matchesPack && matchesLevel;
     });
-  }, [languageFilter, lessonPackNames, lessonsForView, searchTerm]);
+
+    return filteredLessons.sort((a, b) => {
+      const aValue = String(a[sortKey] ?? "").toLowerCase();
+      const bValue = String(b[sortKey] ?? "").toLowerCase();
+      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [languageFilter, packFilter, levelFilters, packMap, lessonsForView, searchTerm, sortDirection, sortKey]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, teacherView, languageFilter, lessonsForView.length]);
+  }, [searchTerm, teacherView, languageFilter, packFilter, levelFilters, lessonsForView.length]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -604,6 +661,180 @@ export default function LessonsScreen() {
   const selectedTeacherLabel = viewingOtherTeacher
     ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
     : "My lessons";
+  const allVisibleSelected =
+    pagedLessons.length > 0 &&
+    pagedLessons.every((lesson) => selectedLessonIds.includes(lesson.id));
+
+  const toggleLessonSelection = (lessonId: string) => {
+    setSelectedLessonIds((prev) =>
+      prev.includes(lessonId)
+        ? prev.filter((id) => id !== lessonId)
+        : [...prev, lessonId]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = pagedLessons.map((lesson) => lesson.id);
+    if (allVisibleSelected) {
+      setSelectedLessonIds((prev) =>
+        prev.filter((id) => !visibleIds.includes(id))
+      );
+      return;
+    }
+    setSelectedLessonIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+  };
+
+  const clearSelection = () => setSelectedLessonIds([]);
+
+  const toggleSort = (key: "created_at" | "title") => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === "title" ? "asc" : "desc");
+  };
+
+  const duplicateLesson = async (lesson: LessonRow) => {
+    if (!canManage) {
+      Alert.alert("Upgrade required", "Your current plan can view lessons but cannot duplicate them.");
+      return;
+    }
+
+    setDuplicateLoadingId(lesson.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) throw new Error("Session expired");
+
+      const slug = `${slugifyLessonTitle(lesson.title)}-${Math.random().toString(36).slice(2, 9)}`;
+      const { error } = await (supabase.from("lessons") as any).insert({
+        title: `${lesson.title ?? "Lesson"} (Copy)`,
+        slug,
+        description: lesson.description ?? null,
+        grade_range: lesson.grade_range ?? null,
+        language_level: lesson.language_level ?? null,
+        language: lesson.language ?? null,
+        cover_image_url: lesson.cover_image_url ?? null,
+        status: "published",
+        content_json: (lesson as any).content_json ?? { words: [] },
+        teacher_id: user.id,
+        created_by: user.id,
+        updated_by: user.id,
+      });
+      if (error) throw error;
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Duplicate failed", e instanceof Error ? e.message : "Could not duplicate lesson");
+    } finally {
+      setDuplicateLoadingId(null);
+    }
+  };
+
+  const handleBulkDuplicate = async () => {
+    if (!isAdmin || selectedLessonIds.length === 0) return;
+    setBulkLoading("duplicate");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) throw new Error("Session expired");
+
+      const rowsToDuplicate = lessons.filter((lesson) => selectedLessonIds.includes(lesson.id));
+      const payload = rowsToDuplicate.map((lesson) => ({
+        title: `${lesson.title ?? "Lesson"} (Copy)`,
+        slug: `${slugifyLessonTitle(lesson.title)}-${Math.random().toString(36).slice(2, 9)}`,
+        description: lesson.description ?? null,
+        grade_range: lesson.grade_range ?? null,
+        language_level: lesson.language_level ?? null,
+        language: lesson.language ?? null,
+        cover_image_url: lesson.cover_image_url ?? null,
+        status: "published",
+        content_json: (lesson as any).content_json ?? { words: [] },
+        teacher_id: user.id,
+        created_by: user.id,
+        updated_by: user.id,
+      }));
+      const { error } = await (supabase.from("lessons") as any).insert(payload);
+      if (error) throw error;
+      clearSelection();
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Bulk duplicate failed", e instanceof Error ? e.message : "Could not duplicate lessons");
+    } finally {
+      setBulkLoading(null);
+    }
+  };
+
+  const handleBulkAssignTeacher = async () => {
+    if (!isAdmin || !selectedTeacherId || selectedLessonIds.length === 0) return;
+    setBulkLoading("assign");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) throw new Error("Session expired");
+      const { error } = await (supabase.from("lessons") as any)
+        .update({ teacher_id: selectedTeacherId, created_by: selectedTeacherId, updated_by: user.id })
+        .in("id", selectedLessonIds);
+      if (error) throw error;
+      clearSelection();
+      setSelectedTeacherId("");
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Reassign failed", e instanceof Error ? e.message : "Could not reassign lessons");
+    } finally {
+      setBulkLoading(null);
+    }
+  };
+
+  const handleBulkAssignLanguage = async () => {
+    if (!isAdmin || !bulkLanguage || selectedLessonIds.length === 0) return;
+    setBulkLoading("language");
+    try {
+      const { error } = await (supabase.from("lessons") as any)
+        .update({ language: bulkLanguage })
+        .in("id", selectedLessonIds);
+      if (error) throw error;
+      clearSelection();
+      setBulkLanguage("");
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Language update failed", e instanceof Error ? e.message : "Could not update lesson language");
+    } finally {
+      setBulkLoading(null);
+    }
+  };
+
+  const handleBulkAssignCategory = async () => {
+    if (!isAdmin || !bulkPackId || selectedLessonIds.length === 0) return;
+    setBulkLoading("category");
+    try {
+      const rows = selectedLessonIds.map((lesson_id) => ({ pack_id: bulkPackId, lesson_id, sort_order: 0 }));
+      const { error } = await (supabase.from("lesson_pack_lessons") as any)
+        .upsert(rows, { onConflict: "pack_id,lesson_id" });
+      if (error) throw error;
+      clearSelection();
+      setBulkPackId("");
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Category update failed", e instanceof Error ? e.message : "Could not assign category");
+    } finally {
+      setBulkLoading(null);
+    }
+  };
+
+  const handleBulkRemoveCategory = async () => {
+    if (!isAdmin || selectedLessonIds.length === 0) return;
+    setBulkLoading("remove-category");
+    try {
+      const { error } = await (supabase.from("lesson_pack_lessons") as any)
+        .delete()
+        .in("lesson_id", selectedLessonIds);
+      if (error) throw error;
+      clearSelection();
+      await loadLessons();
+    } catch (e: unknown) {
+      Alert.alert("Remove categories failed", e instanceof Error ? e.message : "Could not remove categories");
+    } finally {
+      setBulkLoading(null);
+    }
+  };
 
   const openWebNew = async () => {
     const url = `${apiBaseUrl.replace(/\/$/, "")}/dashboard/lessons/new`;
@@ -640,7 +871,8 @@ export default function LessonsScreen() {
 
               if (error) throw error;
 
-              setLessons((prev) => prev.filter((item) => item.id !== lesson.id));
+              clearSelection();
+              await loadLessons();
             } catch (e: unknown) {
               Alert.alert(
                 "Delete failed",
@@ -1043,6 +1275,259 @@ export default function LessonsScreen() {
               </View>
             ) : null}
 
+            {isAdmin ? (
+              <View style={{ marginBottom: 14 }}>
+                <PressableScale
+                  onPress={() => setShowBulkActions((prev) => !prev)}
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: showBulkActions ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                    backgroundColor: showBulkActions ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Ionicons name="layers-outline" size={16} color={theme.colors.text} />
+                    <Text style={{ marginLeft: 8, fontSize: 12, fontWeight: "900", color: theme.colors.text }}>
+                      Bulk actions
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {selectedLessonIds.length > 0 ? (
+                      <View
+                        style={{
+                          marginRight: 8,
+                          borderRadius: 999,
+                          paddingHorizontal: 9,
+                          paddingVertical: 4,
+                          backgroundColor: theme.isDark ? theme.colors.primary : PRIMARY,
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.colors.primaryText }}>
+                          {selectedLessonIds.length}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <Ionicons name={showBulkActions ? "chevron-up" : "chevron-down"} size={16} color={theme.colors.textMuted} />
+                  </View>
+                </PressableScale>
+              </View>
+            ) : null}
+
+            {isAdmin && showBulkActions ? (
+              <View
+                style={{
+                  marginBottom: 14,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: theme.isDark ? theme.colors.primary : PRIMARY_BORDER,
+                  backgroundColor: theme.isDark ? theme.colors.surfaceAlt : PRIMARY_SOFT,
+                  padding: 14,
+                }}
+              >
+                <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 12 }}>
+                  <PressableScale
+                    onPress={toggleSelectAllVisible}
+                    style={{
+                      marginRight: 8,
+                      marginBottom: 8,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                      {allVisibleSelected ? "Unselect visible" : "Select visible"}
+                    </Text>
+                  </PressableScale>
+
+                  <PressableScale
+                    onPress={clearSelection}
+                    style={{
+                      marginRight: 8,
+                      marginBottom: 8,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.textMuted }}>
+                      Clear selection
+                    </Text>
+                  </PressableScale>
+
+                  <PressableScale
+                    onPress={handleBulkDuplicate}
+                    disabled={selectedLessonIds.length === 0 || bulkLoading !== null}
+                    style={{
+                      marginRight: 8,
+                      marginBottom: 8,
+                      borderRadius: 12,
+                      backgroundColor: theme.isDark ? theme.colors.primary : PRIMARY,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      opacity: selectedLessonIds.length === 0 || bulkLoading !== null ? 0.5 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.primaryText }}>
+                      {bulkLoading === "duplicate" ? "Duplicating..." : "Duplicate to my lessons"}
+                    </Text>
+                  </PressableScale>
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    {otherTeachers.map((teacher) => (
+                      <PressableScale
+                        key={`assign-${teacher.id}`}
+                        onPress={() => setSelectedTeacherId(teacher.id)}
+                        style={{
+                          marginRight: 8,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: selectedTeacherId === teacher.id ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                          backgroundColor: selectedTeacherId === teacher.id ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surface,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                          {teacher.name}
+                        </Text>
+                      </PressableScale>
+                    ))}
+
+                    <PressableScale
+                      onPress={handleBulkAssignTeacher}
+                      disabled={selectedLessonIds.length === 0 || bulkLoading !== null || !selectedTeacherId}
+                      style={{
+                        marginRight: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surface,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        opacity: selectedLessonIds.length === 0 || bulkLoading !== null || !selectedTeacherId ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                        {bulkLoading === "assign" ? "Reassigning..." : "Reassign"}
+                      </Text>
+                    </PressableScale>
+
+                    {LESSON_LANGUAGES.map((language) => (
+                      <PressableScale
+                        key={`bulk-language-${language}`}
+                        onPress={() => setBulkLanguage(language)}
+                        style={{
+                          marginRight: 8,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: bulkLanguage === language ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                          backgroundColor: bulkLanguage === language ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surface,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                          {language}
+                        </Text>
+                      </PressableScale>
+                    ))}
+
+                    <PressableScale
+                      onPress={handleBulkAssignLanguage}
+                      disabled={selectedLessonIds.length === 0 || bulkLoading !== null || !bulkLanguage}
+                      style={{
+                        marginRight: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surface,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        opacity: selectedLessonIds.length === 0 || bulkLoading !== null || !bulkLanguage ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                        {bulkLoading === "language" ? "Updating..." : "Assign language"}
+                      </Text>
+                    </PressableScale>
+
+                    {allPacks.map((pack) => (
+                      <PressableScale
+                        key={`bulk-pack-${pack.id}`}
+                        onPress={() => setBulkPackId(pack.id)}
+                        style={{
+                          marginRight: 8,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: bulkPackId === pack.id ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                          backgroundColor: bulkPackId === pack.id ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surface,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                          {pack.title}
+                        </Text>
+                      </PressableScale>
+                    ))}
+
+                    <PressableScale
+                      onPress={handleBulkAssignCategory}
+                      disabled={selectedLessonIds.length === 0 || bulkLoading !== null || !bulkPackId}
+                      style={{
+                        marginRight: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surface,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        opacity: selectedLessonIds.length === 0 || bulkLoading !== null || !bulkPackId ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
+                        {bulkLoading === "category" ? "Assigning..." : "Assign category"}
+                      </Text>
+                    </PressableScale>
+
+                    <PressableScale
+                      onPress={handleBulkRemoveCategory}
+                      disabled={selectedLessonIds.length === 0 || bulkLoading !== null}
+                      style={{
+                        marginRight: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.danger,
+                        backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : DANGER_SOFT,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        opacity: selectedLessonIds.length === 0 || bulkLoading !== null ? 0.5 : 1,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.danger }}>
+                        {bulkLoading === "remove-category" ? "Removing..." : "Remove categories"}
+                      </Text>
+                    </PressableScale>
+                  </View>
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View>
               <Text
                 style={[
@@ -1130,6 +1615,149 @@ export default function LessonsScreen() {
                     </Text>
                   </PressableScale>
                 ))}
+              </ScrollView>
+            </View>
+
+            <View style={{ marginTop: 14 }}>
+              <Text
+                style={[
+                  theme.typography.caption,
+                  {
+                    marginBottom: 8,
+                    textTransform: "uppercase",
+                    color: theme.colors.textMuted,
+                  },
+                ]}
+              >
+                Lesson category
+              </Text>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
+                <PressableScale
+                  onPress={() => { layoutEase(); setPackFilter("all"); }}
+                  style={{
+                    marginRight: 8,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: packFilter === "all" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                    backgroundColor: packFilter === "all" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>All categories</Text>
+                </PressableScale>
+
+                {allPacks.map((pack) => (
+                  <PressableScale
+                    key={pack.id}
+                    onPress={() => { layoutEase(); setPackFilter(pack.id); }}
+                    style={{
+                      marginRight: 8,
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: packFilter === pack.id ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                      backgroundColor: packFilter === pack.id ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>{pack.title}</Text>
+                  </PressableScale>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={{ marginTop: 14 }}>
+              <Text
+                style={[
+                  theme.typography.caption,
+                  {
+                    marginBottom: 8,
+                    textTransform: "uppercase",
+                    color: theme.colors.textMuted,
+                  },
+                ]}
+              >
+                Level and sort
+              </Text>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
+                <PressableScale
+                  onPress={() => setLevelFilters([])}
+                  style={{
+                    marginRight: 8,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: levelFilters.length === 0 ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                    backgroundColor: levelFilters.length === 0 ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>All levels</Text>
+                </PressableScale>
+
+                {LEVELS.map((level) => {
+                  const active = levelFilters.includes(level);
+                  return (
+                    <PressableScale
+                      key={level}
+                      onPress={() =>
+                        setLevelFilters((prev) =>
+                          prev.includes(level)
+                            ? prev.filter((item) => item !== level)
+                            : [...prev, level]
+                        )
+                      }
+                      style={{
+                        marginRight: 8,
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: active ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                        backgroundColor: active ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                      }}
+                    >
+                      <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>{level}</Text>
+                    </PressableScale>
+                  );
+                })}
+
+                <PressableScale
+                  onPress={() => toggleSort("created_at")}
+                  style={{
+                    marginRight: 8,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: sortKey === "created_at" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                    backgroundColor: sortKey === "created_at" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>
+                    Date {sortKey === "created_at" ? (sortDirection === "asc" ? "↑" : "↓") : ""}
+                  </Text>
+                </PressableScale>
+
+                <PressableScale
+                  onPress={() => toggleSort("title")}
+                  style={{
+                    marginRight: 8,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: sortKey === "title" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
+                    backgroundColor: sortKey === "title" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                  }}
+                >
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>
+                    Title {sortKey === "title" ? (sortDirection === "asc" ? "↑" : "↓") : ""}
+                  </Text>
+                </PressableScale>
               </ScrollView>
             </View>
           </View>
@@ -1318,10 +1946,12 @@ export default function LessonsScreen() {
                   const languageBadgeColors =
                     getLanguageBadgeColors(languageBadge);
                   const descriptionPreview = truncate(lesson.description, 112);
-                  const packNames = lessonPackNames[lesson.id] ?? [];
+                  const packEntries = packMap[lesson.id] ?? [];
+                  const packNames = packEntries.map((pack) => pack.title);
                   const teacherName =
                     lesson.teachers?.name?.trim() ||
                     (lesson.created_by === currentUserId ? "You" : "");
+                  const isSelected = selectedLessonIds.includes(lesson.id);
                                       return (
                     <FadeInSection key={lesson.id} delay={210 + index * 55}>
                       <PressableScale
@@ -1334,7 +1964,7 @@ export default function LessonsScreen() {
                           marginBottom: 12,
                           borderRadius: 24,
                           borderWidth: 1,
-                          borderColor: theme.colors.border,
+                          borderColor: isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
                           backgroundColor: theme.isDark
                             ? theme.colors.surface
                             : "#FFFFFF",
@@ -1344,6 +1974,7 @@ export default function LessonsScreen() {
                           shadowRadius: 16,
                           shadowOffset: { width: 0, height: 8 },
                           elevation: 4,
+                          opacity: deleteLoadingId === lesson.id || duplicateLoadingId === lesson.id ? 0.7 : 1,
                         }}
                       >
                         <View
@@ -1366,6 +1997,30 @@ export default function LessonsScreen() {
                               alignItems: "flex-start",
                             }}
                           >
+                            {isAdmin && showBulkActions ? (
+                              <TouchableOpacity
+                                onPress={() => toggleLessonSelection(lesson.id)}
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 10,
+                                  borderWidth: 1,
+                                  borderColor: isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY) : theme.colors.border,
+                                  backgroundColor: isSelected ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  marginRight: 10,
+                                  marginTop: 2,
+                                }}
+                              >
+                                <Ionicons
+                                  name={isSelected ? "checkmark" : "add"}
+                                  size={15}
+                                  color={isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY) : theme.colors.textMuted}
+                                />
+                              </TouchableOpacity>
+                            ) : null}
+
                             {lesson.cover_image_url?.trim() ? (
                               <Image
                                 source={{ uri: lesson.cover_image_url.trim() }}
@@ -1469,17 +2124,67 @@ export default function LessonsScreen() {
                                     marginRight: 8,
                                     marginBottom: 6,
                                   }}
-                                >
-                                  <Text
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "800",
+                                        color: accent.icon,
+                                      }}
+                                    >
+                                      LESSON
+                                    </Text>
+                                  </View>
+
+                                {lesson.language_level ? (
+                                  <View
                                     style={{
-                                      fontSize: 10,
-                                      fontWeight: "800",
-                                      color: accent.icon,
+                                      borderRadius: 999,
+                                      paddingHorizontal: 9,
+                                      paddingVertical: 5,
+                                      backgroundColor: "#EAF5FF",
+                                      borderWidth: 1,
+                                      borderColor: "#B8D8F7",
+                                      marginRight: 8,
+                                      marginBottom: 6,
                                     }}
                                   >
-                                    LESSON
-                                  </Text>
-                                </View>
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "900",
+                                        color: "#2E7ABF",
+                                      }}
+                                    >
+                                      {lesson.language_level}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
+                                {lesson.grade_range ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      paddingHorizontal: 9,
+                                      paddingVertical: 5,
+                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : "#F6F4FF",
+                                      borderWidth: 1,
+                                      borderColor: theme.colors.border,
+                                      marginRight: 8,
+                                      marginBottom: 6,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "800",
+                                        color: theme.isDark ? theme.colors.textMuted : VIOLET,
+                                      }}
+                                    >
+                                      {lesson.grade_range}
+                                    </Text>
+                                  </View>
+                                ) : null}
 
                                 {teacherName ? (
                                   <View
@@ -1655,6 +2360,39 @@ export default function LessonsScreen() {
                                   alignItems: "center",
                                 }}
                               >
+                                <PressableScale
+                                  onPress={() => duplicateLesson(lesson)}
+                                  style={{
+                                    marginRight: 8,
+                                    borderRadius: 12,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.border,
+                                    backgroundColor: theme.colors.surface,
+                                    width: 40,
+                                    height: 40,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {duplicateLoadingId === lesson.id ? (
+                                    <Text
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: "900",
+                                        color: theme.colors.textMuted,
+                                      }}
+                                    >
+                                      ...
+                                    </Text>
+                                  ) : (
+                                    <Ionicons
+                                      name="copy-outline"
+                                      size={16}
+                                      color={theme.colors.text}
+                                    />
+                                  )}
+                                </PressableScale>
+
                                 <PressableScale
                                   onPress={() =>
                                     navigation.navigate("LessonForm", {

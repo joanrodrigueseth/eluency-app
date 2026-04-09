@@ -45,44 +45,28 @@ type Tier = {
 
 const TIERS: Tier[] = [
   {
-    id: "free",
-    name: "Free",
+    id: "basic",
+    name: "Basic",
     monthlyPrice: 0,
     yearlyPrice: 0,
-    description: "Get started at no cost",
-    features: { students: 5, lessons: 5, tests: 5, presets: 5, teachers: "1", aiTools: false, uploadAssistance: false },
-  },
-  {
-    id: "tutor",
-    name: "Tutor",
-    monthlyPrice: 14.99,
-    yearlyPrice: 144.99,
-    description: "Tutors & homeschoolers",
-    features: { students: 10, lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "1", aiTools: false, uploadAssistance: false },
+    description: "Full access with AI tools for getting started",
+    features: { students: 1, lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "1", aiTools: true, uploadAssistance: true },
   },
   {
     id: "standard",
-    name: "Teacher",
+    name: "Standard",
     monthlyPrice: 29.99,
     yearlyPrice: 288.99,
-    description: "One full class",
+    description: "30 students, 14-day trial, money-back guarantee",
     badge: "Recommended",
-    features: { students: 30, lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "1", aiTools: true, uploadAssistance: false },
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    monthlyPrice: 49.99,
-    yearlyPrice: 479.99,
-    description: "Multiple classes",
-    features: { students: 60, lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "1", aiTools: true, uploadAssistance: true },
+    features: { students: 30, lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "1", aiTools: true, uploadAssistance: true },
   },
   {
     id: "school",
     name: "School",
     monthlyPrice: null,
     yearlyPrice: null,
-    description: "60+ students & teachers",
+    description: "30+ students with full access",
     features: { students: "Unlimited", lessons: "Unlimited", tests: "Unlimited", presets: "Unlimited", teachers: "Contact us", aiTools: true, uploadAssistance: true },
   },
 ];
@@ -100,7 +84,7 @@ export default function SubscriptionScreen() {
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
-  const [currentTierId, setCurrentTierId] = useState("free");
+  const [currentTierId, setCurrentTierId] = useState("basic");
 
   useEffect(() => {
     let mounted = true;
@@ -111,17 +95,20 @@ export default function SubscriptionScreen() {
           data: { user },
         } = await supabase.auth.getUser();
         if (!mounted || !user) {
-          setCurrentTierId("free");
+          setCurrentTierId("basic");
           return;
         }
         const { data: teacher } = await (supabase.from("teachers") as any)
           .select("plan")
           .eq("user_id", user.id)
           .maybeSingle();
-        const plan = String(teacher?.plan ?? "free").toLowerCase().trim();
-        setCurrentTierId(plan === "teacher" ? "standard" : plan);
+        const plan = String(teacher?.plan ?? "basic").toLowerCase().trim();
+        if (plan === "free" || plan === "basic") setCurrentTierId("basic");
+        else if (plan === "teacher" || plan === "tutor") setCurrentTierId("standard");
+        else if (plan === "pro") setCurrentTierId("school");
+        else setCurrentTierId(plan);
       } catch {
-        if (mounted) setCurrentTierId("free");
+        if (mounted) setCurrentTierId("basic");
       } finally {
         if (mounted) setLoadingPlan(false);
       }
@@ -359,7 +346,7 @@ export default function SubscriptionScreen() {
                     </Text>
                   </View>
                   <Text style={[theme.typography.title, { fontSize: 22 }]}>
-                    {price == null ? "Custom" : price === 0 ? "Free" : `$${formatMoney(price)}`}
+                    {price == null ? "Custom" : price === 0 ? "Included" : `$${formatMoney(price)}`}
                   </Text>
                 </View>
 
@@ -386,14 +373,14 @@ export default function SubscriptionScreen() {
                         ? "Starting..."
                         : tier.id === "school"
                         ? "Get a quote"
-                        : tier.id === "free"
-                        ? "Free forever"
+                        : tier.id === "basic"
+                        ? "Included with account"
                         : "Upgrade"
                     }
                     onPress={() => handleUpgrade(tier.id)}
                     loading={isUpgrading}
-                    variant={isCurrent || tier.id === "free" ? "secondary" : "primary"}
-                    disabled={isCurrent || tier.id === "free" || isUpgrading}
+                    variant={isCurrent || tier.id === "basic" ? "secondary" : "primary"}
+                    disabled={isCurrent || tier.id === "basic" || isUpgrading}
                   />
                 </View>
               </GlassCard>

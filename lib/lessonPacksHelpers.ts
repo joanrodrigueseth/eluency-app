@@ -9,7 +9,22 @@ export type LessonRow = {
   status: string;
   grade_range: string | null;
   language_level: string | null;
+  language: string | null;
   created_by: string | null;
+  cover_image_url: string | null;
+  content_json:
+    | {
+        words?: {
+          rowType?: "vocab" | "conjugation" | "preposition";
+          term_a?: string;
+          term_b?: string;
+          pt?: string;
+          en?: string;
+          infinitive?: string;
+          conjugations?: { pronoun: string; form_a: string; form_b?: string }[];
+        }[];
+      }
+    | null;
 };
 
 export type LessonPackRow = {
@@ -40,6 +55,8 @@ export type PackCardType = {
   title: string;
   description: string;
   lessonCount: number;
+  wordCount: number;
+  conjugationCount: number;
   cefrLevel: string;
   creator: string;
   accessType: AccessType;
@@ -67,7 +84,7 @@ export type TeacherPackAction =
 
 export const SUBSCRIPTION_PATH = "/dashboard/settings/subscription";
 
-export const INCLUDED_ELIGIBLE_TEACHER_PLANS = ["Tutor", "Standard", "Pro"];
+export const INCLUDED_ELIGIBLE_TEACHER_PLANS = ["Basic", "Standard"];
 
 export const PACK_LANGUAGES = [
   "Portuguese (BR)",
@@ -85,15 +102,18 @@ export const PACK_LANGUAGES = [
 export const CEFR_OPTIONS = ["A1", "A1–A2", "A2", "A2–B1", "B1", "B1–B2", "B2", "C1", "C1–C2", "C2"];
 
 export const CATEGORY_OPTIONS = [
-  "General",
-  "Curated",
-  "Speaking",
-  "Grammar",
-  "Business",
-  "Pronunciation",
-  "Vocabulary",
-  "Writing",
-  "Listening",
+  "Foundations (Beginner Core)",
+  "CEFR A2-C1",
+  "People & Daily Life",
+  "Home & Living",
+  "Food & Dining",
+  "Work & Professional",
+  "Education",
+  "Sports & Activities",
+  "Travel",
+  "Nature & Animals",
+  "Technology",
+  "Health & Safety",
 ];
 
 export const BEGINNER_LEVELS = new Set(["A1", "A1–A2", "A2", "A2–B1"]);
