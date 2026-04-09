@@ -23,6 +23,7 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { getOrCreateVocabImage } from "../lib/api/imageBank";
 import { supabase } from "../lib/supabase";
 import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
@@ -737,13 +738,22 @@ export default function TestFormScreen() {
     }
     setAiImageIndex(index);
     try {
-      const json = await authedJsonFetch("/api/ai/tests/generate-image", { pt, en: q.prompt_text.trim() || undefined });
-      const imageUrl = String(json.image_url ?? "");
-      if (!imageUrl) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not authenticated");
+      const result = await getOrCreateVocabImage(token, {
+        pt,
+        en: q.prompt_text.trim() || undefined,
+        category: finalType,
+        tags: ["test", "question-image"],
+      });
+      if (!result.image_url) {
         Alert.alert("AI", "No image returned.");
         return;
       }
-      replaceQuestion(q.key, (cur) => ({ ...cur, image_url: imageUrl }));
+      replaceQuestion(q.key, (cur) => ({ ...cur, image_url: result.image_url }));
     } catch (e) {
       Alert.alert("AI Error", e instanceof Error ? e.message : "Could not generate image");
     } finally {

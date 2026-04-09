@@ -25,6 +25,7 @@ import AppButton from "../components/AppButton";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import GlassCard from "../components/GlassCard";
+import { getOrCreateVocabImage } from "../lib/api/imageBank";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import type { RootLessonsStackParams } from "./LessonsScreen";
@@ -917,13 +918,19 @@ export default function LessonFormScreen() {
     if (!row.termA.trim() && !row.termB.trim()) return Alert.alert("AI", "Enter a term first.");
     setGeneratingImageIndex(index);
     try {
-      const json = await authedJsonFetch("/api/ai/tests/generate-image", {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not authenticated");
+      const result = await getOrCreateVocabImage(token, {
         pt: row.termA.trim() || row.termB.trim(),
         en: row.termB.trim() || row.termA.trim(),
+        category,
+        tags: ["lesson", "vocab", languagePair],
       });
-      const url = String(json.image_url ?? "");
-      if (!url) return Alert.alert("AI", "No image returned.");
-      setWords((prev) => prev.map((x, i) => (i === index ? { ...x, image_url: url } : x)));
+      if (!result.image_url) return Alert.alert("AI", "No image returned.");
+      setWords((prev) => prev.map((x, i) => (i === index ? { ...x, image_url: result.image_url } : x)));
     } catch (e) {
       Alert.alert("AI Error", e instanceof Error ? e.message : "Could not generate image");
     } finally {
