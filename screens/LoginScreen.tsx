@@ -1,5 +1,6 @@
 import { ReactNode, useMemo, useState } from "react";
 import {
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -8,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { NavigationProp, useNavigation } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -19,7 +20,7 @@ import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 
 type RootStackParamList = {
-  Login: undefined;
+  Login: { initialView?: LoginView } | undefined;
   Register: undefined;
   Dashboard: { sessionId?: string } | undefined;
   StudyGame: { sessionId: string };
@@ -165,9 +166,14 @@ function RoleSwitch({
 
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, "Login">>();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const [view, setView] = useState<LoginView>("teacher");
+  const [view, setView] = useState<LoginView>(route.params?.initialView ?? "teacher");
+
+  const { width: screenWidth } = Dimensions.get("window");
+  const logoW = Math.min(220, screenWidth - 80);
+  const logoH = Math.round(logoW * (169 / 300));
 
   const [gameCode, setGameCode] = useState("");
   const [studentError, setStudentError] = useState("");
@@ -321,9 +327,7 @@ export default function LoginScreen() {
             style={{ alignItems: "center", marginBottom: 22 }}
             pointerEvents="box-none"
           >
-            <View style={{ transform: [{ translateX: -20 }] }} pointerEvents="none">
-              <SvgUri uri={LOGO_URI} width={300} height={169} />
-            </View>
+            <SvgUri uri={LOGO_URI} width={logoW} height={logoH} />
 
             <Text
               style={[

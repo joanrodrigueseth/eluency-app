@@ -1694,7 +1694,7 @@ export default function DashboardScreen() {
  
               {(() => {
                 const DRAWER_COLORS: Record<string, { iconBg: string; iconColor: string; tint: string; border: string }> = {
-                  "/dashboard":                       { iconBg: theme.colors.primary,  iconColor: "#FFFFFF", tint: theme.colors.primarySoft,   border: theme.colors.primary },
+                  "/dashboard":                       { iconBg: "#D4462A",             iconColor: "#FFFFFF", tint: "#FDF0EE",                   border: "#F0B9B0" },
                   "/dashboard/lessons":               { iconBg: "#3777C9",             iconColor: "#FFFFFF", tint: "#ECF4FF",                   border: "#B8D3F7" },
                   "/dashboard/tests":                 { iconBg: "#9050E7",             iconColor: "#FFFFFF", tint: "#F3ECFF",                   border: "#D5B8FC" },
                   "/dashboard/students":              { iconBg: "#3EA370",             iconColor: "#FFFFFF", tint: "#EBF8F0",                   border: "#A8DFC0" },

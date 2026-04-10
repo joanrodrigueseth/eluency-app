@@ -64,6 +64,7 @@ export type PackCardType = {
   coverImageUrl: string | null;
   isFeatured: boolean;
   category: string;
+  categoryIcon: string | null;
   language: string;
   status: PackStatus;
 };

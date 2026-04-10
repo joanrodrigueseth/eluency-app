@@ -68,7 +68,7 @@ export default function App() {
         {authBootstrapped ? (
           <NavigationContainer>
             <Stack.Navigator
-              initialRouteName={hasSession ? "Dashboard" : studentSessionId ? "StudyGame" : "Login"}
+              initialRouteName={hasSession ? "Dashboard" : studentSessionId ? "StudyGame" : "Register"}
               screenOptions={{
                 headerShown: false,
               }}

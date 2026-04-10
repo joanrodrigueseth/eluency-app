@@ -49,6 +49,7 @@ type LessonPackRow = {
   slug: string | null;
   description: string | null;
   category: string | null;
+  category_icon?: string | null;
   cefr_level: string | null;
   access_type: AccessType | null;
   price_label: string | null;
@@ -68,6 +69,38 @@ const NEW_PACK_CEFR = ["A1", "A1–A2", "A2", "A2–B1", "B1", "B1–B2", "B2", 
 const ACCESS_OPTIONS: AccessType[] = ["free", "included", "paid"];
 const SORT_OPTIONS = ["default", "alpha", "words"] as const;
 type SortBy = (typeof SORT_OPTIONS)[number];
+
+const EXCLUDED_LANGUAGE_FILTERS = new Set(["english", "en-fr"]);
+
+const LANGUAGE_PILL_COLORS: Record<string, { inactive: { bg: string; text: string; border: string }; active: { bg: string; text: string; border: string } }> = {
+  "Portuguese (BR)": { inactive: { bg: "rgba(34,197,94,0.10)", text: "#15803D", border: "rgba(34,197,94,0.30)" }, active: { bg: "#16A34A", text: "#fff", border: "#15803D" } },
+  "Spanish":         { inactive: { bg: "rgba(239,68,68,0.10)", text: "#DC2626", border: "rgba(239,68,68,0.30)" }, active: { bg: "#DC2626", text: "#fff", border: "#B91C1C" } },
+  "English":         { inactive: { bg: "rgba(59,130,246,0.10)", text: "#2563EB", border: "rgba(59,130,246,0.30)" }, active: { bg: "#2563EB", text: "#fff", border: "#1D4ED8" } },
+  "French":          { inactive: { bg: "rgba(99,102,241,0.10)", text: "#4F46E5", border: "rgba(99,102,241,0.30)" }, active: { bg: "#4F46E5", text: "#fff", border: "#4338CA" } },
+  "German":          { inactive: { bg: "rgba(245,158,11,0.10)", text: "#D97706", border: "rgba(245,158,11,0.30)" }, active: { bg: "#D97706", text: "#fff", border: "#B45309" } },
+  "Italian":         { inactive: { bg: "rgba(16,185,129,0.10)", text: "#059669", border: "rgba(16,185,129,0.30)" }, active: { bg: "#059669", text: "#fff", border: "#047857" } },
+  "Japanese":        { inactive: { bg: "rgba(244,63,94,0.10)", text: "#E11D48", border: "rgba(244,63,94,0.30)" }, active: { bg: "#E11D48", text: "#fff", border: "#BE123C" } },
+  "Korean":          { inactive: { bg: "rgba(14,165,233,0.10)", text: "#0284C7", border: "rgba(14,165,233,0.30)" }, active: { bg: "#0284C7", text: "#fff", border: "#0369A1" } },
+  "Chinese (Mandarin)": { inactive: { bg: "rgba(220,38,38,0.10)", text: "#B91C1C", border: "rgba(220,38,38,0.30)" }, active: { bg: "#B91C1C", text: "#fff", border: "#991B1B" } },
+  "Arabic":          { inactive: { bg: "rgba(20,184,166,0.10)", text: "#0D9488", border: "rgba(20,184,166,0.30)" }, active: { bg: "#0D9488", text: "#fff", border: "#0F766E" } },
+};
+
+function normalizeLanguage(value?: string) {
+  return (value || "")
+    .toLowerCase()
+    .replace(/[\s\u00A0]+/g, " ")
+    .replace(/[^a-z0-9()\- ]+/g, "")
+    .trim();
+}
+
+function matchLanguage(value?: string, filter?: string): boolean {
+  const nv = normalizeLanguage(value);
+  const nf = normalizeLanguage(filter);
+  if (!nf || nf === "all") return true;
+  if (!nv) return false;
+  if (nv === nf) return true;
+  return nv.includes(nf) || nf.includes(nv);
+}
 
 function accessPillStyle(
   theme: ReturnType<typeof useAppTheme>,
@@ -398,7 +431,6 @@ export default function LessonPacksScreen() {
   const [viewingLesson, setViewingLesson] = useState<LessonRow | null>(null);
   const [sessionAddedCount, setSessionAddedCount] = useState(0);
   const [cefrPickerOpen, setCefrPickerOpen] = useState(false);
-  const [languageFilterOpen, setLanguageFilterOpen] = useState(false);
 
   const canManage = (currentRole ?? "").toLowerCase().trim() === "admin";
 
@@ -430,7 +462,7 @@ export default function LessonPacksScreen() {
 
       let packsQuery = (supabase.from("lesson_packs") as any)
         .select(
-          "id, title, slug, description, category, cefr_level, access_type, price_label, cover_image_url, is_featured, status, created_by, created_at, language"
+          "id, title, slug, description, category, category_icon, cefr_level, access_type, price_label, cover_image_url, is_featured, status, created_by, created_at, language"
         )
         .order("created_at", { ascending: false });
 
@@ -503,6 +535,7 @@ export default function LessonPacksScreen() {
           coverImageUrl: row.cover_image_url || null,
           isFeatured: !!row.is_featured,
           category: row.category || "",
+          categoryIcon: row.category_icon || null,
           language: row.language || "",
           status: (row.status || "draft") as PackStatus,
         };
@@ -534,7 +567,7 @@ export default function LessonPacksScreen() {
         if (filterLanguage !== "all") {
           const hasLanguageMatch = (packLessonMap[pack.id] || []).some((lessonId) => {
             const lesson = lessonDetailMap.get(lessonId);
-            return lesson?.language?.trim() === filterLanguage;
+            return matchLanguage(lesson?.language ?? undefined, filterLanguage);
           });
           if (!hasLanguageMatch) return false;
         }
@@ -580,17 +613,17 @@ export default function LessonPacksScreen() {
     () => Array.from(new Set(packs.map((p) => p.cefrLevel).filter(Boolean))).sort(),
     [packs]
   );
-  const availableLanguages = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          lessons
-            .map((lesson) => lesson.language?.trim())
-            .filter((language): language is string => Boolean(language))
-        )
-      ).sort(),
-    [lessons]
-  );
+  const availableLanguages = useMemo(() => {
+    const raw = new Set(
+      lessons
+        .map((l) => l.language?.trim())
+        .filter((lang): lang is string => Boolean(lang) && !EXCLUDED_LANGUAGE_FILTERS.has(normalizeLanguage(lang)))
+    );
+    // Preserve PACK_LANGUAGES canonical order, then append any extras
+    const ordered: string[] = PACK_LANGUAGES.filter((lang) => raw.has(lang));
+    const extras = Array.from(raw).filter((lang) => !PACK_LANGUAGES.includes(lang)).sort();
+    return [...ordered, ...extras];
+  }, [lessons]);
   const languageLessonCounts = useMemo(() => {
     const counts = new Map<string, number>();
     const seen = new Set<string>();
@@ -810,7 +843,6 @@ export default function LessonPacksScreen() {
   };
 
   const clearFilters = () => {
-    setLanguageFilterOpen(false);
     setFilterCefr("all");
     setFilterLanguage("all");
     setQuery("");
@@ -1326,89 +1358,69 @@ export default function LessonPacksScreen() {
         </GlassCard>
 
         <GlassCard style={{ borderRadius: 16 }} padding={16}>
-          <View style={{ marginBottom: 16 }}>
-            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available Lessons</Text>
+          <View style={{ marginBottom: 14 }}>
+            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available Packs</Text>
             <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
               Browse lessons by category and add the ones you want to your library.
             </Text>
           </View>
 
-          <View style={{ marginBottom: 12, zIndex: 20 }}>
+          {/* Language pills — colored per language, web-matching */}
+          <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }]}>
+            What language are you teaching?
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+            {/* "All" pill */}
             <TouchableOpacity
-              onPress={() => setLanguageFilterOpen((open) => !open)}
+              key="all"
+              onPress={() => setFilterLanguage("all")}
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
                 paddingHorizontal: 14,
-                paddingVertical: 12,
-                borderRadius: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                marginRight: 8,
                 borderWidth: 1,
-                borderColor: filterLanguage !== "all" ? theme.colors.primary : theme.colors.border,
-                backgroundColor: filterLanguage !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                borderColor: filterLanguage === "all" ? theme.colors.primary : theme.colors.border,
+                backgroundColor: filterLanguage === "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
               }}
             >
-              <Text style={{ flex: 1, fontSize: 12, fontWeight: "700", color: theme.colors.text }}>
-                {filterLanguage === "all"
-                  ? `Language: All (${totalVisibleLessonCount})`
-                  : `Language: ${filterLanguage} (${languageLessonCounts.get(filterLanguage) || 0})`}
+              <Text style={{ fontSize: 12, fontWeight: "700", color: filterLanguage === "all" ? theme.colors.primary : theme.colors.text }}>
+                All ({totalVisibleLessonCount})
               </Text>
-              <Ionicons
-                name={languageFilterOpen ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={filterLanguage !== "all" ? theme.colors.primary : theme.colors.textMuted}
-              />
             </TouchableOpacity>
 
-            {languageFilterOpen ? (
-              <View
-                style={{
-                  marginTop: 6,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.surface,
-                  overflow: "hidden",
-                  maxHeight: 240,
-                }}
-              >
-                <ScrollView nestedScrollEnabled>
-                  {["all", ...availableLanguages].map((item) => {
-                    const count = item === "all" ? totalVisibleLessonCount : languageLessonCounts.get(item) || 0;
-                    const selected = filterLanguage === item;
-                    return (
-                      <TouchableOpacity
-                        key={item}
-                        onPress={() => {
-                          setFilterLanguage(item);
-                          setLanguageFilterOpen(false);
-                        }}
-                        style={{
-                          paddingHorizontal: 14,
-                          paddingVertical: 12,
-                          backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
-                          borderBottomWidth: item === availableLanguages[availableLanguages.length - 1] ? 0 : 1,
-                          borderBottomColor: theme.colors.border,
-                        }}
-                      >
-                        <Text style={{ color: theme.colors.text, fontWeight: selected ? "700" : "500" }}>
-                          {item === "all" ? `All Languages (${count})` : `${item} (${count})`}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
-          </View>
+            {availableLanguages.map((lang) => {
+              const colors = LANGUAGE_PILL_COLORS[lang];
+              const isActive = filterLanguage === lang;
+              const count = languageLessonCounts.get(lang) || 0;
+              const bg = isActive ? (colors?.active.bg ?? theme.colors.primary) : (colors?.inactive.bg ?? theme.colors.surfaceAlt);
+              const text = isActive ? (colors?.active.text ?? "#fff") : (colors?.inactive.text ?? theme.colors.text);
+              const border = isActive ? (colors?.active.border ?? theme.colors.primary) : (colors?.inactive.border ?? theme.colors.border);
+              return (
+                <TouchableOpacity
+                  key={lang}
+                  onPress={() => setFilterLanguage(lang)}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    marginRight: 8,
+                    borderWidth: 1,
+                    borderColor: border,
+                    backgroundColor: bg,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: text }}>
+                    {lang} ({count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
           <TextInput
             value={query}
-            onChangeText={(value) => {
-              setLanguageFilterOpen(false);
-              setQuery(value);
-            }}
+            onChangeText={setQuery}
             placeholder="Search lessons, categories, creators..."
             placeholderTextColor={theme.colors.textMuted}
             style={{
@@ -1425,10 +1437,7 @@ export default function LessonPacksScreen() {
 
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
             <TouchableOpacity
-              onPress={() => {
-                setLanguageFilterOpen(false);
-                setCefrPickerOpen(true);
-              }}
+              onPress={() => setCefrPickerOpen(true)}
               style={{
                 flexDirection: "row",
                 alignItems: "center",

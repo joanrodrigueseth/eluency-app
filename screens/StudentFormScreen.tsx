@@ -106,6 +106,7 @@ export default function StudentFormScreen() {
   const [allTests, setAllTests] = useState<TestOpt[]>([]);
   const [contentLoading, setContentLoading] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<"lessons" | "tests">("lessons");
   const [lessonSearch, setLessonSearch] = useState("");
   const [testSearch, setTestSearch] = useState("");
   const [teacherSearch, setTeacherSearch] = useState("");
@@ -534,156 +535,141 @@ export default function StudentFormScreen() {
           </GlassCard>
         ) : null}
 
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[darkCaption, { textTransform: "uppercase" }]}>Lessons</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: GREEN }}>{selectedLessons.length} selected</Text>
-              </View>
-              {contentLoading ? <ActivityIndicator size="small" color={GREEN} /> : null}
-            </View>
-          </View>
-          <TextInput
-            value={lessonSearch}
-            onChangeText={setLessonSearch}
-            placeholder="Search lessons…"
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { marginBottom: 10 }]}
-          />
-          {filteredLessons.map((l) => {
-            const selected = selectedLessons.includes(l.id);
-            const vocabCount = Array.isArray(l.content_json?.words) ? l.content_json?.words.length : 0;
-            const languageBadge = getLanguageBadge(l.language);
-            const languageBadgeColors = getLanguageBadgeColors(languageBadge);
-            return (
-              <TouchableOpacity
-                key={l.id}
-                onPress={() => toggleLesson(l.id)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 10,
-                  paddingHorizontal: 10,
-                  marginBottom: 8,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: selected ? GREEN : theme.colors.border,
-                  backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
-                }}
-              >
-                <Ionicons
-                  name={selected ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={GREEN}
-                />
-                <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
-                  {l.title}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 8 }}>
-                  {languageBadge ? (
-                    <View
-                      style={{
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: languageBadgeColors.borderColor,
-                        backgroundColor: languageBadgeColors.backgroundColor,
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                      }}
-                    >
-                      <Text style={{ fontSize: 10, fontWeight: "900", color: languageBadgeColors.textColor }}>{languageBadge}</Text>
+        <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16}>
+          {/* Tab header */}
+          <View style={{ flexDirection: "row", marginBottom: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceAlt, padding: 3 }}>
+            {(["lessons", "tests"] as const).map((tab) => {
+              const active = activeTab === tab;
+              const count = tab === "lessons" ? selectedLessons.length : selectedTests.length;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveTab(tab)}
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    paddingVertical: 9,
+                    borderRadius: 10,
+                    backgroundColor: active ? "#FFFFFF" : "transparent",
+                    shadowColor: active ? "#000" : "transparent",
+                    shadowOpacity: active ? 0.06 : 0,
+                    shadowRadius: 4,
+                    shadowOffset: { width: 0, height: 1 },
+                    elevation: active ? 2 : 0,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: active ? "#0F1115" : theme.colors.textMuted }}>
+                    {tab === "lessons" ? "Lessons" : "Tests"}
+                  </Text>
+                  {count > 0 ? (
+                    <View style={{ borderRadius: 999, backgroundColor: GREEN, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: "center" }}>
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: "#fff" }}>{count}</Text>
                     </View>
                   ) : null}
-                  <View
-                    style={{
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: "#B7D0E8",
-                      backgroundColor: "#EAF3FB",
-                      paddingHorizontal: 7,
-                      paddingVertical: 4,
-                    }}
-                  >
-                    <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </GlassCard>
-
-        <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[darkCaption, { textTransform: "uppercase" }]}>Tests</Text>
-            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT, paddingHorizontal: 8, paddingVertical: 4 }}>
-              <Text style={{ fontSize: 10, fontWeight: "800", color: GREEN }}>{selectedTests.length} selected</Text>
-            </View>
+                  {tab === "lessons" && contentLoading ? <ActivityIndicator size="small" color={GREEN} style={{ marginLeft: 2 }} /> : null}
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <TextInput
-            value={testSearch}
-            onChangeText={setTestSearch}
-            placeholder="Search tests…"
-            placeholderTextColor={theme.colors.textMuted}
-            style={[inputStyle, { marginBottom: 10 }]}
-          />
-          {filteredTests.map((t) => {
-            const selected = selectedTests.includes(t.id);
-            const vocabCount = Array.isArray(t.config_json?.words) ? t.config_json?.words.length : 0;
-            const questionCount = Array.isArray(t.config_json?.tests) ? t.config_json?.tests.length : 0;
-            return (
-              <TouchableOpacity
-                key={t.id}
-                onPress={() => toggleTest(t.id)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  paddingVertical: 10,
-                  paddingHorizontal: 10,
-                  marginBottom: 8,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: selected ? GREEN : theme.colors.border,
-                  backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
-                }}
-              >
-                <Ionicons
-                  name={selected ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={GREEN}
-                />
-                <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
-                  {t.name}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 8 }}>
-                  <View
+
+          {/* Lessons tab */}
+          {activeTab === "lessons" ? (
+            <>
+              <TextInput
+                value={lessonSearch}
+                onChangeText={setLessonSearch}
+                placeholder="Search lessons…"
+                placeholderTextColor={theme.colors.textMuted}
+                style={[inputStyle, { marginBottom: 10 }]}
+              />
+              {filteredLessons.map((l) => {
+                const selected = selectedLessons.includes(l.id);
+                const vocabCount = Array.isArray(l.content_json?.words) ? l.content_json?.words.length : 0;
+                const languageBadge = getLanguageBadge(l.language);
+                const languageBadgeColors = getLanguageBadgeColors(languageBadge);
+                return (
+                  <TouchableOpacity
+                    key={l.id}
+                    onPress={() => toggleLesson(l.id)}
                     style={{
-                      borderRadius: 999,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      paddingHorizontal: 10,
+                      marginBottom: 8,
+                      borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: "#B7D0E8",
-                      backgroundColor: "#EAF3FB",
-                      paddingHorizontal: 7,
-                      paddingVertical: 4,
+                      borderColor: selected ? GREEN : theme.colors.border,
+                      backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
                     }}
                   >
-                    <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
-                  </View>
-                  <View
+                    <Ionicons name={selected ? "checkbox" : "square-outline"} size={22} color={GREEN} />
+                    <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
+                      {l.title}
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 8 }}>
+                      {languageBadge ? (
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: languageBadgeColors.borderColor, backgroundColor: languageBadgeColors.backgroundColor, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: languageBadgeColors.textColor }}>{languageBadge}</Text>
+                        </View>
+                      ) : null}
+                      <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <TextInput
+                value={testSearch}
+                onChangeText={setTestSearch}
+                placeholder="Search tests…"
+                placeholderTextColor={theme.colors.textMuted}
+                style={[inputStyle, { marginBottom: 10 }]}
+              />
+              {filteredTests.map((t) => {
+                const selected = selectedTests.includes(t.id);
+                const vocabCount = Array.isArray(t.config_json?.words) ? t.config_json?.words.length : 0;
+                const questionCount = Array.isArray(t.config_json?.tests) ? t.config_json?.tests.length : 0;
+                return (
+                  <TouchableOpacity
+                    key={t.id}
+                    onPress={() => toggleTest(t.id)}
                     style={{
-                      borderRadius: 999,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      paddingHorizontal: 10,
+                      marginBottom: 8,
+                      borderRadius: 12,
                       borderWidth: 1,
-                      borderColor: "#E6D39A",
-                      backgroundColor: "#FFF5DA",
-                      paddingHorizontal: 7,
-                      paddingVertical: 4,
+                      borderColor: selected ? GREEN : theme.colors.border,
+                      backgroundColor: selected ? GREEN_SOFT : theme.colors.surface,
                     }}
                   >
-                    <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{questionCount}Q</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                    <Ionicons name={selected ? "checkbox" : "square-outline"} size={22} color={GREEN} />
+                    <Text style={[theme.typography.body, { marginLeft: 10, flex: 1 }]} numberOfLines={2}>
+                      {t.name}
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 8 }}>
+                      <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
+                      </View>
+                      <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 7, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{questionCount}Q</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </>
+          )}
         </GlassCard>
 
         <AppButton label={isEdit ? "Save changes" : "Create student"} onPress={handleSave} loading={saving} />
