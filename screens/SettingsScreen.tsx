@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   ScrollView,
   Text,
   TextInput,
@@ -10,7 +9,8 @@ import {
   View,
 } from "react-native";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { NavigationProp, useNavigation } from "@react-navigation/native";
+import Constants from "expo-constants";
+import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
@@ -21,12 +21,12 @@ import { normalizePlanUi } from "../lib/teacherRolePlanRules";
 
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Settings: undefined;
+  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
   Subscription: undefined;
+  Login: undefined;
 };
 
-type SettingsTab = "profile" | "security" | "notifications" | "preferences" | "plan";
-type LanguagePairCode = "en-pt" | "en-es" | "en-fr" | "pt-es";
+type SettingsTab = "profile" | "security" | "notifications";
 
 type PlanInfo = {
   plan: string;
@@ -35,13 +35,6 @@ type PlanInfo = {
   test_limit?: number | null;
   preset_limit?: number | null;
 };
-
-const LANGUAGE_PAIRS: { code: LanguagePairCode; fullLabel: string; flag: string }[] = [
-  { code: "en-pt", fullLabel: "English ↔ Portuguese", flag: "🇧🇷" },
-  { code: "en-es", fullLabel: "English ↔ Spanish", flag: "🇪🇸" },
-  { code: "en-fr", fullLabel: "English ↔ French", flag: "🇫🇷" },
-  { code: "pt-es", fullLabel: "Portuguese ↔ Spanish", flag: "🇵🇹" },
-];
 
 const PLAN_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   basic:    { bg: "#F0F4FF", text: "#3B5EDB", border: "#C0CFFF" },
@@ -111,25 +104,23 @@ function SectionTitle({ icon, label, color }: { icon: string; label: string; col
   );
 }
 
-function Divider() {
-  const theme = useAppTheme();
-  return <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 14 }} />;
-}
-
 export default function SettingsScreen() {
   const theme = useAppTheme();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, "Settings">>();
   const insets = useSafeAreaInsets();
+  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const initialTab = route.params?.initialTab;
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "profile");
   const [profileLoading, setProfileLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const [profile, setProfile] = useState({ name: "", email: "" });
   const [originalEmail, setOriginalEmail] = useState("");
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [studentCount, setStudentCount] = useState(0);
-  const [defaultLanguagePair, setDefaultLanguagePair] = useState<LanguagePairCode>("en-pt");
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
 
   const passwordsMatch =
@@ -172,8 +163,6 @@ export default function SettingsScreen() {
             test_limit: teacher.test_limit ?? null,
             preset_limit: teacher.preset_limit ?? null,
           });
-          const dbPair = (teacher.default_language_pair ?? "").trim() as LanguagePairCode;
-          if (LANGUAGE_PAIRS.some((p) => p.code === dbPair)) setDefaultLanguagePair(dbPair);
         }
 
         const { count } = await (supabase.from("students") as any)
@@ -190,6 +179,12 @@ export default function SettingsScreen() {
     })();
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (route.params?.initialTab) {
+      setActiveTab(route.params.initialTab);
+    }
+  }, [route.params?.initialTab]);
 
   const updateProfile = async () => {
     if (saving) return;
@@ -235,47 +230,129 @@ export default function SettingsScreen() {
     }
   };
 
-  const saveDefaultLanguagePair = async (value: LanguagePairCode) => {
-    setDefaultLanguagePair(value);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      await (supabase.from("teachers") as any).update({ default_language_pair: value }).eq("user_id", user.id);
-      Alert.alert("Saved", "Default language pair updated.");
-    } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to save preference.");
-    }
-  };
+  const deleteAccountAndContent = async () => {
+    if (deletingAccount) return;
 
-  const openDeleteMail = async () => {
-    const url = "mailto:nathan@eluency.com?subject=Account%20Deletion%20Request&body=Please%20delete%20my%20Eluency%20account%20and%20all%20associated%20data.";
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) { Alert.alert("Not available", "No email app available on this device."); return; }
-    await Linking.openURL(url);
+    Alert.alert(
+      "Delete account",
+      "Delete your account and all created content? This will permanently remove your lessons, tests, students, and account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingAccount(true);
+            try {
+              const {
+                data: { user },
+                error: userError,
+              } = await supabase.auth.getUser();
+              if (userError) throw userError;
+              if (!user) throw new Error("Not authenticated.");
+
+              const {
+                data: { session },
+                error: sessionError,
+              } = await supabase.auth.getSession();
+              if (sessionError) throw sessionError;
+              const accessToken = session?.access_token;
+              if (!accessToken) throw new Error("Not authenticated.");
+
+              const userId = user.id;
+
+              const { data: lessonRows, error: lessonsLookupError } = await (supabase.from("lessons") as any)
+                .select("id")
+                .eq("created_by", userId);
+              if (lessonsLookupError) throw lessonsLookupError;
+
+              const lessonIds = Array.isArray(lessonRows)
+                ? lessonRows.map((row: { id: string }) => row.id).filter(Boolean)
+                : [];
+
+              const { data: packRows, error: packsLookupError } = await (supabase.from("lesson_packs") as any)
+                .select("id")
+                .eq("created_by", userId);
+              if (packsLookupError) throw packsLookupError;
+
+              const packIds = Array.isArray(packRows)
+                ? packRows.map((row: { id: string }) => row.id).filter(Boolean)
+                : [];
+
+              if (lessonIds.length > 0) {
+                const { error: deleteLessonLinksError } = await (supabase.from("lesson_pack_lessons") as any)
+                  .delete()
+                  .in("lesson_id", lessonIds);
+                if (deleteLessonLinksError) throw deleteLessonLinksError;
+              }
+
+              if (packIds.length > 0) {
+                const { error: deletePackLinksError } = await (supabase.from("lesson_pack_lessons") as any)
+                  .delete()
+                  .in("pack_id", packIds);
+                if (deletePackLinksError) throw deletePackLinksError;
+
+                const { error: deletePacksError } = await (supabase.from("lesson_packs") as any)
+                  .delete()
+                  .in("id", packIds);
+                if (deletePacksError) throw deletePacksError;
+              }
+
+              if (lessonIds.length > 0) {
+                const { error: deleteLessonsError } = await (supabase.from("lessons") as any)
+                  .delete()
+                  .in("id", lessonIds);
+                if (deleteLessonsError) throw deleteLessonsError;
+              }
+
+              const { error: deleteTestsError } = await (supabase.from("tests") as any)
+                .delete()
+                .eq("teacher_id", userId);
+              if (deleteTestsError) throw deleteTestsError;
+
+              const { error: deleteStudentsError } = await (supabase.from("students") as any)
+                .delete()
+                .eq("teacher_id", userId);
+              if (deleteStudentsError) throw deleteStudentsError;
+
+              const base = apiBaseUrl.replace(/\/$/, "");
+              const res = await fetch(`${base}/api/admin/teachers/${userId}`, {
+                method: "DELETE",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                },
+              });
+              const body = (await res.json().catch(() => ({}))) as { error?: string };
+              if (!res.ok) throw new Error(body?.error ?? `Failed to delete account (${res.status})`);
+
+              await supabase.auth.signOut();
+              navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+            } catch (err) {
+              Alert.alert("Error", err instanceof Error ? err.message : "Failed to delete account.");
+            } finally {
+              setDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const tabs: { id: SettingsTab; label: string; icon: string; color: string }[] = [
     { id: "profile",       label: "Profile",       icon: "person-outline",        color: "#3B5EDB" },
     { id: "security",      label: "Security",      icon: "shield-outline",        color: "#D4462A" },
-    { id: "plan",          label: "Plan",          icon: "diamond-outline",       color: "#9050E7" },
-    { id: "preferences",   label: "Preferences",   icon: "language-outline",      color: "#E3A91F" },
     { id: "notifications", label: "Notifications", icon: "notifications-outline", color: "#3EA370" },
   ];
 
   const planKey = (planInfo?.plan ?? "basic").toLowerCase();
   const planColor = PLAN_COLORS[planKey] ?? PLAN_COLORS.basic;
-
-  const studentLimit = planInfo?.student_limit;
-  const studentPct = studentLimit && studentLimit !== 999
-    ? Math.min(100, (studentCount / Math.max(studentLimit, 1)) * 100)
-    : null;
-
-  const limitRows = [
-    { label: "Students", used: studentCount, limit: planInfo?.student_limit },
-    { label: "Lessons",  used: null,         limit: planInfo?.lesson_limit },
-    { label: "Tests",    used: null,         limit: planInfo?.test_limit },
-    { label: "Presets",  used: null,         limit: planInfo?.preset_limit },
-  ].filter((r) => r.limit != null);
+  const effectiveStudentLimit =
+    planKey === "basic" ? 1 : planKey === "standard" ? 30 : (planInfo?.student_limit ?? null);
+  const planCtaLabel = planKey === "basic" ? "Upgrade Now!" : "View Plans";
+  const studentUsageLabel =
+    effectiveStudentLimit === 999 || effectiveStudentLimit === -1
+      ? `${studentCount} / Unlimited`
+      : `${studentCount} / ${effectiveStudentLimit != null ? String(effectiveStudentLimit) : "-"}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -345,7 +422,7 @@ export default function SettingsScreen() {
             </GlassCard>
 
             {/* Tab bar */}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 16 }}>
               {tabs.map((tab) => {
                 const active = activeTab === tab.id;
                 return (
@@ -354,7 +431,9 @@ export default function SettingsScreen() {
                     onPress={() => setActiveTab(tab.id)}
                     activeOpacity={0.85}
                     style={{
-                      paddingHorizontal: 14,
+                      flex: 1,
+                      minWidth: 0,
+                      paddingHorizontal: 8,
                       paddingVertical: 10,
                       borderRadius: 12,
                       borderWidth: 1.5,
@@ -362,11 +441,16 @@ export default function SettingsScreen() {
                       backgroundColor: active ? tab.color + "15" : theme.colors.surface,
                       flexDirection: "row",
                       alignItems: "center",
-                      gap: 6,
+                      justifyContent: "center",
+                      gap: 4,
                     }}
                   >
-                    <Ionicons name={tab.icon as any} size={15} color={active ? tab.color : theme.colors.textMuted} />
-                    <Text style={{ fontSize: 13, fontWeight: "600", color: active ? tab.color : theme.colors.textMuted }}>
+                    <Ionicons name={tab.icon as any} size={14} color={active ? tab.color : theme.colors.textMuted} />
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      style={{ fontSize: 11, fontWeight: "700", color: active ? tab.color : theme.colors.textMuted, flexShrink: 1 }}
+                    >
                       {tab.label}
                     </Text>
                   </TouchableOpacity>
@@ -376,49 +460,78 @@ export default function SettingsScreen() {
 
             {/* ── Profile ── */}
             {activeTab === "profile" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
-                <SectionTitle icon="person-outline" label="Profile information" color="#3B5EDB" />
+              <>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                  <SectionTitle icon="person-outline" label="Profile information" color="#3B5EDB" />
 
-                <View style={{ gap: 14 }}>
-                  <View>
-                    <FieldLabel label="Full name" />
-                    <InputField
-                      value={profile.name}
-                      onChangeText={(v) => setProfile((p) => ({ ...p, name: v }))}
-                      placeholder="e.g. Maria Santos"
-                      autoCapitalize="words"
-                    />
+                  <View style={{ gap: 14 }}>
+                    <View>
+                      <FieldLabel label="Full name" />
+                      <InputField
+                        value={profile.name}
+                        onChangeText={(v) => setProfile((p) => ({ ...p, name: v }))}
+                        placeholder="e.g. Maria Santos"
+                        autoCapitalize="words"
+                      />
+                    </View>
+
+                    <View>
+                      <FieldLabel label="Email address" />
+                      <InputField
+                        value={profile.email}
+                        onChangeText={(v) => setProfile((p) => ({ ...p, email: v }))}
+                        placeholder="email@example.com"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                      {profile.email.trim() !== originalEmail ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
+                          <Ionicons name="information-circle-outline" size={14} color={theme.colors.primary} />
+                          <Text style={[theme.typography.caption, { color: theme.colors.primary }]}>You will need to confirm the new email address.</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
 
-                  <View>
-                    <FieldLabel label="Email address" />
-                    <InputField
-                      value={profile.email}
-                      onChangeText={(v) => setProfile((p) => ({ ...p, email: v }))}
-                      placeholder="email@example.com"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
+                  <View style={{ marginTop: 20 }}>
+                    <AppButton
+                      label={saving ? "Saving…" : "Save changes"}
+                      onPress={updateProfile}
+                      loading={saving}
+                      icon={<Ionicons name="checkmark-outline" size={18} color="#fff" />}
                     />
-                    {profile.email.trim() !== originalEmail ? (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
-                        <Ionicons name="information-circle-outline" size={14} color={theme.colors.primary} />
-                        <Text style={[theme.typography.caption, { color: theme.colors.primary }]}>
-                          You will need to confirm the new email address.
-                        </Text>
-                      </View>
-                    ) : null}
                   </View>
-                </View>
+                </GlassCard>
 
-                <View style={{ marginTop: 20 }}>
-                  <AppButton
-                    label={saving ? "Saving…" : "Save changes"}
-                    onPress={updateProfile}
-                    loading={saving}
-                    icon={<Ionicons name="checkmark-outline" size={18} color="#fff" />}
-                  />
-                </View>
-              </GlassCard>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                  <SectionTitle icon="diamond-outline" label="Your plan" color="#9050E7" />
+
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: 14, borderRadius: 14, backgroundColor: planColor.bg, borderWidth: 1, borderColor: planColor.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "600", marginBottom: 2 }]}>CURRENT PLAN</Text>
+                      <Text style={[theme.typography.bodyStrong, { color: planColor.text, fontSize: 18 }]}>{planInfo?.plan ?? "Basic"}</Text>
+                      <TouchableOpacity
+                        onPress={() => navigation.navigate("Subscription")}
+                        activeOpacity={0.85}
+                        style={{ marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: planColor.text + "20", borderWidth: 1, borderColor: planColor.text + "33" }}
+                      >
+                        <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "700" }]}>{planCtaLabel}</Text>
+                        <Feather name="arrow-right" size={13} color={planColor.text} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ alignItems: "flex-end", marginHorizontal: 10 }}>
+                      <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "700", marginBottom: 2 }]}>STUDENTS MAX</Text>
+                      <Text style={[theme.typography.bodyStrong, { color: planColor.text, fontSize: 14 }]}>{studentUsageLabel}</Text>
+                    </View>
+
+                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: planColor.text + "20", alignItems: "center", justifyContent: "center", marginLeft: 2 }}>
+                      <Ionicons name="diamond" size={20} color={planColor.text} />
+                    </View>
+                  </View>
+
+                </GlassCard>
+              </>
             )}
 
             {/* ── Security ── */}
@@ -477,139 +590,34 @@ export default function SettingsScreen() {
                 </GlassCard>
 
                 <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "#FEE2E2", alignItems: "center", justifyContent: "center" }}>
-                      <Ionicons name="warning-outline" size={16} color="#DC2626" />
-                    </View>
-                    <Text style={[theme.typography.bodyStrong, { color: "#DC2626", fontSize: 15 }]}>Danger zone</Text>
-                  </View>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>
-                    Account deletion is permanent and cannot be undone. All your data will be removed.
-                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>Delete account and content created. This permanently removes your lessons, tests, students, and account.</Text>
                   <TouchableOpacity
-                    onPress={openDeleteMail}
+                    onPress={deleteAccountAndContent}
                     activeOpacity={0.85}
-                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderColor: "#DC2626", backgroundColor: "#FEF2F2" }}
+                    disabled={deletingAccount}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 13,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: "#DC2626",
+                      backgroundColor: deletingAccount ? "#FEE2E2" : "#FEF2F2",
+                    }}
                   >
-                    <Ionicons name="trash-outline" size={16} color="#DC2626" />
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#DC2626" }}>Request account deletion</Text>
+                    {deletingAccount ? (
+                      <ActivityIndicator size="small" color="#DC2626" />
+                    ) : (
+                      <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                    )}
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#DC2626" }}>
+                      {deletingAccount ? "Deleting account…" : "Delete account and content created"}
+                    </Text>
                   </TouchableOpacity>
                 </GlassCard>
               </>
-            )}
-
-            {/* ── Plan ── */}
-            {activeTab === "plan" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
-                <SectionTitle icon="diamond-outline" label="Your plan" color="#9050E7" />
-
-                {/* Plan name badge row */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: planColor.bg, borderWidth: 1, borderColor: planColor.border }}>
-                  <View>
-                    <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "600", marginBottom: 2 }]}>CURRENT PLAN</Text>
-                    <Text style={[theme.typography.bodyStrong, { color: planColor.text, fontSize: 18 }]}>{planInfo?.plan ?? "Basic"}</Text>
-                  </View>
-                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: planColor.text + "20", alignItems: "center", justifyContent: "center" }}>
-                    <Ionicons name="diamond" size={20} color={planColor.text} />
-                  </View>
-                </View>
-
-                {/* Students usage */}
-                <View style={{ marginBottom: 16 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Ionicons name="school-outline" size={15} color={theme.colors.textMuted} />
-                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, fontWeight: "600" }]}>STUDENTS</Text>
-                    </View>
-                    <Text style={[theme.typography.caption, { fontWeight: "700" }]}>
-                      {studentCount} / {studentLimit === 999 ? "Unlimited" : studentLimit != null ? String(studentLimit) : "—"}
-                    </Text>
-                  </View>
-                  {studentPct != null ? (
-                    <View style={{ height: 8, borderRadius: 999, backgroundColor: theme.colors.surfaceAlt, overflow: "hidden" }}>
-                      <View style={{
-                        height: "100%",
-                        width: `${studentPct}%`,
-                        borderRadius: 999,
-                        backgroundColor: studentPct > 85 ? "#DC2626" : studentPct > 60 ? "#E3A91F" : "#3EA370",
-                      }} />
-                    </View>
-                  ) : null}
-                </View>
-
-                {/* Other limits */}
-                {limitRows.filter((r) => r.label !== "Students").length > 0 ? (
-                  <>
-                    <Divider />
-                    <View style={{ gap: 10 }}>
-                      {limitRows.filter((r) => r.label !== "Students").map((row) => (
-                        <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{row.label}</Text>
-                          <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }}>
-                            <Text style={[theme.typography.caption, { fontWeight: "700" }]}>
-                              {row.limit === 999 || row.limit === -1 ? "Unlimited" : String(row.limit)}
-                            </Text>
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  </>
-                ) : null}
-
-                <View style={{ marginTop: 20 }}>
-                  <AppButton
-                    label="View all plans"
-                    variant="secondary"
-                    onPress={() => navigation.navigate("Subscription")}
-                    icon={<Feather name="arrow-right" size={16} color={theme.colors.text} />}
-                  />
-                </View>
-              </GlassCard>
-            )}
-
-            {/* ── Preferences ── */}
-            {activeTab === "preferences" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
-                <SectionTitle icon="language-outline" label="Language preferences" color="#E3A91F" />
-                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>
-                  Default language pair used when creating new lessons.
-                </Text>
-                <View style={{ gap: 10 }}>
-                  {LANGUAGE_PAIRS.map((pair) => {
-                    const active = defaultLanguagePair === pair.code;
-                    return (
-                      <TouchableOpacity
-                        key={pair.code}
-                        onPress={() => saveDefaultLanguagePair(pair.code)}
-                        activeOpacity={0.85}
-                        style={{
-                          borderRadius: 14,
-                          borderWidth: 1.5,
-                          borderColor: active ? "#E3A91F" : theme.colors.border,
-                          backgroundColor: active ? "#FFF7DE" : theme.colors.surfaceAlt,
-                          paddingHorizontal: 16,
-                          paddingVertical: 14,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 12,
-                        }}
-                      >
-                        <Text style={{ fontSize: 20 }}>{pair.flag}</Text>
-                        <Text style={[theme.typography.body, { flex: 1, color: active ? "#B87E00" : theme.colors.text, fontWeight: active ? "700" : "400" }]}>
-                          {pair.fullLabel}
-                        </Text>
-                        {active ? (
-                          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#E3A91F", alignItems: "center", justifyContent: "center" }}>
-                            <Ionicons name="checkmark" size={13} color="#fff" />
-                          </View>
-                        ) : (
-                          <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: theme.colors.border }} />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </GlassCard>
             )}
 
             {/* ── Notifications ── */}

@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
+import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import type { RootStudentsStackParams } from "./StudentsScreen";
@@ -43,43 +44,6 @@ function generateRandomCode(): string {
 type LessonOpt = { id: string; title: string; language?: string | null; content_json?: { words?: unknown[] } | null };
 type TestOpt = { id: string; name: string; config_json?: { words?: unknown[]; tests?: unknown[] } | null };
 type TeacherOpt = { id: string; name: string };
-
-function getLanguageBadge(language?: string | null) {
-  const value = (language ?? "").trim();
-  if (!value) return "";
-  const normalized = value.toLowerCase();
-  if (normalized.includes("portuguese")) return "PT";
-  if (normalized.includes("spanish")) return "ESP";
-  if (normalized.includes("french")) return "FR";
-  if (normalized.includes("german")) return "DE";
-  if (normalized.includes("italian")) return "IT";
-  if (normalized.includes("english")) return "EN";
-  return value
-    .split(/[\s()/,-]+/)
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 3);
-}
-
-function getLanguageBadgeColors(badge: string) {
-  switch (badge) {
-    case "PT":
-      return { backgroundColor: "#EAF7EE", borderColor: "#2F9E44", textColor: "#1F7A35" };
-    case "ESP":
-      return { backgroundColor: "#FFF4E5", borderColor: "#F08C00", textColor: "#C56A00" };
-    case "FR":
-      return { backgroundColor: "#ECF4FF", borderColor: "#2F6FED", textColor: "#2458B8" };
-    case "DE":
-      return { backgroundColor: "#F5F5F5", borderColor: "#5C5F66", textColor: "#2D2F33" };
-    case "IT":
-      return { backgroundColor: "#EEF8EF", borderColor: "#3A9D5D", textColor: "#2B7A46" };
-    case "EN":
-      return { backgroundColor: "#F1F6FF", borderColor: "#4C7CEB", textColor: "#355FC2" };
-    default:
-      return { backgroundColor: "#FFF3E8", borderColor: "#D96B1C", textColor: "#B55312" };
-  }
-}
 
 export default function StudentFormScreen() {
   const theme = useAppTheme();

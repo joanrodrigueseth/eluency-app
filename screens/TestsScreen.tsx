@@ -63,7 +63,6 @@ const LINEN_CARD = "#FCFAF6";
 const AZULEJO_BLUE = "#9050E7";
 const AZULEJO_BLUE_SOFT = "#F3ECFF";
 const AZULEJO_BLUE_BORDER = "#D5B8FC";
-const GOLD_ACCENT = "#F3C64D";
 
 function GlowOrb({
   size,
@@ -546,7 +545,7 @@ export default function TestsScreen() {
             icon="grid-outline"
             accent={theme.isDark ? theme.colors.primary : AZULEJO_BLUE}
           />
-          <StatCard theme={theme} label="Vocab" value={String(vocabCount)} icon="language-outline" accent={GOLD_ACCENT} />
+          <StatCard theme={theme} label="Vocab" value={String(vocabCount)} icon="language-outline" accent={theme.colors.violet} />
         </View>
         </ScreenReveal>
 

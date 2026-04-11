@@ -49,7 +49,6 @@ type LessonPackRow = {
   slug: string | null;
   description: string | null;
   category: string | null;
-  category_icon?: string | null;
   cefr_level: string | null;
   access_type: AccessType | null;
   price_label: string | null;
@@ -341,6 +340,9 @@ function LanguagePickerModal({
   title,
   value,
   allowEmpty,
+  options,
+  countByOption,
+  renderLabel,
   onClose,
   onSelect,
   theme,
@@ -349,10 +351,15 @@ function LanguagePickerModal({
   title: string;
   value: string;
   allowEmpty: boolean;
+  options?: string[];
+  countByOption?: Map<string, number>;
+  renderLabel?: (item: string) => string;
   onClose: () => void;
   onSelect: (lang: string) => void;
   theme: ReturnType<typeof useAppTheme>;
 }) {
+  const modalOptions = options ?? (allowEmpty ? ["", ...PACK_LANGUAGES] : PACK_LANGUAGES);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <TouchableOpacity
@@ -367,7 +374,7 @@ function LanguagePickerModal({
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingBottom: 28,
-              maxHeight: "70%",
+              maxHeight: "84%",
               borderWidth: 1,
               borderColor: theme.colors.border,
             }}
@@ -376,25 +383,61 @@ function LanguagePickerModal({
               <Text style={theme.typography.title}>{title}</Text>
             </View>
             <FlatList
-              data={allowEmpty ? ["", ...PACK_LANGUAGES] : PACK_LANGUAGES}
+              data={modalOptions}
               keyExtractor={(item, i) => `${item}-${i}`}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  onPress={() => {
-                    onSelect(item);
-                    onClose();
-                  }}
-                  style={{
-                    paddingVertical: 14,
-                    paddingHorizontal: 20,
-                    backgroundColor: value === item ? theme.colors.primarySoft : "transparent",
-                  }}
-                >
-                  <Text style={[theme.typography.body, item === "" ? { color: theme.colors.textMuted } : {}]}>
-                    {item === "" ? "— None —" : item}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                const count = countByOption?.get(item);
+                const isAll = item === "all";
+                const colors = isAll
+                  ? {
+                      bg: theme.colors.primarySoft,
+                      text: theme.colors.primary,
+                      border: theme.colors.primary,
+                    }
+                  : LANGUAGE_PILL_COLORS[item]?.inactive ?? {
+                      bg: theme.colors.surfaceAlt,
+                      text: theme.colors.text,
+                      border: theme.colors.border,
+                    };
+
+                return (
+                  <TouchableOpacity
+                    onPress={() => {
+                      onSelect(item);
+                      onClose();
+                    }}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 20,
+                      backgroundColor: value === item ? theme.colors.primarySoft : "transparent",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
+                  >
+                    <Text style={[theme.typography.body, item === "" ? { color: theme.colors.textMuted } : {}]}>
+                      {renderLabel ? renderLabel(item) : item === "" ? "— None —" : item}
+                    </Text>
+                    {typeof count === "number" && !isAll ? (
+                      <View
+                        style={{
+                          minWidth: 28,
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 999,
+                          backgroundColor: colors.bg,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: colors.text }}>{count}</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              }}
             />
           </View>
         </TouchableOpacity>
@@ -431,6 +474,7 @@ export default function LessonPacksScreen() {
   const [viewingLesson, setViewingLesson] = useState<LessonRow | null>(null);
   const [sessionAddedCount, setSessionAddedCount] = useState(0);
   const [cefrPickerOpen, setCefrPickerOpen] = useState(false);
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
 
   const canManage = (currentRole ?? "").toLowerCase().trim() === "admin";
 
@@ -462,7 +506,7 @@ export default function LessonPacksScreen() {
 
       let packsQuery = (supabase.from("lesson_packs") as any)
         .select(
-          "id, title, slug, description, category, category_icon, cefr_level, access_type, price_label, cover_image_url, is_featured, status, created_by, created_at, language"
+          "id, title, slug, description, category, cefr_level, access_type, price_label, cover_image_url, is_featured, status, created_by, created_at, language"
         )
         .order("created_at", { ascending: false });
 
@@ -535,7 +579,7 @@ export default function LessonPacksScreen() {
           coverImageUrl: row.cover_image_url || null,
           isFeatured: !!row.is_featured,
           category: row.category || "",
-          categoryIcon: row.category_icon || null,
+          categoryIcon: null,
           language: row.language || "",
           status: (row.status || "draft") as PackStatus,
         };
@@ -662,6 +706,14 @@ export default function LessonPacksScreen() {
     () => Array.from(languageLessonCounts.values()).reduce((sum, count) => sum + count, 0),
     [languageLessonCounts]
   );
+  const languageOptionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    counts.set("all", totalVisibleLessonCount);
+    availableLanguages.forEach((lang) => {
+      counts.set(lang, languageLessonCounts.get(lang) || 0);
+    });
+    return counts;
+  }, [availableLanguages, languageLessonCounts, totalVisibleLessonCount]);
 
   const canAddLesson = useMemo(
     () => !["starter", "view-only"].includes(currentPlan.toLowerCase().trim()) || canManage,
@@ -1365,58 +1417,71 @@ export default function LessonPacksScreen() {
             </Text>
           </View>
 
-          {/* Language pills — colored per language, web-matching */}
+          {/* Language filter */}
           <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }]}>
             What language are you teaching?
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-            {/* "All" pill */}
-            <TouchableOpacity
-              key="all"
-              onPress={() => setFilterLanguage("all")}
-              style={{
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 10,
-                marginRight: 8,
-                borderWidth: 1,
-                borderColor: filterLanguage === "all" ? theme.colors.primary : theme.colors.border,
-                backgroundColor: filterLanguage === "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-              }}
-            >
-              <Text style={{ fontSize: 12, fontWeight: "700", color: filterLanguage === "all" ? theme.colors.primary : theme.colors.text }}>
-                All ({totalVisibleLessonCount})
+          <TouchableOpacity
+            onPress={() => setLanguagePickerOpen(true)}
+            style={{
+              alignSelf: "flex-start",
+              width: "48%",
+              marginBottom: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: filterLanguage !== "all" ? theme.colors.primary : theme.colors.border,
+              backgroundColor: filterLanguage !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+            }}
+          >
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "700",
+                  color: filterLanguage !== "all" ? theme.colors.primary : theme.colors.text,
+                  flexShrink: 1,
+                }}
+                numberOfLines={1}
+              >
+                {filterLanguage === "all" ? "All languages" : filterLanguage}
               </Text>
-            </TouchableOpacity>
-
-            {availableLanguages.map((lang) => {
-              const colors = LANGUAGE_PILL_COLORS[lang];
-              const isActive = filterLanguage === lang;
-              const count = languageLessonCounts.get(lang) || 0;
-              const bg = isActive ? (colors?.active.bg ?? theme.colors.primary) : (colors?.inactive.bg ?? theme.colors.surfaceAlt);
-              const text = isActive ? (colors?.active.text ?? "#fff") : (colors?.inactive.text ?? theme.colors.text);
-              const border = isActive ? (colors?.active.border ?? theme.colors.primary) : (colors?.inactive.border ?? theme.colors.border);
-              return (
-                <TouchableOpacity
-                  key={lang}
-                  onPress={() => setFilterLanguage(lang)}
+              {filterLanguage !== "all" ? (
+                <View
                   style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 10,
-                    marginRight: 8,
+                    minWidth: 28,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.bg ?? theme.colors.surface,
                     borderWidth: 1,
-                    borderColor: border,
-                    backgroundColor: bg,
+                    borderColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.border ?? theme.colors.border,
+                    alignItems: "center",
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: text }}>
-                    {lang} ({count})
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: "800",
+                      color: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.text ?? theme.colors.text,
+                    }}
+                  >
+                    {languageOptionCounts.get(filterLanguage) || 0}
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                </View>
+              ) : null}
+            </View>
+            <Ionicons
+              name="chevron-down"
+              size={16}
+              color={filterLanguage !== "all" ? theme.colors.primary : theme.colors.textMuted}
+            />
+          </TouchableOpacity>
 
           <TextInput
             value={query}
@@ -1518,6 +1583,19 @@ export default function LessonPacksScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <LanguagePickerModal
+        visible={languagePickerOpen}
+        title="Filter by language"
+        value={filterLanguage}
+        allowEmpty={false}
+        options={["all", ...availableLanguages]}
+        countByOption={languageOptionCounts}
+        renderLabel={(item) => (item === "all" ? "All languages" : item)}
+        onClose={() => setLanguagePickerOpen(false)}
+        onSelect={setFilterLanguage}
+        theme={theme}
+      />
 
       {/* Lesson words modal */}
       {viewingLesson ? (

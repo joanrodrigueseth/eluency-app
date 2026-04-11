@@ -244,7 +244,9 @@ export default function ChatsScreen() {
         .order("updated_at", { ascending: false })
         .limit(100)
         .then(({ data }: { data: Conversation[] | null }) => setConversations((data ?? []) as Conversation[]))
-        .catch(() => {});
+        .catch((error: unknown) => {
+          console.warn("chat conversations poll failed", error);
+        });
     }, 10_000);
     return () => clearInterval(interval);
   }, [hasAdminAccess]);
@@ -262,7 +264,9 @@ export default function ChatsScreen() {
     const interval = setInterval(() => {
       fetchConversationMessages(selectedId)
         .then((messagesData) => setMessages(messagesData))
-        .catch(() => {});
+        .catch((error: unknown) => {
+          console.warn("chat messages poll failed", error);
+        });
     }, 10_000);
     return () => clearInterval(interval);
   }, [selectedId, hasAdminAccess]);

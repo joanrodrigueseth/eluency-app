@@ -22,7 +22,7 @@ import { useAppTheme } from "../lib/theme";
 type RootStackParamList = {
   Login: { initialView?: LoginView } | undefined;
   Register: undefined;
-  Dashboard: { sessionId?: string } | undefined;
+  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   StudyGame: { sessionId: string };
 };
 

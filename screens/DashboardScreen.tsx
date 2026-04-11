@@ -20,6 +20,7 @@ import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import { triggerLightImpact } from "../lib/haptics";
+import { getLanguageBadgeColors, normalizeLanguageBadge } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
  
@@ -30,7 +31,7 @@ type RootStackParamList = {
   Chats: undefined;
   SendNotifications: undefined;
   Teachers: undefined;
-  Settings: undefined;
+  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
   Subscription: undefined;
   LessonPacks: undefined;
   Lessons: undefined;
@@ -105,37 +106,6 @@ function pickProgressColor(theme: ReturnType<typeof useAppTheme>, percentage: nu
   if (percentage >= 90) return theme.colors.danger;
   if (percentage >= 70) return theme.colors.primary;
   return theme.colors.success;
-}
- 
-function getLanguageBadgeColors(badge: string) {
-  switch (badge) {
-    case "PT":
-      return { backgroundColor: "#EAF7EE", borderColor: "#2F9E44", textColor: "#1F7A35" };
-    case "ESP":
-      return { backgroundColor: "#FFF4E5", borderColor: "#F08C00", textColor: "#C56A00" };
-    case "FR":
-      return { backgroundColor: "#ECF4FF", borderColor: "#2F6FED", textColor: "#2458B8" };
-    case "DE":
-      return { backgroundColor: "#F5F5F5", borderColor: "#5C5F66", textColor: "#2D2F33" };
-    case "IT":
-      return { backgroundColor: "#EEF8EF", borderColor: "#3A9D5D", textColor: "#2B7A46" };
-    case "EN":
-      return { backgroundColor: "#F1F6FF", borderColor: "#4C7CEB", textColor: "#355FC2" };
-    default:
-      return { backgroundColor: "#FFF3E8", borderColor: "#D96B1C", textColor: "#B55312" };
-  }
-}
- 
-function normalizeLanguageBadge(value?: string | null) {
-  const raw = (value ?? "").trim().toUpperCase();
-  if (!raw) return "EN";
-  if (raw === "PORTUGUESE" || raw === "PORTUGUES" || raw === "PORTUGUÊS" || raw === "PT-BR" || raw === "PT") return "PT";
-  if (raw === "SPANISH" || raw === "ESPANOL" || raw === "ESPAÑOL" || raw === "ES" || raw === "ESP") return "ESP";
-  if (raw === "FRENCH" || raw === "FRANCAIS" || raw === "FRANÇAIS" || raw === "FR") return "FR";
-  if (raw === "GERMAN" || raw === "DEUTSCH" || raw === "DE") return "DE";
-  if (raw === "ITALIAN" || raw === "ITALIANO" || raw === "IT") return "IT";
-  if (raw === "ENGLISH" || raw === "EN") return "EN";
-  return raw.length <= 3 ? raw : raw.slice(0, 3);
 }
  
 function inferLessonLanguageBadge(lesson: RecentLesson) {
@@ -384,6 +354,9 @@ export default function DashboardScreen() {
   const drawerAnim = useRef(new Animated.Value(-drawerWidth)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const contentScale = useRef(new Animated.Value(1)).current;
+  const contentLift = useRef(new Animated.Value(0)).current;
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
  
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPrincipal, setIsPrincipal] = useState(false);
@@ -514,7 +487,7 @@ export default function DashboardScreen() {
       { label: "Lessons", href: "/dashboard/lessons", icon: "book" as const },
       { label: "Tests", href: "/dashboard/tests", icon: "clipboard" as const },
       { label: "Students", href: "/dashboard/students", icon: "school" as const },
-      { label: "Lesson Packs", href: "/dashboard/packs", icon: "star" as const },
+      { label: "Lesson Browser", href: "/dashboard/packs", icon: "star" as const },
     ];
  
     const admin = isAdmin
@@ -751,6 +724,24 @@ export default function DashboardScreen() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
+      Animated.timing(contentLift, {
+        toValue: toValue === 0 ? -topBarHeight : 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerOpacity, {
+        toValue: toValue === 0 ? 0 : 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerTranslateY, {
+        toValue: toValue === 0 ? -8 : 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
     ]).start(({ finished }) => {
       if (finished) onDone?.();
     });
@@ -877,7 +868,7 @@ export default function DashboardScreen() {
     []
   );
  
-  const topBarHeight = Math.max(insets.top, 8) + 66;
+  const topBarHeight = Math.max(insets.top, 8) + 76;
  
   const SectionHeader = ({
     eyebrow,
@@ -1667,7 +1658,20 @@ export default function DashboardScreen() {
                   {isStudentMode ? "Student Access" : isAdmin ? "Admin Access" : isPrincipal ? "Principal Access" : "Teacher Access"}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 8 }}>
-                  <Text style={[theme.typography.title, { fontSize: 22, lineHeight: 28, flex: 1 }]}>{isStudentMode ? studentName || "Student" : teacherName}</Text>
+                  {isStudentMode ? (
+                    <Text style={[theme.typography.title, { fontSize: 22, lineHeight: 28, flex: 1 }]}>{studentName || "Student"}</Text>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        closeMenu();
+                        navigation.navigate("Settings", { initialTab: "profile" });
+                      }}
+                      activeOpacity={0.8}
+                      style={{ flex: 1, alignSelf: "flex-start" }}
+                    >
+                      <Text style={[theme.typography.title, { fontSize: 22, lineHeight: 28, textDecorationLine: "underline" }]}>{teacherName}</Text>
+                    </TouchableOpacity>
+                  )}
                   {!isStudentMode && (
                     <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginLeft: 8 }]}>{todayLabel}</Text>
                   )}
@@ -1759,7 +1763,7 @@ export default function DashboardScreen() {
           transform: [{ scale: contentScale }],
         }}
       >
-        <View
+        <Animated.View
           style={{
             position: "absolute",
             top: 0,
@@ -1770,11 +1774,13 @@ export default function DashboardScreen() {
             borderBottomWidth: 1,
             borderBottomColor: theme.colors.border,
             paddingHorizontal: 20,
-            paddingTop: Math.max(insets.top, 8),
+            paddingTop: Math.max(insets.top, 8) + 10,
             paddingBottom: 10,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
+            opacity: headerOpacity,
+            transform: [{ translateY: headerTranslateY }],
           }}
           pointerEvents="box-none"
         >
@@ -1816,9 +1822,10 @@ export default function DashboardScreen() {
           >
             <Text style={[theme.typography.bodyStrong, { fontWeight: "800", color: theme.colors.text }]}>{currentUserInitial}</Text>
           </AnimatedPressable>
-        </View>
+        </Animated.View>
  
-        <ScrollView
+        <Animated.ScrollView
+          style={{ transform: [{ translateY: contentLift }] }}
           contentContainerStyle={{
             paddingHorizontal: 20,
             paddingTop: topBarHeight + 16,
@@ -1863,7 +1870,7 @@ export default function DashboardScreen() {
           ) : (
             teacherDashboard
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       </Animated.View>
     </View>
   );

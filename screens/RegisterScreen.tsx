@@ -874,7 +874,9 @@ export default function RegisterScreen() {
             Authorization: `Bearer ${anonKey}`,
           },
           body: JSON.stringify({ email: cleanedEmail, name: cleanedName }),
-        }).catch(() => {});
+        }).catch((error) => {
+          console.warn("send-registration-email failed", error);
+        });
       }
 
       // Use session from signUp, or sign in immediately if email confirmation is required
@@ -911,7 +913,9 @@ export default function RegisterScreen() {
             isPrimary: i === 0,
           })),
         }),
-      }).catch(() => {});
+      }).catch((error) => {
+        console.warn("teacher onboarding completion failed", error);
+      });
 
       goToDashboard();
     } catch (err: unknown) {

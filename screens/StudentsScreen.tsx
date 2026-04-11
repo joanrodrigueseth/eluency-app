@@ -59,9 +59,9 @@ type StudentRow = {
 type SortKey = "name" | "last_active" | "created_at";
 type SortDir = "asc" | "desc";
 
-const GREEN = "#3EA370";
-const GREEN_SOFT = "#EBF8F0";
-const GREEN_BORDER = "#A8DFC0";
+
+
+
 
 function GlowOrb({
   size,
@@ -430,11 +430,11 @@ export default function StudentsScreen() {
               paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 14,
-              backgroundColor: GREEN,
+              backgroundColor: theme.colors.success,
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
-              shadowColor: GREEN,
+              shadowColor: theme.colors.success,
               shadowOpacity: 0.22,
               shadowRadius: 12,
               shadowOffset: { width: 0, height: 6 },
@@ -459,7 +459,7 @@ export default function StudentsScreen() {
         <ScreenReveal delay={30}>
         <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
           <View style={{ position: "relative", overflow: "hidden" }}>
-            <GlowOrb size={150} color={GREEN_SOFT} top={-50} right={-18} translate={heroGlowOne} />
+            <GlowOrb size={150} color={theme.colors.successSoft} top={-50} right={-18} translate={heroGlowOne} />
             <GlowOrb size={110} color={theme.colors.successSoft} bottom={-30} left={-10} translate={heroGlowTwo} />
             <Text style={[theme.typography.title, { fontSize: 22 }]}>Students directory</Text>
             <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
@@ -507,16 +507,16 @@ export default function StudentsScreen() {
                 paddingHorizontal: 14,
                 paddingVertical: 10,
                 borderRadius: 12,
-                backgroundColor: GREEN_SOFT,
+                backgroundColor: theme.colors.successSoft,
                 borderWidth: 1,
-                borderColor: GREEN,
+                borderColor: theme.colors.success,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 6,
               }}
             >
-              <Ionicons name="diamond-outline" size={14} color={GREEN} />
-              <Text style={{ color: GREEN, fontWeight: "800", fontSize: 13 }}>View plans</Text>
+              <Ionicons name="diamond-outline" size={14} color={theme.colors.success} />
+              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>View plans</Text>
             </TouchableOpacity>
           </GlassCard>
         ) : null}
@@ -534,10 +534,10 @@ export default function StudentsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: teacherView === "mine" ? GREEN : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? GREEN : theme.colors.surfaceGlass,
+                    borderColor: teacherView === "mine" ? theme.colors.success : theme.colors.border,
+                    backgroundColor: teacherView === "mine" ? theme.colors.success : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: teacherView === "mine" ? GREEN : "transparent",
+                    shadowColor: teacherView === "mine" ? theme.colors.success : "transparent",
                     shadowOpacity: teacherView === "mine" ? 0.2 : 0,
                     shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
                   }}
@@ -552,10 +552,10 @@ export default function StudentsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: viewingOtherTeacher ? GREEN : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? GREEN : theme.colors.surfaceGlass,
+                    borderColor: viewingOtherTeacher ? theme.colors.success : theme.colors.border,
+                    backgroundColor: viewingOtherTeacher ? theme.colors.success : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: viewingOtherTeacher ? GREEN : "transparent",
+                    shadowColor: viewingOtherTeacher ? theme.colors.success : "transparent",
                     shadowOpacity: viewingOtherTeacher ? 0.2 : 0,
                     shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
                   }}
@@ -604,10 +604,10 @@ export default function StudentsScreen() {
                     paddingVertical: 9,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: active ? GREEN : theme.colors.border,
-                    backgroundColor: active ? GREEN : theme.colors.surfaceGlass,
+                    borderColor: active ? theme.colors.success : theme.colors.border,
+                    backgroundColor: active ? theme.colors.success : theme.colors.surfaceGlass,
                     gap: 5,
-                    shadowColor: active ? GREEN : "transparent",
+                    shadowColor: active ? theme.colors.success : "transparent",
                     shadowOpacity: active ? 0.18 : 0,
                     shadowRadius: 8,
                     shadowOffset: { width: 0, height: 3 },
@@ -631,7 +631,7 @@ export default function StudentsScreen() {
 
           {studentsForView.length === 0 ? (
             <View style={{ paddingVertical: 32, alignItems: "center" }}>
-              <IconTile icon="school-outline" size={74} iconSize={30} radius={24} backgroundColor={GREEN_SOFT} borderColor={GREEN} color={GREEN} />
+              <IconTile icon="school-outline" size={74} iconSize={30} radius={24} backgroundColor={theme.colors.successSoft} borderColor={theme.colors.success} color={theme.colors.success} />
               <Text style={[theme.typography.title, { marginTop: 16, fontSize: 20, lineHeight: 24 }]}>No students found</Text>
               <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted, textAlign: "center", maxWidth: 280 }]}>Add your first student or clear the current search and teacher filters to bring results back into view.</Text>
               {!isMaxed || isAdmin ? (
@@ -643,11 +643,11 @@ export default function StudentsScreen() {
                       paddingHorizontal: 14,
                       paddingVertical: 11,
                       borderRadius: 14,
-                      backgroundColor: GREEN,
+                      backgroundColor: theme.colors.success,
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 6,
-                      shadowColor: GREEN,
+                      shadowColor: theme.colors.success,
                       shadowOpacity: 0.18,
                       shadowRadius: 10,
                       shadowOffset: { width: 0, height: 5 },
@@ -692,16 +692,16 @@ export default function StudentsScreen() {
                   paddingHorizontal: 14,
                   paddingVertical: 10,
                   borderRadius: 12,
-                  backgroundColor: GREEN_SOFT,
+                  backgroundColor: theme.colors.successSoft,
                   borderWidth: 1,
-                  borderColor: GREEN,
+                  borderColor: theme.colors.success,
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
                 }}
               >
-                <Ionicons name="close-circle-outline" size={14} color={GREEN} />
-                <Text style={{ color: GREEN, fontWeight: "700", fontSize: 13 }}>Clear search</Text>
+                <Ionicons name="close-circle-outline" size={14} color={theme.colors.success} />
+                <Text style={{ color: theme.colors.success, fontWeight: "700", fontSize: 13 }}>Clear search</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -726,17 +726,17 @@ export default function StudentsScreen() {
                       elevation: 2,
                     }}
                   >
-                    <View style={{ height: 3, backgroundColor: isActive ? GREEN : theme.colors.border, opacity: isActive ? 0.7 : 0.4 }} />
+                    <View style={{ height: 3, backgroundColor: isActive ? theme.colors.success : theme.colors.border, opacity: isActive ? 0.7 : 0.4 }} />
                     <View style={{ paddingHorizontal: 14, paddingVertical: 14 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                         <View style={{
                           height: 46, width: 46, borderRadius: 17,
-                          backgroundColor: isActive ? GREEN_SOFT : theme.colors.surfaceAlt,
+                          backgroundColor: isActive ? theme.colors.successSoft : theme.colors.surfaceAlt,
                           alignItems: "center", justifyContent: "center",
                           borderWidth: 1,
-                          borderColor: isActive ? GREEN : theme.colors.border,
+                          borderColor: isActive ? theme.colors.success : theme.colors.border,
                         }}>
-                          <Text style={{ fontSize: 18, fontWeight: "900", color: isActive ? GREEN : theme.colors.textMuted }}>
+                          <Text style={{ fontSize: 18, fontWeight: "900", color: isActive ? theme.colors.success : theme.colors.textMuted }}>
                             {student.name.trim().charAt(0).toUpperCase()}
                           </Text>
                         </View>
@@ -773,7 +773,7 @@ export default function StudentsScreen() {
                             flexDirection: "row", alignItems: "center", gap: 5,
                           }}
                         >
-                          <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 10, color: GREEN }}>
+                          <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 10, color: theme.colors.success }}>
                             {student.code}
                           </Text>
                           <Ionicons name="copy-outline" size={12} color={theme.colors.textMuted} />
@@ -784,14 +784,14 @@ export default function StudentsScreen() {
                             onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}
                             style={{
                               borderRadius: 11,
-                              backgroundColor: GREEN_SOFT,
-                              borderWidth: 1, borderColor: GREEN,
+                              backgroundColor: theme.colors.successSoft,
+                              borderWidth: 1, borderColor: theme.colors.success,
                               paddingHorizontal: 14, paddingVertical: 8,
                               flexDirection: "row", alignItems: "center", gap: 5,
                             }}
                           >
-                            <Ionicons name="pencil-outline" size={13} color={GREEN} />
-                            <Text style={{ fontSize: 11, fontWeight: "800", color: GREEN }}>Edit</Text>
+                            <Ionicons name="pencil-outline" size={13} color={theme.colors.success} />
+                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.success }}>Edit</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleDelete(student)}
@@ -885,8 +885,8 @@ function KpiTile({
   danger?: boolean;
 }) {
   const bg =
-    danger ? theme.colors.dangerSoft : tone === "success" ? theme.colors.successSoft : tone === "danger" ? theme.colors.dangerSoft : GREEN_SOFT;
-  const fg = danger ? theme.colors.danger : tone === "success" ? theme.colors.success : tone === "danger" ? theme.colors.danger : GREEN;
+    danger ? theme.colors.dangerSoft : tone === "success" ? theme.colors.successSoft : tone === "danger" ? theme.colors.dangerSoft : theme.colors.successSoft;
+  const fg = danger ? theme.colors.danger : tone === "success" ? theme.colors.success : tone === "danger" ? theme.colors.danger : theme.colors.success;
   return (
     <View
       style={{

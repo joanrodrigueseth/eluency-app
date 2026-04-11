@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   ScrollView,
@@ -10,9 +9,11 @@ import {
 } from "react-native";
 import Constants from "expo-constants";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { NavigationProp, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -22,17 +23,16 @@ type RootStackParamList = {
   Subscription: undefined;
 };
 
-type BillingCycle = "monthly" | "yearly";
+const MONTHLY_PRICE = 14.99;
+const YEARLY_PRICE_PER_MONTH = 11.99;
+const YEARLY_TOTAL = 143.90;
+const YEARLY_SAVINGS = parseFloat((MONTHLY_PRICE * 12 - YEARLY_TOTAL).toFixed(2)); // $35.98
 
 const STANDARD_FEATURES = [
-  "Up to 30 Students",
-  "Access to Student & Teacher App",
-  "Create and Edit Lessons and Tests",
-  "Assign Lessons and Tests to Students",
-  "Instant Feedback from Students",
-  "Access to 1,000+ Lessons",
-  "Access to New Materials",
-  "Grade Feedback",
+  { icon: "users", text: "Up to 30 students included" },
+  { icon: "book-open", text: "Access to 1,000+ lessons & AI tools" },
+  { icon: "smartphone", text: "Full teacher & student app access" },
+  { icon: "zap", text: "Instant feedback & grade tracking" },
 ];
 
 const BASIC_FEATURES = [
@@ -49,12 +49,20 @@ const SCHOOL_FEATURES = [
   "Activity Reports",
 ];
 
-function FeatureRow({ label }: { label: string }) {
+function getTrialEndDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+}
+
+function FeatureRow({ label, color }: { label: string; color?: string }) {
   const theme = useAppTheme();
+  const c = color ?? theme.colors.primary;
+  const soft = color ? `${color}22` : theme.colors.primarySoft;
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <Feather name="check" size={11} color={theme.colors.primary} />
+      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: soft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Feather name="check" size={11} color={c} />
       </View>
       <Text style={[theme.typography.body, { fontSize: 13, flex: 1 }]}>{label}</Text>
     </View>
@@ -63,14 +71,22 @@ function FeatureRow({ label }: { label: string }) {
 
 export default function SubscriptionScreen() {
   const theme = useAppTheme();
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
-  const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [currentTierId, setCurrentTierId] = useState("basic");
+  const [error, setError] = useState("");
+  // Default to yearly — best deal, most conversions
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
+
+  const trialEndDate = useMemo(() => getTrialEndDate(), []);
+  const isOnStandard = currentTierId === "standard";
+  const isOnBasic = currentTierId === "basic";
+
+  const displayPrice = billingCycle === "yearly" ? YEARLY_PRICE_PER_MONTH : MONTHLY_PRICE;
 
   useEffect(() => {
     let mounted = true;
@@ -82,7 +98,7 @@ export default function SubscriptionScreen() {
         const { data: teacher } = await (supabase.from("teachers") as any)
           .select("plan").eq("user_id", user.id).maybeSingle();
         const plan = String(teacher?.plan ?? "basic").toLowerCase().trim();
-        
+
         if (plan === "free" || plan === "basic") setCurrentTierId("basic");
         else if (plan === "teacher" || plan === "tutor" || plan === "standard") setCurrentTierId("standard");
         else if (plan === "pro" || plan === "school") setCurrentTierId("school");
@@ -97,12 +113,17 @@ export default function SubscriptionScreen() {
   }, []);
 
   const handleUpgrade = async (tierId: string) => {
+    setError("");
     if (tierId === currentTierId) return;
-    
+
     if (tierId === "school") {
       const mailto = "mailto:support@eluency.com?subject=School%20Plan%20Quote";
       const ok = await Linking.canOpenURL(mailto);
-      if (!ok) { Alert.alert("Unavailable", "No email app is available on this device."); return; }
+      if (!ok) {
+        setError("No email app is available on this device.");
+        Alert.alert("Unavailable", "No email app is available on this device.");
+        return;
+      }
       await Linking.openURL(mailto);
       return;
     }
@@ -112,19 +133,19 @@ export default function SubscriptionScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       const accessToken = session?.access_token;
       if (!accessToken) throw new Error("Not authenticated.");
-      
+
       const base = apiBaseUrl.replace(/\/$/, "");
       const res = await fetch(`${base}/api/billing/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        // DYNAMIC: Pass the selected cycle
-        body: JSON.stringify({ tierId, cycle }),
+        body: JSON.stringify({ tierId, cycle: billingCycle }),
       });
 
       const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
-      
+
       if (!res.ok) {
         const webUrl = `${base}/dashboard/settings/subscription`;
+        setError(data?.error ?? "In-app checkout unavailable. Open web dashboard?");
         Alert.alert("Open Web Checkout", data?.error ?? "In-app checkout unavailable. Open web dashboard?", [
           { text: "Cancel", style: "cancel" },
           { text: "Open", onPress: () => Linking.openURL(webUrl) },
@@ -136,25 +157,21 @@ export default function SubscriptionScreen() {
         await Linking.openURL(data.url);
         return;
       }
-      
+
+      setError("");
       Alert.alert("Success", "Plan update session started.");
     } catch (err) {
+      setError(err instanceof Error ? err.message : "Upgrade failed.");
       Alert.alert("Error", err instanceof Error ? err.message : "Upgrade failed.");
     } finally {
       setUpgrading(null);
     }
   };
 
-  const isBasicCurrent = currentTierId === "basic";
-  const isStandardCurrent = currentTierId === "standard";
-  const isSchoolCurrent = currentTierId === "school";
-
-  const standardPrice = cycle === "yearly" ? 11.99 : 14.99;
-
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      {/* Decorative background blob */}
-      <View style={{ position: "absolute", top: 0, right: -60, width: 200, height: 200, borderRadius: 100, backgroundColor: theme.colors.primarySoft, opacity: 0.3 }} pointerEvents="none" />
+      {/* Decorative blob */}
+      <View style={{ position: "absolute", top: -40, right: -60, width: 220, height: 220, borderRadius: 110, backgroundColor: theme.colors.primarySoft, opacity: 0.25 }} pointerEvents="none" />
 
       {/* Header */}
       <View style={{
@@ -182,221 +199,349 @@ export default function SubscriptionScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 8) + 75, paddingHorizontal: 18, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingTop: Math.max(insets.top, 8) + 75, paddingHorizontal: 20, paddingBottom: 60, gap: 16 }}
       >
-        {loadingPlan && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 20, justifyContent: 'center' }}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-            <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "700" }]}>Syncing current plan...</Text>
+        {error ? (
+          <View style={{ borderRadius: 14, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.colors.dangerSoft, padding: 12 }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.danger }]}>{error}</Text>
           </View>
-        )}
+        ) : null}
 
-        {/* Billing Toggle */}
-        <View style={{ gap: 12, marginBottom: 24 }}>
-          <View style={{ flexDirection: "row", borderRadius: 999, borderWidth: 1, borderColor: theme.colors.primarySoft, backgroundColor: theme.colors.primarySoft + "40", padding: 4, alignSelf: "center" }}>
-            {(["monthly", "yearly"] as const).map((c) => (
-              <TouchableOpacity
-                key={c}
-                onPress={() => setCycle(c)}
-                activeOpacity={0.9}
-                style={{
-                  paddingHorizontal: 22,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  backgroundColor: cycle === c ? theme.colors.primary : "transparent",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: "800", color: cycle === c ? "#fff" : theme.colors.textMuted }}>
-                  {c === "monthly" ? "Monthly" : "Yearly"}
-                </Text>
-                {c === "yearly" && (
-                  <View style={{ borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: cycle === "yearly" ? "rgba(255,255,255,0.2)" : theme.colors.primarySoft }}>
-                    <Text style={{ fontSize: 8, fontWeight: "900", color: cycle === "yearly" ? "#fff" : theme.colors.primary }}>-20%</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+        {/* ── Value headline ── */}
+        {!isOnStandard ? (
+          <View style={{ alignItems: "center", paddingVertical: 4 }}>
+            <Text style={[theme.typography.title, { fontSize: 24, textAlign: "center", lineHeight: 30 }]}>
+              Teach more.{"\n"}Stress less.
+            </Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted, textAlign: "center", marginTop: 6, maxWidth: 260 }]}>
+              Everything you need to run a full classroom — students, lessons, tests, and grades in one place.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* ── Billing cycle toggle ── */}
+        <View style={{ alignItems: "center" }}>
+          <View style={{
+            flexDirection: "row",
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surfaceAlt,
+            padding: 4,
+            gap: 4,
+          }}>
+            <TouchableOpacity
+              onPress={() => setBillingCycle("monthly")}
+              activeOpacity={0.85}
+              style={{
+                paddingHorizontal: 20,
+                paddingVertical: 9,
+                borderRadius: 999,
+                backgroundColor: billingCycle === "monthly" ? theme.colors.surface : "transparent",
+                borderWidth: billingCycle === "monthly" ? 1 : 0,
+                borderColor: billingCycle === "monthly" ? theme.colors.border : "transparent",
+              }}
+            >
+              <Text style={{ fontWeight: "700", fontSize: 13, color: billingCycle === "monthly" ? theme.colors.text : theme.colors.textMuted }}>
+                Monthly
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setBillingCycle("yearly")}
+              activeOpacity={0.85}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 16,
+                paddingVertical: 9,
+                borderRadius: 999,
+                backgroundColor: billingCycle === "yearly" ? theme.colors.primary : "transparent",
+              }}
+            >
+              <Text style={{ fontWeight: "800", fontSize: 13, color: billingCycle === "yearly" ? theme.colors.primaryText : theme.colors.textMuted }}>
+                Yearly
+              </Text>
+              <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: billingCycle === "yearly" ? "rgba(255,255,255,0.25)" : "#10b981" }}>
+                <Text style={{ fontSize: 10, fontWeight: "900", color: "#FFFFFF" }}>SAVE 20%</Text>
+              </View>
+            </TouchableOpacity>
           </View>
 
-          {/* Trial Badge */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primarySoft, backgroundColor: theme.colors.primarySoft + "30", paddingHorizontal: 12, paddingVertical: 8 }}>
-            <Ionicons name="shield-checkmark" size={14} color={theme.colors.primary} />
-            <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>14-day free trial</Text>
-            <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>· Cancel anytime</Text>
-          </View>
+          {billingCycle === "yearly" ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 }}>
+              <Ionicons name="checkmark-circle" size={14} color="#10b981" />
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#10b981" }}>
+                You save ${YEARLY_SAVINGS.toFixed(2)}/year — like getting 2.5 months free
+              </Text>
+            </View>
+          ) : (
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 8 }]}>
+              Switch to yearly and save ${YEARLY_SAVINGS.toFixed(2)} per year
+            </Text>
+          )}
         </View>
 
-        {/* ── Standard Plan (Hero) ── */}
+        {/* ── Standard plan hero card ── */}
         <GlassCard
           style={{
-            borderRadius: 28,
-            marginBottom: 16,
+            borderRadius: 24,
             borderWidth: 2,
-            borderColor: isStandardCurrent ? theme.colors.primary : theme.colors.border,
-            overflow: 'hidden'
+            borderColor: theme.colors.primary,
+            shadowColor: theme.colors.primary,
+            shadowOpacity: 0.12,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 6 },
+            elevation: 6,
           }}
           padding={0}
         >
-          {/* Most Popular Ribbon */}
-          {!isStandardCurrent && (
-            <View style={{ backgroundColor: theme.colors.primary, paddingVertical: 4, alignItems: 'center' }}>
-              <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>MOST POPULAR</Text>
+          {/* Card top stripe */}
+          <View style={{
+            backgroundColor: theme.colors.primary,
+            borderTopLeftRadius: 22,
+            borderTopRightRadius: 22,
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="diamond" size={14} color={theme.colors.primaryText} />
+              <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.primaryText, letterSpacing: 1 }}>
+                {isOnStandard ? "YOUR PLAN" : "MOST POPULAR"}
+              </Text>
             </View>
-          )}
+            {billingCycle === "yearly" && !isOnStandard ? (
+              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.25)" }}>
+                <Text style={{ fontSize: 10, fontWeight: "900", color: "#FFF" }}>BEST VALUE</Text>
+              </View>
+            ) : null}
+          </View>
 
-          <View style={{ padding: 24 }}>
-            {isStandardCurrent && (
-              <View style={{ alignSelf: 'flex-end', borderRadius: 999, backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 4, marginBottom: -20 }}>
-                <Text style={{ fontSize: 10, fontWeight: "900", color: "#fff" }}>CURRENT PLAN</Text>
+          <View style={{ padding: 20, gap: 16 }}>
+            {/* Plan name + price */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View>
+                <Text style={[theme.typography.title, { fontSize: 30 }]}>Standard</Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                  For independent teachers
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                {billingCycle === "yearly" ? (
+                  <Text style={{ fontSize: 13, color: theme.colors.textMuted, textDecorationLine: "line-through" }}>
+                    ${MONTHLY_PRICE.toFixed(2)}/mo
+                  </Text>
+                ) : null}
+                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2 }}>
+                  <Text style={[theme.typography.title, { fontSize: 36, lineHeight: 40, color: theme.colors.primary }]}>
+                    ${displayPrice.toFixed(2)}
+                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 6 }]}>/mo</Text>
+                </View>
+                {billingCycle === "yearly" ? (
+                  <Text style={{ fontSize: 11, color: theme.colors.textMuted }}>
+                    billed ${YEARLY_TOTAL.toFixed(2)}/year
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {/* "Pay 10 get 12" banner — yearly only */}
+            {billingCycle === "yearly" && !isOnStandard ? (
+              <View style={{
+                backgroundColor: "#10b981" + "18",
+                borderRadius: 12,
+                padding: 12,
+                borderWidth: 1,
+                borderColor: "#10b981" + "44",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <Text style={{ fontSize: 20 }}>🎉</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: "#10b981" }}>
+                    Pay for 10 months, get 12
+                  </Text>
+                  <Text style={{ fontSize: 12, color: "#10b981", opacity: 0.85, marginTop: 1 }}>
+                    That's ${YEARLY_SAVINGS.toFixed(2)} back in your pocket every year
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* Trial / current plan banner */}
+            {isOnStandard ? (
+              <View style={{ backgroundColor: theme.colors.successSoft, padding: 14, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
+                <View>
+                  <Text style={[theme.typography.bodyStrong, { color: theme.colors.success }]}>You're on Standard</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.success, opacity: 0.8, marginTop: 1 }]}>Enjoying full access — nothing to do</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={{ backgroundColor: theme.colors.primarySoft, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary + "44" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ fontSize: 16 }}>✨</Text>
+                    <Text style={[theme.typography.bodyStrong, { color: theme.colors.primary, fontSize: 15 }]}>
+                      14-Day Free Trial
+                    </Text>
+                  </View>
+                  <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: theme.colors.primary }}>
+                    <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.primaryText }}>$0 today</Text>
+                  </View>
+                </View>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, marginTop: 6, lineHeight: 18 }]}>
+                  Free until {trialEndDate}. No charge until your trial ends — cancel anytime with one tap.
+                </Text>
               </View>
             )}
 
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 20 }}>
-              <View style={{ width: 56, height: 56, borderRadius: 20, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="person" size={26} color={theme.colors.primary} />
+            {/* Upgrade comparison callout — Basic users only */}
+            {isOnBasic ? (
+              <View style={{ backgroundColor: theme.colors.surfaceAlt, borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: theme.colors.primary }}>
+                <Text style={[theme.typography.caption, { color: theme.colors.text, fontWeight: "700", marginBottom: 4 }]}>
+                  What you unlock vs. Basic:
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18 }]}>
+                  30 student seats · instant feedback · grade tracking · teacher management tools
+                </Text>
               </View>
-              <View>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, marginBottom: 2 }}>INDIVIDUAL</Text>
-                <Text style={[theme.typography.title, { fontSize: 24 }]}>Standard</Text>
-              </View>
-            </View>
+            ) : null}
 
-            <View style={{ marginBottom: 20 }}>
-              <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6, marginBottom: 4 }}>
-                <Text style={{ fontSize: 48, fontWeight: "900", color: theme.colors.text }}>${standardPrice.toFixed(2)}</Text>
-                <Text style={[theme.typography.body, { color: theme.colors.textMuted, paddingBottom: 8 }]}>/mo</Text>
-              </View>
-              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18 }]}>
-                {cycle === "yearly" 
-                  ? "Billed annually as $143.90. Save $35.98 total." 
-                  : "Standard monthly rate. Switch to yearly for 2 months free."}
-              </Text>
-            </View>
-
-            <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 18, marginBottom: 24 }}>
-              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, marginBottom: 14 }}>INCLUDES:</Text>
-              <View style={{ gap: 12 }}>
-                {STANDARD_FEATURES.map((f) => <FeatureRow key={f} label={f} />)}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => handleUpgrade("standard")}
-              disabled={isStandardCurrent || upgrading === "standard"}
-              activeOpacity={0.8}
-              style={{
-                borderRadius: 18,
-                paddingVertical: 18,
-                backgroundColor: isStandardCurrent ? theme.colors.primarySoft : theme.colors.primary,
-                alignItems: "center",
-                flexDirection: "row",
-                justifyContent: "center",
-                gap: 10,
-              }}
-            >
-              {upgrading === "standard" && <ActivityIndicator size="small" color="#fff" />}
-              <Text style={{ fontSize: 15, fontWeight: "900", color: isStandardCurrent ? theme.colors.primary : "#fff" }}>
-                {isStandardCurrent ? "Current Plan" : "Start 14-Day Free Trial"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </GlassCard>
-
-        {/* ── Basic Plan ── */}
-        <GlassCard
-          style={{
-            borderRadius: 24,
-            marginBottom: 16,
-            borderWidth: 1,
-            borderColor: isBasicCurrent ? theme.colors.primarySoft : theme.colors.border,
-          }}
-          padding={20}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="leaf" size={18} color={theme.colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>STARTER</Text>
-              <Text style={[theme.typography.bodyStrong, { fontSize: 18 }]}>Basic</Text>
-            </View>
-            <Text style={{ fontSize: 24, fontWeight: "900", color: theme.colors.text }}>$0</Text>
-          </View>
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>
-            Perfect for a single-teacher pilot. 1 student seat included.
-          </Text>
-          <View style={{ gap: 8 }}>
-            {BASIC_FEATURES.map((f) => <FeatureRow key={f} label={f} />)}
-          </View>
-          {isBasicCurrent && (
-            <View style={{ marginTop: 16, padding: 10, backgroundColor: theme.colors.primarySoft, borderRadius: 12, alignItems: 'center' }}>
-                <Text style={{ color: theme.colors.primary, fontWeight: '800', fontSize: 12 }}>YOUR ACTIVE PLAN</Text>
-            </View>
-          )}
-        </GlassCard>
-
-        {/* ── School Plan ── */}
-        <GlassCard
-          style={{
-            borderRadius: 24,
-            marginBottom: 24,
-            borderWidth: 1,
-            borderColor: isSchoolCurrent ? "#7C3AED" : theme.colors.border,
-          }}
-          padding={24}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
-            <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: "#F5F0FF", alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="business" size={22} color="#7C3AED" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 10, fontWeight: "800", color: "#7C3AED" }}>ORGANIZATION</Text>
-              <Text style={[theme.typography.bodyStrong, { fontSize: 18 }]}>School / Org</Text>
-            </View>
-            <Text style={{ fontSize: 20, fontWeight: "900", color: theme.colors.text }}>Quote</Text>
-          </View>
-
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 20 }]}>
-            For institutions requiring high-volume teacher and student management.
-          </Text>
-
-          <View style={{ gap: 10, marginBottom: 24 }}>
-            {SCHOOL_FEATURES.map((f) => (
-               <View key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: "#F5F0FF", alignItems: "center", justifyContent: "center" }}>
-                  <Feather name="plus" size={10} color="#7C3AED" />
+            {/* Feature list */}
+            <View style={{ gap: 12 }}>
+              {STANDARD_FEATURES.map(({ icon, text }) => (
+                <View key={text} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Feather name={icon as any} size={15} color={theme.colors.primary} />
+                  </View>
+                  <Text style={[theme.typography.body, { flex: 1, fontSize: 14 }]}>{text}</Text>
                 </View>
-                <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.text }}>{f}</Text>
-               </View>
-            ))}
-          </View>
+              ))}
+            </View>
 
-          <TouchableOpacity
-            onPress={() => handleUpgrade("school")}
-            disabled={isSchoolCurrent}
-            activeOpacity={0.8}
-            style={{ borderRadius: 16, paddingVertical: 15, backgroundColor: isSchoolCurrent ? "#F5F0FF" : "#7C3AED", alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8 }}
-          >
-            <Ionicons name="mail" size={16} color={isSchoolCurrent ? "#7C3AED" : "#fff"} />
-            <Text style={{ fontSize: 14, fontWeight: "900", color: isSchoolCurrent ? "#7C3AED" : "#fff" }}>
-              {isSchoolCurrent ? "Current Plan" : "Contact Sales"}
-            </Text>
-          </TouchableOpacity>
+            {/* CTA */}
+            {isOnStandard ? null : (
+              <View style={{ gap: 10, marginTop: 4 }}>
+                <AppButton
+                  label={`Start My Free 14-Day Trial →`}
+                  onPress={() => handleUpgrade("standard")}
+                  loading={upgrading === "standard"}
+                />
+                <View style={{ alignItems: "center", gap: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Feather name="lock" size={11} color={theme.colors.textMuted} />
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Secure checkout · Powered by Stripe</Text>
+                  </View>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                    Cancel anytime. No questions asked.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Social proof */}
+            {!isOnStandard ? (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingTop: 2 }}>
+                <View style={{ flexDirection: "row" }}>
+                  {["#F97316", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444"].map((c, i) => (
+                    <View key={i} style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: c, borderWidth: 2, borderColor: theme.colors.surface, marginLeft: i === 0 ? 0 : -9, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ fontSize: 9, fontWeight: "900", color: "#FFF" }}>
+                        {["J", "M", "A", "S", "R"][i]}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, fontSize: 12 }]}>
+                  Trusted by 2,000+ teachers worldwide
+                </Text>
+              </View>
+            ) : null}
+
+            {/* OR divider */}
+            <View style={{ flexDirection: "row", alignItems: "center", marginVertical: 4 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginHorizontal: 12, fontWeight: "600" }]}>Other plans</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+            </View>
+
+            {/* Basic sub-card */}
+            <View style={{ padding: 16, borderRadius: 16, backgroundColor: theme.colors.background, borderWidth: 1.5, borderColor: "#10b981" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <View>
+                  <Text style={[theme.typography.caption, { color: "#10b981", fontWeight: "700", letterSpacing: 1 }]}>STARTER</Text>
+                  <Text style={[theme.typography.title, { fontSize: 22 }]}>Basic</Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  {isOnBasic ? (
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: theme.colors.successSoft, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 10, fontWeight: "900", color: theme.colors.success }}>CURRENT PLAN</Text>
+                    </View>
+                  ) : null}
+                  <Text style={[theme.typography.title, { fontSize: 26 }]}>$0</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>/forever</Text>
+                </View>
+              </View>
+
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18, marginBottom: 12 }]}>
+                Single-teacher pilot. All lessons and tests with one student — no credit card ever required.
+              </Text>
+
+              <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 12, gap: 8, marginBottom: 12 }}>
+                {BASIC_FEATURES.map((feature) => (
+                  <FeatureRow key={feature} label={feature} color="#10b981" />
+                ))}
+              </View>
+
+              {isOnBasic ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
+                  <Text style={[theme.typography.caption, { color: theme.colors.success, fontWeight: "700" }]}>You're on this plan</Text>
+                </View>
+              ) : (
+                <AppButton
+                  label="Continue with Basic (Free)"
+                  onPress={() => handleUpgrade("basic")}
+                  loading={upgrading === "basic"}
+                />
+              )}
+            </View>
+
+            {/* School sub-card */}
+            <View style={{ padding: 16, borderRadius: 16, backgroundColor: theme.colors.background, borderWidth: 1.5, borderColor: "#8b5cf6" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <View>
+                  <Text style={[theme.typography.caption, { color: "#8b5cf6", fontWeight: "700", letterSpacing: 1 }]}>ORGANIZATION</Text>
+                  <Text style={[theme.typography.title, { fontSize: 22 }]}>School</Text>
+                </View>
+                <Text style={[theme.typography.title, { fontSize: 22 }]}>Custom</Text>
+              </View>
+
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18, marginBottom: 12 }]}>
+                Volume pricing for schools and language organizations — one or more teachers.
+              </Text>
+
+              <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 12, gap: 8, marginBottom: 12 }}>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, fontWeight: "700", marginBottom: 4 }]}>Everything in Standard, plus:</Text>
+                {SCHOOL_FEATURES.map((feature) => (
+                  <FeatureRow key={feature} label={feature} color="#8b5cf6" />
+                ))}
+              </View>
+
+              <AppButton
+                label="Contact for a Quote"
+                onPress={() => handleUpgrade("school")}
+                loading={upgrading === "school"}
+                variant="violet"
+              />
+            </View>
+          </View>
         </GlassCard>
-
-        {/* Global Support Footer */}
-        <View style={{ alignItems: "center", gap: 12, paddingVertical: 20 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
-            <Text style={{ fontSize: 10, fontWeight: "900", color: theme.colors.primary, letterSpacing: 2 }}>GLOBAL STANDARDS</Text>
-          </View>
-          <Text style={[theme.typography.caption, { textAlign: "center", color: theme.colors.textMuted, lineHeight: 18 }]}>
-            Secure payments via Stripe.{"\n"}Manage subscriptions 24/7 in your dashboard.
-          </Text>
-        </View>
       </ScrollView>
     </View>
   );

@@ -65,7 +65,7 @@ import type {
 
 type RootStackParamList = {
   Login: undefined;
-  Dashboard: { sessionId?: string } | undefined;
+  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   StudyGame: { sessionId: string };
 };
 

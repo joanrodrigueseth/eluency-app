@@ -36,6 +36,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../lib/supabase";
 import { triggerLightImpact } from "../lib/haptics";
+import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { useAppTheme } from "../lib/theme";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
@@ -108,72 +109,6 @@ function formatDate(date?: string | null) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function getLanguageBadge(language?: string | null) {
-  const value = (language ?? "").trim();
-  if (!value) return "";
-  const normalized = value.toLowerCase();
-  if (normalized.includes("portuguese")) return "PT";
-  if (normalized.includes("spanish")) return "ESP";
-  if (normalized.includes("french")) return "FR";
-  if (normalized.includes("german")) return "DE";
-  if (normalized.includes("italian")) return "IT";
-  if (normalized.includes("english")) return "EN";
-
-  return value
-    .split(/[\s()/,-]+/)
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 3);
-}
-
-function getLanguageBadgeColors(badge: string) {
-  switch (badge) {
-    case "PT":
-      return {
-        backgroundColor: "#EAF7EE",
-        borderColor: "#2F9E44",
-        textColor: "#1F7A35",
-      };
-    case "ESP":
-      return {
-        backgroundColor: "#FFF4E5",
-        borderColor: "#F08C00",
-        textColor: "#C56A00",
-      };
-    case "FR":
-      return {
-        backgroundColor: "#ECF4FF",
-        borderColor: "#2F6FED",
-        textColor: "#2458B8",
-      };
-    case "DE":
-      return {
-        backgroundColor: "#F5F5F5",
-        borderColor: "#5C5F66",
-        textColor: "#2D2F33",
-      };
-    case "IT":
-      return {
-        backgroundColor: "#EEF8EF",
-        borderColor: "#3A9D5D",
-        textColor: "#2B7A46",
-      };
-    case "EN":
-      return {
-        backgroundColor: "#F1F6FF",
-        borderColor: "#4C7CEB",
-        textColor: "#355FC2",
-      };
-    default:
-      return {
-        backgroundColor: "#FFF3E8",
-        borderColor: "#D96B1C",
-        textColor: "#B55312",
-      };
-  }
 }
 
 function getLessonAccent(index: number) {
@@ -321,6 +256,99 @@ function PressableScale({
   );
 }
 
+function FilterPickerModal({
+  visible,
+  title,
+  onClose,
+  children,
+  theme,
+}: {
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  theme: ReturnType<typeof useAppTheme>;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <TouchableOpacity
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+          <View style={{
+            backgroundColor: theme.colors.surface,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingBottom: 32,
+            maxHeight: "80%",
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+          }}>
+            <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={[theme.typography.title, { fontSize: 18 }]}>{title}</Text>
+              <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="close" size={18} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              {children}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function PickerRow({
+  label,
+  active,
+  count,
+  onPress,
+  theme,
+}: {
+  label: string;
+  active: boolean;
+  count?: number;
+  onPress: () => void;
+  theme: ReturnType<typeof useAppTheme>;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={{
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        backgroundColor: active ? theme.colors.primarySoft : "transparent",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+        {active ? (
+          <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="checkmark" size={12} color={theme.colors.primaryText} />
+          </View>
+        ) : (
+          <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: theme.colors.border }} />
+        )}
+        <Text style={[theme.typography.body, { color: active ? theme.colors.primary : theme.colors.text, fontWeight: active ? "700" : "400" }]}>
+          {label}
+        </Text>
+      </View>
+      {typeof count === "number" ? (
+        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: active ? theme.colors.primary : theme.colors.surfaceAlt, borderWidth: 1, borderColor: active ? theme.colors.primary : theme.colors.border }}>
+          <Text style={{ fontSize: 11, fontWeight: "800", color: active ? theme.colors.primaryText : theme.colors.textMuted }}>{count}</Text>
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+}
+
 export default function LessonsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -350,6 +378,10 @@ export default function LessonsScreen() {
   const [bulkLoading, setBulkLoading] = useState<null | "duplicate" | "assign" | "language" | "category" | "remove-category">(null);
   const [sortKey, setSortKey] = useState<"created_at" | "title">("created_at");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [packPickerOpen, setPackPickerOpen] = useState(false);
+  const [levelPickerOpen, setLevelPickerOpen] = useState(false);
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0.7)).current;
@@ -1125,7 +1157,7 @@ export default function LessonsScreen() {
                 borderRadius: 18,
                 borderWidth: 1,
                 borderColor: theme.colors.border,
-                backgroundColor: "#FFFFFF",
+                backgroundColor: theme.colors.surfaceAlt,
                 paddingHorizontal: 14,
                 paddingVertical: 4,
                 marginBottom: 14,
@@ -1528,237 +1560,76 @@ export default function LessonsScreen() {
               </View>
             ) : null}
 
-            <View>
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                    color: theme.colors.textMuted,
-                  },
-                ]}
+            {/* Filter dropdown row */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {/* Language picker trigger */}
+              <TouchableOpacity
+                onPress={() => setLanguagePickerOpen(true)}
+                activeOpacity={0.8}
+                style={{
+                  flex: 1,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: languageFilter !== "all" ? theme.colors.primary : theme.colors.border,
+                  backgroundColor: languageFilter !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
               >
-                Language
-              </Text>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: languageFilter !== "all" ? theme.colors.primary : theme.colors.text, flex: 1 }} numberOfLines={1}>
+                  {languageFilter === "all" ? "Language" : languageFilter}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={languageFilter !== "all" ? theme.colors.primary : theme.colors.textMuted} />
+              </TouchableOpacity>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingRight: 4 }}
+              {/* Category picker trigger */}
+              <TouchableOpacity
+                onPress={() => setPackPickerOpen(true)}
+                activeOpacity={0.8}
+                style={{
+                  flex: 1,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: packFilter !== "all" ? theme.colors.primary : theme.colors.border,
+                  backgroundColor: packFilter !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
               >
-                <PressableScale
-                  onPress={() => { layoutEase(); setLanguageFilter("all"); }}
-                  style={{
-                    marginRight: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor:
-                      languageFilter === "all"
-                        ? theme.isDark
-                          ? theme.colors.primary
-                          : PRIMARY_BORDER
-                        : theme.colors.border,
-                    backgroundColor:
-                      languageFilter === "all"
-                        ? theme.isDark
-                          ? theme.colors.primarySoft
-                          : PRIMARY_SOFT
-                        : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontWeight: "800",
-                      fontSize: 12,
-                      color: theme.colors.text,
-                    }}
-                  >
-                    All languages
-                  </Text>
-                </PressableScale>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: packFilter !== "all" ? theme.colors.primary : theme.colors.text, flex: 1 }} numberOfLines={1}>
+                  {packFilter === "all" ? "Category" : (allPacks.find((p) => p.id === packFilter)?.title ?? "Category")}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={packFilter !== "all" ? theme.colors.primary : theme.colors.textMuted} />
+              </TouchableOpacity>
 
-                {languageOptions.map((language) => (
-                  <PressableScale
-                    key={language}
-                    onPress={() => { layoutEase(); setLanguageFilter(language); }}
-                    style={{
-                      marginRight: 8,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor:
-                        languageFilter === language
-                          ? theme.isDark
-                            ? theme.colors.primary
-                            : PRIMARY_BORDER
-                          : theme.colors.border,
-                      backgroundColor:
-                        languageFilter === language
-                          ? theme.isDark
-                            ? theme.colors.primarySoft
-                            : PRIMARY_SOFT
-                          : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "800",
-                        fontSize: 12,
-                        color: theme.colors.text,
-                      }}
-                    >
-                      {language}
-                    </Text>
-                  </PressableScale>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={{ marginTop: 14 }}>
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                    color: theme.colors.textMuted,
-                  },
-                ]}
+              {/* Level/sort picker trigger */}
+              <TouchableOpacity
+                onPress={() => setLevelPickerOpen(true)}
+                activeOpacity={0.8}
+                style={{
+                  flex: 1,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: levelFilters.length > 0 ? theme.colors.primary : theme.colors.border,
+                  backgroundColor: levelFilters.length > 0 ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
               >
-                Lesson category
-              </Text>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
-                <PressableScale
-                  onPress={() => { layoutEase(); setPackFilter("all"); }}
-                  style={{
-                    marginRight: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: packFilter === "all" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                    backgroundColor: packFilter === "all" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>All categories</Text>
-                </PressableScale>
-
-                {allPacks.map((pack) => (
-                  <PressableScale
-                    key={pack.id}
-                    onPress={() => { layoutEase(); setPackFilter(pack.id); }}
-                    style={{
-                      marginRight: 8,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: packFilter === pack.id ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                      backgroundColor: packFilter === pack.id ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                    }}
-                  >
-                    <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>{pack.title}</Text>
-                  </PressableScale>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={{ marginTop: 14 }}>
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                    color: theme.colors.textMuted,
-                  },
-                ]}
-              >
-                Level and sort
-              </Text>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
-                <PressableScale
-                  onPress={() => setLevelFilters([])}
-                  style={{
-                    marginRight: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: levelFilters.length === 0 ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                    backgroundColor: levelFilters.length === 0 ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>All levels</Text>
-                </PressableScale>
-
-                {LEVELS.map((level) => {
-                  const active = levelFilters.includes(level);
-                  return (
-                    <PressableScale
-                      key={level}
-                      onPress={() =>
-                        setLevelFilters((prev) =>
-                          prev.includes(level)
-                            ? prev.filter((item) => item !== level)
-                            : [...prev, level]
-                        )
-                      }
-                      style={{
-                        marginRight: 8,
-                        paddingHorizontal: 14,
-                        paddingVertical: 10,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: active ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                        backgroundColor: active ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                      }}
-                    >
-                      <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>{level}</Text>
-                    </PressableScale>
-                  );
-                })}
-
-                <PressableScale
-                  onPress={() => toggleSort("created_at")}
-                  style={{
-                    marginRight: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: sortKey === "created_at" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                    backgroundColor: sortKey === "created_at" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>
-                    Date {sortKey === "created_at" ? (sortDirection === "asc" ? "↑" : "↓") : ""}
-                  </Text>
-                </PressableScale>
-
-                <PressableScale
-                  onPress={() => toggleSort("title")}
-                  style={{
-                    marginRight: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: sortKey === "title" ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
-                    backgroundColor: sortKey === "title" ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
-                  }}
-                >
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: theme.colors.text }}>
-                    Title {sortKey === "title" ? (sortDirection === "asc" ? "↑" : "↓") : ""}
-                  </Text>
-                </PressableScale>
-              </ScrollView>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: levelFilters.length > 0 ? theme.colors.primary : theme.colors.text, flex: 1 }} numberOfLines={1}>
+                  {levelFilters.length === 0 ? "Level" : levelFilters.join(", ")}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={levelFilters.length > 0 ? theme.colors.primary : theme.colors.textMuted} />
+              </TouchableOpacity>
             </View>
           </View>
         </FadeInSection>
@@ -1967,7 +1838,7 @@ export default function LessonsScreen() {
                           borderColor: isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY_BORDER) : theme.colors.border,
                           backgroundColor: theme.isDark
                             ? theme.colors.surface
-                            : "#FFFFFF",
+                            : theme.colors.surfaceAlt,
                           overflow: "hidden",
                           shadowColor: accent.icon,
                           shadowOpacity: theme.isDark ? 0.08 : 0.16,
@@ -2142,9 +2013,9 @@ export default function LessonsScreen() {
                                       borderRadius: 999,
                                       paddingHorizontal: 9,
                                       paddingVertical: 5,
-                                      backgroundColor: "#EAF5FF",
+                                      backgroundColor: theme.colors.primarySoft,
                                       borderWidth: 1,
-                                      borderColor: "#B8D8F7",
+                                      borderColor: theme.colors.borderStrong,
                                       marginRight: 8,
                                       marginBottom: 6,
                                     }}
@@ -2153,7 +2024,7 @@ export default function LessonsScreen() {
                                       style={{
                                         fontSize: 10,
                                         fontWeight: "900",
-                                        color: "#2E7ABF",
+                                        color: theme.colors.primary,
                                       }}
                                     >
                                       {lesson.language_level}
@@ -2768,6 +2639,106 @@ export default function LessonsScreen() {
           </Animated.View>
         </View>
       </Modal>
+
+      {/* Language picker modal */}
+      <FilterPickerModal
+        visible={languagePickerOpen}
+        title="Language"
+        onClose={() => setLanguagePickerOpen(false)}
+        theme={theme}
+      >
+        <PickerRow
+          label="All languages"
+          active={languageFilter === "all"}
+          count={lessonsForView.length}
+          onPress={() => { layoutEase(); setLanguageFilter("all"); setLanguagePickerOpen(false); }}
+          theme={theme}
+        />
+        {languageOptions.map((language) => (
+          <PickerRow
+            key={language}
+            label={language}
+            active={languageFilter === language}
+            count={lessonsForView.filter((l) => l.language?.trim() === language).length}
+            onPress={() => { layoutEase(); setLanguageFilter(language); setLanguagePickerOpen(false); }}
+            theme={theme}
+          />
+        ))}
+      </FilterPickerModal>
+
+      {/* Category picker modal */}
+      <FilterPickerModal
+        visible={packPickerOpen}
+        title="Lesson category"
+        onClose={() => setPackPickerOpen(false)}
+        theme={theme}
+      >
+        <PickerRow
+          label="All categories"
+          active={packFilter === "all"}
+          count={lessonsForView.length}
+          onPress={() => { layoutEase(); setPackFilter("all"); setPackPickerOpen(false); }}
+          theme={theme}
+        />
+        {allPacks.map((pack) => (
+          <PickerRow
+            key={pack.id}
+            label={pack.title}
+            active={packFilter === pack.id}
+            count={lessonsForView.filter((l) => (packMap[l.id] ?? []).some((p) => p.id === pack.id)).length}
+            onPress={() => { layoutEase(); setPackFilter(pack.id); setPackPickerOpen(false); }}
+            theme={theme}
+          />
+        ))}
+      </FilterPickerModal>
+
+      {/* Level & sort picker modal */}
+      <FilterPickerModal
+        visible={levelPickerOpen}
+        title="Level & sort"
+        onClose={() => setLevelPickerOpen(false)}
+        theme={theme}
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 }}>
+          <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Level</Text>
+        </View>
+        <PickerRow
+          label="All levels"
+          active={levelFilters.length === 0}
+          count={lessonsForView.length}
+          onPress={() => setLevelFilters([])}
+          theme={theme}
+        />
+        {LEVELS.map((level) => (
+          <PickerRow
+            key={level}
+            label={level}
+            active={levelFilters.includes(level)}
+            count={lessonsForView.filter((l) => l.language_level === level).length}
+            onPress={() =>
+              setLevelFilters((prev) =>
+                prev.includes(level) ? prev.filter((item) => item !== level) : [...prev, level]
+              )
+            }
+            theme={theme}
+          />
+        ))}
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 8 }}>
+          <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Sort</Text>
+        </View>
+        <PickerRow
+          label={`Date${sortKey === "created_at" ? (sortDirection === "asc" ? " ↑" : " ↓") : ""}`}
+          active={sortKey === "created_at"}
+          onPress={() => toggleSort("created_at")}
+          theme={theme}
+        />
+        <PickerRow
+          label={`Title${sortKey === "title" ? (sortDirection === "asc" ? " ↑" : " ↓") : ""}`}
+          active={sortKey === "title"}
+          onPress={() => toggleSort("title")}
+          theme={theme}
+        />
+      </FilterPickerModal>
     </View>
   );
 }

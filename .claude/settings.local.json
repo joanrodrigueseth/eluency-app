@@ -7,7 +7,26 @@
       "Bash(node \"c:/Users/nate-/OneDrive/Desktop/Projects/App/eluency-app/fix_drawer.js\")",
       "Bash(node \"c:/Users/nate-/OneDrive/Desktop/Projects/App/eluency-app/patch_dashboard.js\")",
       "Bash(npx tsc:*)",
-      "Bash(python3 -c ':*)"
+      "Bash(python3 -c ':*)",
+      "Bash(wc -l \"c:\\\\Users\\\\nate-\\\\OneDrive\\\\Desktop\\\\Projects\\\\April8\\\\eluency-app\\\\screens\"/*.tsx)",
+      "Bash(sed -i 's/const GREEN = \"#3EA370\";//' 's/const GREEN_SOFT = \"#EBF8F0\";//' 's/const GREEN_BORDER = \"#A8DFC0\";//' screens/StudentsScreen.tsx)",
+      "Bash(sed -i s/GREEN_SOFT/theme.colors.successSoft/g screens/StudentsScreen.tsx)",
+      "Bash(sed -i s/GREEN_BORDER/theme.colors.success/g screens/StudentsScreen.tsx)",
+      "Bash(sed -i s/GREEN/theme.colors.success/g screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/const GREEN = \"#3EA370\";//' screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/const GREEN_SOFT = \"#EBF8F0\";//' screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/const GREEN_BORDER = \"#A8DFC0\";//' screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/GREEN_SOFT/theme.colors.successSoft/g' screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/GREEN_BORDER/theme.colors.success/g' screens/StudentsScreen.tsx)",
+      "Bash(sed -n '60,70p' screens/StudentsScreen.tsx)",
+      "Bash(sed -n '430,445p' screens/StudentsScreen.tsx)",
+      "Bash(sed -n '726,740p' screens/StudentsScreen.tsx)",
+      "Bash(sed -i 's/PURPLE_SOFT/accentPurpleSoft/g' screens/TestFormScreen.tsx)",
+      "Bash(sed -i 's/PURPLE_BORDER/accentPurpleBorder/g' screens/TestFormScreen.tsx)",
+      "Bash(sed -i 's/PURPLE/accentPurple/g' screens/TestFormScreen.tsx)",
+      "Bash(grep -v \"rgba\\\\|//\")",
+      "Bash(sed -n '38,45p' screens/TestFormScreen.tsx)",
+      "Bash(sed -n '248,257p' screens/TestFormScreen.tsx)"
     ]
   }
 }
