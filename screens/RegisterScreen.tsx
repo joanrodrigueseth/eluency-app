@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef } from "react";
 import {
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -18,7 +19,6 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { SvgUri } from "react-native-svg";
 
 import AppButton from "../components/AppButton";
 import AppTextField from "../components/AppTextField";
@@ -32,7 +32,7 @@ type RootStackParamList = {
   Dashboard: undefined;
 };
 
-const LOGO_URI = "https://www.eluency.com/Logo.svg";
+const LOGO_SRC = require("../assets/LogoBO.png");
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || "https://www.eluency.com";
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -802,6 +802,8 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   // Step 2 — profile
   const [profession, setProfession] = useState("teacher");
@@ -816,7 +818,7 @@ export default function RegisterScreen() {
   const [consentSecurity, setConsentSecurity] = useState(false);
 
   const { width: screenWidth } = Dimensions.get("window");
-  const logoW = Math.min(200, screenWidth - 96);
+  const logoW = Math.min(220, screenWidth - 96);
   const logoH = Math.round(logoW * (169 / 300));
 
   const selectedLanguages = useMemo(() => {
@@ -879,18 +881,16 @@ export default function RegisterScreen() {
         });
       }
 
-      // Use session from signUp, or sign in immediately if email confirmation is required
-      let session = signUpData.session;
-      if (!session) {
-        const { data: signInData } = await supabase.auth.signInWithPassword({
-          email: cleanedEmail,
-          password,
-        });
-        session = signInData.session;
-      }
+      const session = signUpData.session;
 
+      // If no session, Supabase requires email confirmation — don't attempt sign-in
+      // (that would trigger an Invalid Refresh Token error on an unconfirmed account)
       if (!session) {
-        throw new Error("Unable to sign in after registration. Please try logging in.");
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Login", params: { initialView: "teacher" } }],
+        });
+        return;
       }
 
       // Fire onboarding API — non-blocking, account is already created
@@ -972,16 +972,18 @@ export default function RegisterScreen() {
           style={{
             flex: 1,
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",
             paddingHorizontal: 32,
-            paddingTop: insets.top + 16,
+            paddingTop: insets.top,
           }}
         >
-          <SvgUri uri={LOGO_URI} width={logoW} height={logoH} />
+          <View style={{ overflow: "visible" }}>
+            <Image source={LOGO_SRC} style={{ width: logoW, height: logoH }} resizeMode="contain" />
+          </View>
           <Text
             style={[
               theme.typography.display,
-              { textAlign: "center", fontSize: 34, lineHeight: 42, marginTop: 32 },
+              { textAlign: "center", fontSize: 34, lineHeight: 32, marginTop: 1 },
             ]}
           >
             Teach smarter.
@@ -1059,19 +1061,16 @@ export default function RegisterScreen() {
         }}
       >
         {/* Back / close */}
-        {step > 1 ? (
-          <TouchableOpacity
-            onPress={() => {
-              setError("");
-              setStep(step - 1);
-            }}
-            style={{ alignSelf: "flex-start", padding: 4, marginBottom: 18 }}
-          >
-            <Ionicons name="chevron-back" size={26} color={theme.colors.text} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ height: 26 + 18 + 8 }} />
-        )}
+        <TouchableOpacity
+          onPress={() => {
+            setError("");
+            if (step <= 1) setStep(0);
+            else setStep(step - 1);
+          }}
+          style={{ alignSelf: "flex-start", padding: 4, marginBottom: 18 }}
+        >
+          <Ionicons name="chevron-back" size={26} color={theme.colors.text} />
+        </TouchableOpacity>
 
         <ProgressBar current={step} total={3} />
 
@@ -1118,18 +1117,28 @@ export default function RegisterScreen() {
             <AppTextField
               label="Password"
               placeholder="Minimum 8 characters"
-              secureTextEntry
+              secureTextEntry={!showPassword}
               value={password}
               onChangeText={setPassword}
               icon={<Feather name="lock" size={18} color={theme.colors.primary} />}
+              rightElement={
+                <TouchableOpacity onPress={() => setShowPassword((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              }
             />
             <AppTextField
               label="Confirm Password"
               placeholder="Repeat password"
-              secureTextEntry
+              secureTextEntry={!showConfirm}
               value={confirm}
               onChangeText={setConfirm}
               icon={<Feather name="check-circle" size={18} color={theme.colors.primary} />}
+              rightElement={
+                <TouchableOpacity onPress={() => setShowConfirm((v) => !v)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Feather name={showConfirm ? "eye-off" : "eye"} size={18} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              }
             />
             {error ? <ErrorBanner message={error} theme={theme} /> : null}
             <AppButton label="Continue" onPress={advanceStep1} />

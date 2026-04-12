@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -22,6 +23,7 @@ import { Audio } from "expo-av";
 import { decode as decodeBase64 } from "base64-arraybuffer";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import DraggableFlatList from "react-native-draggable-flatlist";
 
 import { getOrCreateVocabImage } from "../lib/api/imageBank";
 import { supabase } from "../lib/supabase";
@@ -89,7 +91,7 @@ type LessonOpt = { id: string; title: string };
 type TeacherOpt = { id: string; name: string };
 type TestSettings = {
   time_limit_minutes: number | null;
-  attempts_allowed: 1 | 2 | "unlimited";
+  attempts_allowed: number | "unlimited";
   randomize_questions: boolean;
   randomize_mcq_options: boolean;
 };
@@ -110,6 +112,8 @@ type LinkedLessonWordRow = {
 };
 
 const AI_ELIGIBLE_PLANS = ["basic", "standard", "school", "internal"];
+const AI_RED = "#D94343";
+const AI_RED_SOFT = "#FDEDED";
 const base64ByteSize = (base64: string) => {
   const len = base64.length;
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
@@ -160,6 +164,24 @@ const TEMPLATE_PRESETS: TemplatePreset[] = [
     label: "Short writing",
     build: () => ({ prompt_format: "text", answer_format: "open", section: "Writing", points: 2 }),
   },
+];
+
+const TEMPLATE_PRESET_COPY: Record<string, string> = {
+  vocab_recall: "Quick recall prompt for core term translation.",
+  picture_naming: "Show an image and ask students to name it.",
+  listening_dictation: "Play audio and capture an exact written answer.",
+  listening_mcq: "Audio-based comprehension with guided choices.",
+  cloze: "Fill the missing word in a short sentence.",
+  short_writing: "Open-ended response for writing practice.",
+};
+
+const TEMPLATE_ICON_PALETTE = [
+  { background: "#EAF3FF", border: "#BBD7FF", icon: "#2F6FDB" },
+  { background: "#EAFBF1", border: "#BCE9CF", icon: "#228B57" },
+  { background: "#FFF5E8", border: "#F5D1A5", icon: "#C77100" },
+  { background: "#F3EEFF", border: "#D6C5FF", icon: "#6E45CE" },
+  { background: "#FFEFF3", border: "#F7C2D0", icon: "#C63A61" },
+  { background: "#EAFBFA", border: "#BCE7E2", icon: "#157F7A" },
 ];
 
 function FloatingGlow({
@@ -266,6 +288,7 @@ export default function TestFormScreen() {
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
+  const aiThinking = useRef(new Animated.Value(0)).current;
 
   const [words, setWords] = useState<(WordRow & { sp: string; se: string })[]>([]);
   const [questions, setQuestions] = useState<QRow[]>([
@@ -279,13 +302,27 @@ export default function TestFormScreen() {
   const [teacherSearch, setTeacherSearch] = useState("");
   const [lessonSearch, setLessonSearch] = useState("");
 
-  const [testSettings, setTestSettings] = useState<TestSettings>(() => ensureTestSettings(null) as TestSettings);
+  const normalizeAttemptsDefault = useCallback((settings: TestSettings): TestSettings => {
+    const attempts = settings.attempts_allowed;
+    if (typeof attempts === "number" && attempts >= 1 && attempts <= 10) {
+      return settings;
+    }
+    return { ...settings, attempts_allowed: "unlimited" };
+  }, []);
+
+  const [testSettings, setTestSettings] = useState<TestSettings>(() => ({
+    ...(ensureTestSettings(null) as TestSettings),
+    attempts_allowed: "unlimited",
+  }));
   const [aiQuestionsLoading, setAiQuestionsLoading] = useState(false);
+  const [thinkingDots, setThinkingDots] = useState(".");
   const [aiVocabLoading, setAiVocabLoading] = useState(false);
   const [aiImageIndex, setAiImageIndex] = useState<number | null>(null);
   const [uploadingQuestionIndex, setUploadingQuestionIndex] = useState<number | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [lessonPickerOpen, setLessonPickerOpen] = useState(false);
+  const [attemptsPickerOpen, setAttemptsPickerOpen] = useState(false);
   const [vocabOpen, setVocabOpen] = useState<Record<string, boolean>>({});
   const [vocabSectionOpen, setVocabSectionOpen] = useState(false);
   const [questionOpen, setQuestionOpen] = useState<Record<string, boolean>>({});
@@ -478,7 +515,7 @@ export default function TestFormScreen() {
           );
 
           const rawTests = Array.isArray((cfg as any).tests) ? (cfg as any).tests : [];
-          setTestSettings(ensureTestSettings((cfg as any).test_settings) as TestSettings);
+          setTestSettings(normalizeAttemptsDefault(ensureTestSettings((cfg as any).test_settings) as TestSettings));
           setLinkedLessonIds(Array.isArray((cfg as any).linked_lesson_ids) ? [...(cfg as any).linked_lesson_ids] : []);
 
           const qRows: QRow[] = rawTests.map((tq: unknown) => mapQuestion(ensureQuestionDefaults(tq as Record<string, unknown>)));
@@ -504,7 +541,10 @@ export default function TestFormScreen() {
           setWords([]);
           setQuestions([mapQuestion(ensureQuestionDefaults(null))]);
           setLinkedLessonIds([]);
-          setTestSettings(ensureTestSettings(null) as TestSettings);
+          setTestSettings({
+            ...(ensureTestSettings(null) as TestSettings),
+            attempts_allowed: "unlimited",
+          });
           if (r === "admin") {
             const { data: tlist } = await (supabase.from("teachers") as any).select("user_id, name").order("name");
             if (!cancelled && tlist) {
@@ -524,7 +564,7 @@ export default function TestFormScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isEdit, testId, navigation, loadLessonsForTeacher]);
+  }, [isEdit, testId, navigation, loadLessonsForTeacher, normalizeAttemptsDefault]);
 
   useEffect(() => {
     if (!isAdmin || !teacherId) return;
@@ -539,6 +579,13 @@ export default function TestFormScreen() {
   }, [bootLoading, linkedLessonIds, syncLinkedLessonWords]);
 
   const filteredTeachers = teachers.filter((t) => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
+  const filteredLinkableLessons = lessons.filter(
+    (l) => !linkedLessonIds.includes(l.id) && l.title.toLowerCase().includes(lessonSearch.toLowerCase())
+  );
+  const selectedAttemptsCount =
+    typeof testSettings.attempts_allowed === "number"
+      ? testSettings.attempts_allowed
+      : null;
 
   const finalType = type === "Other" ? (customCategory.trim() || "Other") : type;
   const linkedLessonsSummary =
@@ -599,6 +646,38 @@ export default function TestFormScreen() {
       loopTwo.stop();
     };
   }, [heroGlowOne, heroGlowTwo]);
+
+  useEffect(() => {
+    if (!aiQuestionsLoading) {
+      aiThinking.stopAnimation();
+      aiThinking.setValue(0);
+      setThinkingDots(".");
+      return;
+    }
+
+    const spin = Animated.loop(
+      Animated.timing(aiThinking, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    spin.start();
+
+    const frames = [".", "..", "...", "...."];
+    let frameIndex = 0;
+    const dotsTimer = setInterval(() => {
+      frameIndex = (frameIndex + 1) % frames.length;
+      setThinkingDots(frames[frameIndex]);
+    }, 280);
+
+    return () => {
+      spin.stop();
+      clearInterval(dotsTimer);
+      aiThinking.setValue(0);
+    };
+  }, [aiQuestionsLoading, aiThinking]);
 
   const buildConfigJson = () => {
     const wordObjs = words
@@ -1015,20 +1094,20 @@ export default function TestFormScreen() {
               <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
             </TouchableOpacity>
             <View style={{ flex: 1, marginHorizontal: 14 }}>
-              <Text style={[theme.typography.label, { color: accentPurple }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
+              <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: accentPurple, backgroundColor: accentPurpleSoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Ionicons name="open-outline" size={14} color={accentPurple} />
-                <Text style={{ color: accentPurple, fontSize: 12, fontWeight: "800" }}>Web</Text>
+              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => { Keyboard.dismiss(); triggerLightImpact(); handleSave(); }}
                 disabled={saving}
-                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: accentPurple, opacity: saving ? 0.7 : 1 }}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
               >
-                <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
+                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1039,88 +1118,36 @@ export default function TestFormScreen() {
         <View style={{ gap: 16 }}>
           <GlassCard style={{ borderRadius: 30, overflow: "hidden" }} padding={0}>
             <View style={{ position: "relative", overflow: "hidden" }}>
-              <FloatingGlow size={180} color={accentPurpleSoft} top={-55} right={-25} translate={heroGlowOne} />
+              <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
               <FloatingGlow size={130} color={theme.colors.violetSoft} bottom={-38} left={-15} translate={heroGlowTwo} />
               <View style={{ padding: 22 }}>
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity onPress={pickCoverImage} activeOpacity={0.9} disabled={coverUploading} style={{ width: 110, marginRight: 16 }}>
+                <TouchableOpacity onPress={pickCoverImage} activeOpacity={0.9} disabled={coverUploading} style={{ width: "100%", marginBottom: 18 }}>
                     {coverImageUrl.trim() ? (
-                      <Image source={{ uri: coverImageUrl.trim() }} style={{ width: 110, height: 132, borderRadius: 24, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                      <Image source={{ uri: coverImageUrl.trim() }} style={{ width: "100%", height: 180, borderRadius: 20, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
                     ) : (
-                      <View style={{ width: 110, height: 132, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 8 }}>
-                        <Ionicons name="image-outline" size={30} color={theme.colors.textMuted} />
-                        <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 11, textAlign: "center", paddingHorizontal: 10 }}>
-                          {coverUploading ? "Uploading..." : "Add cover"}
+                      <View style={{ width: "100%", height: 180, borderRadius: 20, borderWidth: 1.5, borderColor: theme.colors.border, borderStyle: "dashed", backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 10 }}>
+                        <Ionicons name="image-outline" size={36} color={theme.colors.textMuted} />
+                        <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 13 }}>
+                          {coverUploading ? "Uploading..." : "Add cover image"}
                         </Text>
                       </View>
                     )}
-                  </TouchableOpacity>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[theme.typography.label, { color: accentPurple }]}>Test studio</Text>
-                    <Text style={[theme.typography.title, { marginTop: 8, fontSize: 28, lineHeight: 32 }]}>
-                      {name.trim() || (isEdit ? "Untitled test" : "Design a polished new test")}
-                    </Text>
-                    <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted, fontSize: 15, lineHeight: 22 }]}>
-                      {heroDescription}
-                    </Text>
-                  </View>
-                </View>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
-                  <HeroChip icon="grid-outline" label="Type" value={finalType} tint={accentPurpleSoft} textColor={accentPurple} />
-                  <HeroChip icon="book-outline" label="Vocab" value={`${activeWordCount}`} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
-                  <HeroChip icon="document-text-outline" label="Questions" value={`${questions.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
-                  <HeroChip icon="link-outline" label="Lessons" value={`${linkedLessonIds.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
+                </TouchableOpacity>
+
+                <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Test studio</Text>
+                <Text style={[theme.typography.title, { marginTop: 4, fontSize: 18, lineHeight: 23 }]}> 
+                  {name.trim() || (isEdit ? "Untitled test" : "Start a beautiful new test")}
+                </Text>
+                <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}> 
+                  {heroDescription}
+                </Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+                  <HeroChip icon="book-outline" label="Total Vocab" value={`${activeWordCount}`} tint={theme.colors.violetSoft} textColor={theme.colors.text} />
+                  <HeroChip icon="document-text-outline" label="Total Questions" value={`${questions.length}`} tint={theme.colors.surfaceAlt} textColor={theme.colors.textMuted} />
                 </View>
               </View>
             </View>
           </GlassCard>
-
-          <View
-            style={{
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: accentPurple,
-              backgroundColor: accentPurpleSoft,
-              padding: 16,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: "900", color: accentPurple, letterSpacing: 1.3, textTransform: "uppercase" }}>
-              Test builder
-            </Text>
-            <Text style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text, marginTop: 6 }}>
-              {isEdit ? "Test overview" : "Build the test in four steps."}
-            </Text>
-            {!isEdit ? (
-              <Text style={{ fontSize: 13, lineHeight: 19, color: theme.colors.textMuted, marginTop: 6 }}>
-                Start with basics, link lessons if needed, shape the vocabulary, then finish with the questions students will answer.
-              </Text>
-            ) : null}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-              {[
-                { label: "Basics", value: finalType },
-                { label: "Linked Lessons", value: linkedLessonIds.length ? String(linkedLessonIds.length) : "0" },
-                { label: "Vocabulary", value: String(activeWordCount) },
-                { label: "Questions", value: String(questions.length) },
-              ].map((item) => (
-                <View
-                  key={item.label}
-                  style={{
-                    width: "48%",
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: accentPurple,
-                    backgroundColor: theme.colors.surface,
-                    paddingHorizontal: 10,
-                    paddingVertical: 9,
-                  }}
-                >
-                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.text, textTransform: "uppercase" }} numberOfLines={1}>
-                    {item.label}: <Text style={{ color: theme.colors.textMuted }}>{item.value}</Text>
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
 
           {!isEdit ? (
           <View style={{ marginBottom: 2 }}>
@@ -1184,36 +1211,95 @@ export default function TestFormScreen() {
           </TouchableOpacity>
           {settingsOpen ? (
             <View style={{ padding: 14, gap: 10 }}>
-              <View>
-                <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Time limit (min)</Text>
-                <TextInput value={testSettings.time_limit_minutes == null ? "" : String(testSettings.time_limit_minutes)} onChangeText={(t) => setTestSettings((prev) => ({ ...prev, time_limit_minutes: t.trim() ? Number(t) || null : null }))} keyboardType="numeric" placeholder="Optional" placeholderTextColor={theme.colors.textMuted} style={inputStyle} />
+              <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Time limit (min)</Text>
+                  <TextInput value={testSettings.time_limit_minutes == null ? "" : String(testSettings.time_limit_minutes)} onChangeText={(t) => setTestSettings((prev) => ({ ...prev, time_limit_minutes: t.trim() ? Number(t) || null : null }))} keyboardType="numeric" placeholder="Optional" placeholderTextColor={theme.colors.textMuted} style={inputStyle} />
+                </View>
+                <View style={{ alignSelf: "flex-start" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Optional:</Text>
+                  <TouchableOpacity
+                  onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))}
+                  style={{
+                    alignSelf: "flex-start",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    borderWidth: 1,
+                    borderColor: testSettings.randomize_questions ? "#A9DEBA" : theme.colors.border,
+                    backgroundColor: testSettings.randomize_questions ? "#ECF9F0" : theme.colors.surfaceAlt,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    minHeight: 46,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 999,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: testSettings.randomize_questions ? "#DDF4E5" : "transparent",
+                    }}
+                  >
+                    <Ionicons
+                      name={testSettings.randomize_questions ? "checkmark" : "close"}
+                      size={13}
+                      color={testSettings.randomize_questions ? "#2F9E44" : "#D94343"}
+                    />
+                  </View>
+                  <Text style={{ color: testSettings.randomize_questions ? "#2F9E44" : theme.colors.text, fontWeight: "700", fontSize: 12 }}>
+                    Randomize Order
+                  </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <View>
                 <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>Attempts</Text>
-                <View style={{ flexDirection: "row", gap: 6 }}>
-                  {(["1", "2", "unlimited"] as const).map((v) => {
-                    const active = String(testSettings.attempts_allowed) === v;
-                    return (
-                      <TouchableOpacity
-                        key={v}
-                        onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: v === "unlimited" ? "unlimited" : (Number(v) as 1 | 2) }))}
-                        style={v === "unlimited"
-                          ? { flex: 1, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? accentPurple : theme.colors.border, backgroundColor: active ? accentPurpleSoft : theme.colors.surfaceAlt }
-                          : { width: 32, paddingVertical: 6, borderRadius: 6, borderWidth: 1, alignItems: "center", borderColor: active ? accentPurple : theme.colors.border, backgroundColor: active ? accentPurpleSoft : theme.colors.surfaceAlt }
-                        }
-                      >
-                        <Text style={{ fontSize: v === "unlimited" ? 11 : 10, fontWeight: "800", color: active ? accentPurple : theme.colors.text }}>{v === "unlimited" ? "Unlimited" : v}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                <TouchableOpacity
+                  onPress={() => setAttemptsPickerOpen(true)}
+                  style={{
+                    alignSelf: "flex-start",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    borderWidth: 1,
+                    borderColor: selectedAttemptsCount ? "#A9DEBA" : "#D7DADF",
+                    backgroundColor: selectedAttemptsCount ? "#ECF9F0" : "#F2F3F5",
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    minHeight: 46,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 999,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: selectedAttemptsCount ? "#DDF4E5" : "#F2F2F2",
+                    }}
+                  >
+                    <Ionicons
+                      name={selectedAttemptsCount ? "checkmark" : "infinite"}
+                      size={13}
+                      color={selectedAttemptsCount ? "#2F9E44" : "#2B2B2B"}
+                    />
+                  </View>
+                  <Text style={{ color: selectedAttemptsCount ? "#2F9E44" : "#2B2B2B", fontWeight: "700", fontSize: 12 }}>
+                    {selectedAttemptsCount
+                      ? `${selectedAttemptsCount} attempts selected`
+                      : "Unlimited Attempts"}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ color: theme.colors.textMuted, fontWeight: "600", fontSize: 10, marginTop: 6 }}>
+                  Click to add # of attempts
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))}>
-                <Text style={{ color: accentPurple, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_questions ? "On" : "Off"} - Randomize order</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, randomize_mcq_options: !prev.randomize_mcq_options }))}>
-                <Text style={{ color: accentPurple, fontWeight: "700", fontSize: 11 }}>{testSettings.randomize_mcq_options ? "On" : "Off"} - Randomize MCQ</Text>
-              </TouchableOpacity>
             </View>
           ) : null}
         </View>
@@ -1238,26 +1324,15 @@ export default function TestFormScreen() {
           {linkedLessonsOpen ? (
             <View style={{ padding: 14, gap: 8 }}>
               <TouchableOpacity
-                onPress={() => setLessonSearch((v) => v === "__open__" ? "" : "__open__")}
+                onPress={() => {
+                  setLessonSearch("");
+                  setLessonPickerOpen(true);
+                }}
                 style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
               >
                 <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Add lesson...</Text>
                 <Ionicons name="chevron-down" size={14} color={theme.colors.textMuted} />
               </TouchableOpacity>
-              {lessonSearch === "__open__" ? (
-                <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface, maxHeight: 200 }}>
-                  <ScrollView nestedScrollEnabled>
-                    {lessons.filter((l) => !linkedLessonIds.includes(l.id)).map((l, idx, arr) => (
-                      <TouchableOpacity key={l.id} onPress={() => { setLinkedLessonIds((prev) => [...prev, l.id]); setLessonSearch(""); }} style={{ paddingVertical: 9, paddingHorizontal: 12, borderBottomWidth: idx < arr.length - 1 ? 1 : 0, borderBottomColor: theme.colors.border }}>
-                        <Text style={{ fontSize: 12, color: theme.colors.text }} numberOfLines={2}>{l.title}</Text>
-                      </TouchableOpacity>
-                    ))}
-                    {lessons.filter((l) => !linkedLessonIds.includes(l.id)).length === 0 ? (
-                      <Text style={{ padding: 12, fontSize: 12, color: theme.colors.textMuted }}>No lessons available</Text>
-                    ) : null}
-                  </ScrollView>
-                </View>
-              ) : null}
               {linkedLessonIds.length > 0 ? (
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                   {linkedLessonIds.map((id) => {
@@ -1435,34 +1510,10 @@ export default function TestFormScreen() {
               </View>
               <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4 }}>{questionsSummary}</Text>
             </View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-              <TouchableOpacity
-                onPress={handleGenerateQuestionsFromVocabulary}
-                disabled={!canUseAI || aiQuestionsLoading}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: accentPurple,
-                  backgroundColor: accentPurpleSoft,
-                  opacity: !canUseAI || aiQuestionsLoading ? 0.6 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple }}>{aiQuestionsLoading ? "AI..." : "AI Gen"}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setTemplatePickerOpen((v) => !v)}
-                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text }}>Template</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setQuestions((q) => [...q, mapQuestion(ensureQuestionDefaults(null))])}
-                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: accentPurpleSoft }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple }}>+ Add</Text>
-              </TouchableOpacity>
+            <View style={{ marginTop: 12 }}>
+              <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 6 }}>
+                When clicking the "AI Question" this will generate 6 questions based on your vocabulary above.
+              </Text>
             </View>
           </View>
           {helpBubble === "questions" ? (
@@ -1470,65 +1521,67 @@ export default function TestFormScreen() {
               <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 16 }}>Design each question students will answer. Choose how the question is shown (text, audio, image) and how they answer (specific, open, multiple choice). Tap a question to expand it.</Text>
             </View>
           ) : null}
-          {templatePickerOpen ? (
-            <View style={{ marginBottom: 10, gap: 8 }}>
-              {TEMPLATE_PRESETS.map((p) => (
-                <TouchableOpacity
-                  key={p.id}
-                  onPress={() => {
-                    setQuestions((prev) =>
-                      prev.concat(
-                        mapQuestion(
-                          ensureQuestionDefaults({
-                            ...p.build(),
-                            prompt_text: p.build().prompt_text ?? "",
-                            correct_text: "",
-                          })
-                        )
-                      )
-                    );
-                    setTemplatePickerOpen(false);
-                  }}
-                  style={{ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: "700" }}>{p.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
-          {questions.map((q, i) => {
+          <DraggableFlatList
+            data={questions}
+            keyExtractor={(item) => item.key}
+            scrollEnabled={false}
+            activationDistance={14}
+            onDragEnd={({ data }) => setQuestions(data)}
+            renderItem={({ item: q, getIndex, drag, isActive }) => {
+            const i = Math.max(0, getIndex?.() ?? questions.findIndex((x) => x.key === q.key));
             const isOpen = !!questionOpen[q.key];
             const isAdvOpen = !!advancedOpen[q.key];
             const PROMPT_FORMAT_LABELS: Record<string, string> = { text: "Text", fill_blank: "Fill in Blank", audio: "Audio", image: "Image" };
             const ANSWER_FORMAT_LABELS: Record<string, string> = { specific: "Specific", open: "Open", mcq: "Multiple Choice" };
             const qDropdown = dropdownOpen[q.key] ?? null;
             return (
-              <View key={q.key} style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt, marginBottom: 10 }}>
-                {/* Collapsed header */}
-                <TouchableOpacity
-                  onPress={() => setQuestionOpen((prev) => ({ ...prev, [q.key]: !isOpen }))}
-                  style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 }}
-                >
-                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                    <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>
-                      Question {i + 1}
-                    </Text>
-                    {q.prompt_text.trim() ? (
-                      <Text style={{ fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.prompt_text}</Text>
-                    ) : null}
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    {questions.length > 1 ? (
-                      <TouchableOpacity onPress={() => setQuestions((prev) => prev.filter((x) => x.key !== q.key))}>
-                        <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+              <View style={{ marginBottom: 10 }}>
+                <View style={{ borderWidth: 1.5, borderColor: isActive ? accentPurple : theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt }}>
+                  {/* Collapsed header */}
+                  <TouchableOpacity
+                    onPress={() => setQuestionOpen((prev) => ({ ...prev, [q.key]: !isOpen }))}
+                    style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 }}
+                  >
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>
+                        Question {i + 1}
+                      </Text>
+                      {q.prompt_text.trim() ? (
+                        <Text style={{ fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.prompt_text}</Text>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={(e) => e.stopPropagation()}
+                        onLongPress={drag}
+                        delayLongPress={130}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="reorder-three" size={17} color={theme.colors.textMuted} />
                       </TouchableOpacity>
-                    ) : null}
-                    <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
-                  </View>
-                </TouchableOpacity>
+                      {questions.length > 1 ? (
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            Alert.alert(
+                              "Delete Question",
+                              `Do you want to delete Question ${i + 1}?`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                { text: "Delete", style: "destructive", onPress: () => setQuestions((prev) => prev.filter((x) => x.key !== q.key)) },
+                              ]
+                            );
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                        </TouchableOpacity>
+                      ) : null}
+                      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
+                    </View>
+                  </TouchableOpacity>
 
-                {isOpen ? (
-                  <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 12 }}>
+                  {isOpen ? (
+                    <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 12 }}>
                     {/* Two format dropdowns side by side */}
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       {/* Prompt format */}
@@ -1718,14 +1771,7 @@ export default function TestFormScreen() {
                         </TouchableOpacity>
                       </View>
                     ) : null}
-                    {q.prompt_format === "fill_blank" ? (
-                      <TextInput
-                        value={String(Math.max(1, q.correct_text.trim().length || q.fill_blank_character_count || 1))}
-                        editable={false}
-                        placeholderTextColor={placeholderColor}
-                        style={[inputStyle, { width: 56, minHeight: 32, paddingHorizontal: 6, paddingVertical: 4, fontSize: 12, textAlign: "center" }]}
-                      />
-                    ) : null}
+
                     {/* Advanced options */}
                     <TouchableOpacity
                       onPress={() => setAdvancedOpen((prev) => ({ ...prev, [q.key]: !isAdvOpen }))}
@@ -1754,16 +1800,267 @@ export default function TestFormScreen() {
                         ))}
                       </View>
                     ) : null}
-                  </View>
-                ) : null}
+                    </View>
+                  ) : null}
+                </View>
               </View>
             );
-          })}
+            }}
+          />
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+            <TouchableOpacity
+              onPress={() => setQuestions((prev) => [...prev, mapQuestion(ensureQuestionDefaults(null))])}
+              style={{ width: "31%", paddingVertical: 8, borderRadius: 9, backgroundColor: accentPurpleSoft, alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple }}>+ Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setTemplatePickerOpen(true)}
+              style={{ width: "31%", paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text }}>+ Add Template</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleGenerateQuestionsFromVocabulary}
+              disabled={!canUseAI || aiQuestionsLoading}
+              style={{ width: "31%", paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: AI_RED, backgroundColor: AI_RED_SOFT, alignItems: "center", opacity: !canUseAI || aiQuestionsLoading ? 0.6 : 1, flexDirection: "row", justifyContent: "center", gap: 4 }}
+            >
+              <Animated.View
+                style={{
+                  transform: [
+                    {
+                      rotate: aiThinking.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["0deg", "360deg"],
+                      }),
+                    },
+                  ],
+                }}
+              >
+                <MaterialCommunityIcons name="brain" size={12} color={AI_RED} />
+              </Animated.View>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: AI_RED }}>{aiQuestionsLoading ? `Thinking${thinkingDots}` : "+ AI Question"}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         </View>
 
       </ScrollView>
+
+      <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => setLessonPickerOpen(false)}>
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-start", paddingTop: "15%", paddingBottom: "10%" }}
+          activeOpacity={1}
+          onPress={() => setLessonPickerOpen(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
+            <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+              <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View>
+                  <Text style={[theme.typography.title, { fontSize: 18 }]}>Link lessons</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                    {linkedLessonIds.length} selected
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setLessonPickerOpen(false)}
+                  style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <TextInput
+                  value={lessonSearch}
+                  onChangeText={setLessonSearch}
+                  placeholder="Search lessons..."
+                  placeholderTextColor={theme.colors.textMuted}
+                  style={[inputStyle, { marginBottom: 0 }]}
+                />
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
+                {filteredLinkableLessons.length === 0 ? (
+                  <View style={{ paddingVertical: 32, alignItems: "center" }}>
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No lessons found</Text>
+                  </View>
+                ) : filteredLinkableLessons.map((l) => {
+                  const selected = linkedLessonIds.includes(l.id);
+                  return (
+                    <TouchableOpacity
+                      key={l.id}
+                      onPress={() => {
+                        setLinkedLessonIds((prev) =>
+                          prev.includes(l.id) ? prev.filter((id) => id !== l.id) : [...prev, l.id]
+                        );
+                      }}
+                      activeOpacity={0.85}
+                      style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? accentPurpleSoft : "transparent" }}
+                    >
+                      <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: selected ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: selected ? accentPurple : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
+                        {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, color: theme.colors.text }} numberOfLines={2}>{l.title}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={attemptsPickerOpen} animationType="fade" transparent onRequestClose={() => setAttemptsPickerOpen(false)}>
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-start", paddingTop: "18%", paddingBottom: "12%" }}
+          activeOpacity={1}
+          onPress={() => setAttemptsPickerOpen(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
+            <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+              <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={[theme.typography.title, { fontSize: 18 }]}>Limit Attempts?</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>How many attempts would you like to set?</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setAttemptsPickerOpen(false)}
+                  style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
+                <TouchableOpacity
+                  onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: "unlimited" }))}
+                  activeOpacity={0.85}
+                  style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: testSettings.attempts_allowed === "unlimited" ? "#F2F3F5" : "transparent" }}
+                >
+                  <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: testSettings.attempts_allowed === "unlimited" ? "#ECEDEF" : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
+                    {testSettings.attempts_allowed === "unlimited" ? <Ionicons name="infinite" size={13} color="#2B2B2B" /> : null}
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 13, color: "#2B2B2B" }}>Unlimited Attempts</Text>
+                </TouchableOpacity>
+                {Array.from({ length: 10 }, (_, idx) => idx + 1).map((n) => {
+                  const selected = testSettings.attempts_allowed === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: n }))}
+                      activeOpacity={0.85}
+                      style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? accentPurpleSoft : "transparent" }}
+                    >
+                      <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: selected ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: selected ? accentPurple : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
+                        {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, color: theme.colors.text }}>{n} {n === 1 ? "attempt" : "attempts"}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={templatePickerOpen} animationType="fade" transparent onRequestClose={() => setTemplatePickerOpen(false)}>
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.58)", justifyContent: "center", paddingHorizontal: 16, paddingTop: 24, paddingBottom: "10%" }}
+          activeOpacity={1}
+          onPress={() => setTemplatePickerOpen(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View
+              style={{
+                backgroundColor: theme.colors.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                overflow: "hidden",
+                shadowColor: "#000",
+                shadowOpacity: 0.16,
+                shadowRadius: 18,
+                shadowOffset: { width: 0, height: 8 },
+                elevation: 10,
+              }}
+            >
+              <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: accentPurpleSoft, borderWidth: 1, borderColor: accentPurpleBorder }}>
+                    <Ionicons name="layers-outline" size={18} color={accentPurple} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={theme.typography.title}>Question templates</Text>
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>Choose a starter and we will add it instantly.</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setTemplatePickerOpen(false)}
+                  style={{ width: 34, height: 34, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
+                <View style={{ alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: accentPurpleBorder, backgroundColor: accentPurpleSoft }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple, letterSpacing: 0.6, textTransform: "uppercase" }}>
+                    {TEMPLATE_PRESETS.length} options
+                  </Text>
+                </View>
+              </View>
+
+              <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ padding: 12, gap: 10, paddingTop: 10 }} keyboardShouldPersistTaps="handled">
+                {TEMPLATE_PRESETS.map((p, idx) => {
+                  const iconColors = TEMPLATE_ICON_PALETTE[idx % TEMPLATE_ICON_PALETTE.length];
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      onPress={() => {
+                        setQuestions((prev) =>
+                          prev.concat(
+                            mapQuestion(
+                              ensureQuestionDefaults({
+                                ...p.build(),
+                                prompt_text: p.build().prompt_text ?? "",
+                                correct_text: "",
+                              })
+                            )
+                          )
+                        );
+                        setTemplatePickerOpen(false);
+                      }}
+                      style={{
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surfaceAlt,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: iconColors.background, borderWidth: 1, borderColor: iconColors.border }}>
+                        <Ionicons name="sparkles-outline" size={14} color={iconColors.icon} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>{p.label}</Text>
+                        <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 3 }}>
+                          {TEMPLATE_PRESET_COPY[p.id] ?? "Preconfigured question structure."}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal visible={teacherModalOpen} animationType="slide" transparent onRequestClose={() => setTeacherModalOpen(false)}>
         <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} activeOpacity={1} onPress={() => setTeacherModalOpen(false)}>

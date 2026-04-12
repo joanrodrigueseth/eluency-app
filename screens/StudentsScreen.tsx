@@ -750,19 +750,6 @@ export default function StudentsScreen() {
                           </Text>
                         </View>
 
-                        <View style={{
-                          paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999,
-                          backgroundColor: isActive ? theme.colors.successSoft : theme.colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: isActive ? theme.colors.success : theme.colors.border,
-                        }}>
-                          <Text style={{ fontSize: 9, fontWeight: "900", letterSpacing: 0.4, color: isActive ? theme.colors.success : theme.colors.textMuted }}>
-                            {isActive ? "ACTIVE" : "INACTIVE"}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12 }}>
                         <TouchableOpacity
                           onPress={() => copyCode(student.code)}
                           style={{
@@ -773,11 +760,42 @@ export default function StudentsScreen() {
                             flexDirection: "row", alignItems: "center", gap: 5,
                           }}
                         >
-                          <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 10, color: theme.colors.success }}>
-                            {student.code}
-                          </Text>
-                          <Ionicons name="copy-outline" size={12} color={theme.colors.textMuted} />
+                          <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 15, color: theme.colors.success }}>
+                              {student.code}
+                            </Text>
+                            <Ionicons name="copy-outline" size={18} color={theme.colors.textMuted} />
                         </TouchableOpacity>
+                      </View>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, flexWrap: "wrap" }}>
+
+                          <View style={{
+                            borderRadius: 999, borderWidth: 1,
+                            borderColor: "rgba(14,165,233,0.35)",
+                            backgroundColor: "rgba(14,165,233,0.10)",
+                            paddingHorizontal: 8, paddingVertical: 4,
+                            flexDirection: "row", alignItems: "center", gap: 4,
+                          }}>
+                            <Ionicons name="book-outline" size={10} color="#0284C7" />
+                            <Text style={{ fontSize: 10, fontWeight: "800", color: "#0284C7" }}>
+                              {(student.assigned_lessons ?? []).length} lessons
+                            </Text>
+                          </View>
+
+                          <View style={{
+                            borderRadius: 999, borderWidth: 1,
+                            borderColor: "rgba(139,92,246,0.35)",
+                            backgroundColor: "rgba(139,92,246,0.10)",
+                            paddingHorizontal: 8, paddingVertical: 4,
+                            flexDirection: "row", alignItems: "center", gap: 4,
+                          }}>
+                            <Ionicons name="clipboard-outline" size={10} color="#7C3AED" />
+                            <Text style={{ fontSize: 10, fontWeight: "800", color: "#7C3AED" }}>
+                              {(student.assigned_tests ?? []).length} tests
+                            </Text>
+                          </View>
+                        </View>
 
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           <TouchableOpacity

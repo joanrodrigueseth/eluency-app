@@ -1,6 +1,7 @@
 import { ReactNode, useMemo, useState } from "react";
 import {
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,7 +14,6 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { SvgUri } from "react-native-svg";
 import AppButton from "../components/AppButton";
 import { clearStoredStudentSessionId, setStoredStudentSessionId } from "../lib/studentSession";
 import { supabase } from "../lib/supabase";
@@ -38,7 +38,7 @@ type VerifyAccessCodeResponse = {
 const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl || "https://www.eluency.com";
 
-const LOGO_URI = "https://www.eluency.com/Logo.svg";
+const LOGO_SRC = require("../assets/LogoBO.png");
 
 function mapTeacherError(message?: string): string {
   if (!message) return "Unable to sign in. Please try again.";
@@ -172,7 +172,7 @@ export default function LoginScreen() {
   const [view, setView] = useState<LoginView>(route.params?.initialView ?? "teacher");
 
   const { width: screenWidth } = Dimensions.get("window");
-  const logoW = Math.min(220, screenWidth - 80);
+  const logoW = Math.min(220, screenWidth - 96);
   const logoH = Math.round(logoW * (169 / 300));
 
   const [gameCode, setGameCode] = useState("");
@@ -292,11 +292,11 @@ export default function LoginScreen() {
         contentContainerStyle={{
           flexGrow: 1,
           paddingHorizontal: 24,
-          paddingTop: Math.max(insets.top + 8, 24),
-          paddingBottom: 40,
+          paddingTop: insets.top,
+          paddingBottom: 60,
         }}
       >
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: "flex-start" }}>
           <View
             pointerEvents="none"
             style={{
@@ -324,10 +324,16 @@ export default function LoginScreen() {
           />
 
           <View
-            style={{ alignItems: "center", marginBottom: 22 }}
+            style={{ alignItems: "center", marginBottom: 7, marginTop: 8 }}
             pointerEvents="box-none"
           >
-            <SvgUri uri={LOGO_URI} width={logoW} height={logoH} />
+            <View style={{ overflow: "visible" }}>
+              <Image
+                source={LOGO_SRC}
+                style={{ width: logoW, height: logoH }}
+                resizeMode="contain"
+              />
+            </View>
 
             <Text
               style={[
@@ -358,6 +364,7 @@ export default function LoginScreen() {
               backgroundColor: theme.colors.surface,
               borderWidth: 1,
               borderColor: theme.colors.border,
+              marginTop: 10,
             }}
           >
             <View style={{ gap: 20 }}>

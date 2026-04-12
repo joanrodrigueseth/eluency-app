@@ -5,6 +5,7 @@ import { useAppTheme } from "../lib/theme";
 type AppTextFieldProps = TextInputProps & {
   label: string;
   icon?: ReactNode;
+  rightElement?: ReactNode;
   error?: string;
   helperText?: string;
 };
@@ -12,6 +13,7 @@ type AppTextFieldProps = TextInputProps & {
 export default function AppTextField({
   label,
   icon,
+  rightElement,
   error,
   helperText,
   onFocus,
@@ -59,6 +61,7 @@ export default function AppTextField({
           onBlur={(event) => onBlur?.(event)}
           {...props}
         />
+        {rightElement ? <View>{rightElement}</View> : null}
       </View>
       {error ? (
         <Text style={[theme.typography.caption, { color: theme.colors.danger }]}>

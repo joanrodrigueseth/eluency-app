@@ -17,7 +17,7 @@ import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
-import { normalizePlanUi } from "../lib/teacherRolePlanRules";
+import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules";
 
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
@@ -143,10 +143,26 @@ export default function SettingsScreen() {
         if (!mounted || !user) return;
 
         let displayName = (user.user_metadata?.name as string) || "";
-        const { data: teacher } = await (supabase.from("teachers") as any)
-          .select("name, plan, student_limit, lesson_limit, test_limit, preset_limit, default_language_pair")
+        const teacherSelect = "name, role, plan, student_limit, lesson_limit, test_limit, preset_limit, default_language_pair";
+        const { data: teacherByUserId, error: teacherByUserIdError } = await (supabase.from("teachers") as any)
+          .select(teacherSelect)
           .eq("user_id", user.id)
           .maybeSingle();
+
+        let teacher = teacherByUserId;
+
+        // Fallback for legacy rows where auth user id may be stored as teachers.id.
+        if (!teacher) {
+          const { data: teacherById, error: teacherByIdError } = await (supabase.from("teachers") as any)
+            .select(teacherSelect)
+            .eq("id", user.id)
+            .maybeSingle();
+
+          teacher = teacherById;
+          if (!teacher && teacherByUserIdError && teacherByIdError) {
+            console.warn("SettingsScreen: unable to load teacher row via user_id or id; using auth fallbacks.");
+          }
+        }
 
         if (teacher?.name) displayName = teacher.name;
         const email = user.email ?? "";
@@ -156,13 +172,18 @@ export default function SettingsScreen() {
         setOriginalEmail(email);
 
         if (teacher) {
+          const coercedPlan = coercePlanForRole(teacher.role ?? "teacher", teacher.plan ?? "Basic");
           setPlanInfo({
-            plan: normalizePlanUi(teacher.plan),
+            plan: normalizePlanUi(coercedPlan),
             student_limit: teacher.student_limit ?? null,
             lesson_limit: teacher.lesson_limit ?? null,
             test_limit: teacher.test_limit ?? null,
             preset_limit: teacher.preset_limit ?? null,
           });
+        } else {
+          // Final fallback to auth metadata when teacher row is not available.
+          const authPlan = normalizePlanUi((user.user_metadata?.plan as string) ?? (user.app_metadata?.plan as string));
+          setPlanInfo({ plan: authPlan, student_limit: null });
         }
 
         const { count } = await (supabase.from("students") as any)

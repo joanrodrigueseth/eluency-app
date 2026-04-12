@@ -77,6 +77,8 @@ type TeacherCapacityItem = {
   studentCount: number;
   percentage: number;
 };
+
+type ActivityTab = "lessons" | "tests";
  
 type StudentSessionResponse = {
   student: {
@@ -358,6 +360,7 @@ export default function DashboardScreen() {
   const headerOpacity = useRef(new Animated.Value(1)).current;
   const headerTranslateY = useRef(new Animated.Value(0)).current;
  
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPrincipal, setIsPrincipal] = useState(false);
   const [teacherName, setTeacherName] = useState("Teacher");
@@ -374,6 +377,7 @@ export default function DashboardScreen() {
   const [adminRevenueMonthly, setAdminRevenueMonthly] = useState(0);
   const [recentLessons, setRecentLessons] = useState<RecentLesson[]>([]);
   const [recentTests, setRecentTests] = useState<RecentTest[]>([]);
+  const [activityTab, setActivityTab] = useState<ActivityTab>("lessons");
   const [teacherCapacity, setTeacherCapacity] = useState<TeacherCapacityItem[]>([]);
  
   const [studentName, setStudentName] = useState<string>("");
@@ -461,19 +465,23 @@ export default function DashboardScreen() {
     if (label === "/dashboard") {
       return;
     }
-    if (label === "New Lesson" || label === "New Lessons") {
+    if (label === "New Lesson" || label === "New Lessons" || label === "Create Lesson") {
       navigation.navigate("Lessons");
       return;
     }
-    if (label === "New Test" || label === "New Tests") {
+    if (label === "New Test" || label === "New Tests" || label === "Create Test") {
       navigation.navigate("Tests");
       return;
     }
-    if (label === "Add Student" || label === "Add Students") {
+    if (label === "Add Student" || label === "Add Students" || label === "Create Student") {
       navigation.navigate("Students");
       return;
     }
-    if (label === "Add Teacher" || label === "Add Principal") {
+    if (label === "Vocabulary Browser" || label === "Vocab Browser") {
+      navigation.navigate("LessonPacks");
+      return;
+    }
+    if (label === "Add Teacher" || label === "Add Principal" || label === "Create Teacher" || label === "Create Principal") {
       navigation.navigate("Teachers");
       return;
     }
@@ -487,7 +495,7 @@ export default function DashboardScreen() {
       { label: "Lessons", href: "/dashboard/lessons", icon: "book" as const },
       { label: "Tests", href: "/dashboard/tests", icon: "clipboard" as const },
       { label: "Students", href: "/dashboard/students", icon: "school" as const },
-      { label: "Lesson Browser", href: "/dashboard/packs", icon: "star" as const },
+      { label: "Vocabulary Browser", href: "/dashboard/packs", icon: "star" as const },
     ];
  
     const admin = isAdmin
@@ -925,12 +933,12 @@ export default function DashboardScreen() {
     onPress: () => void;
     twoPerRow?: boolean;
   }) => (
-    <View style={{ width: twoPerRow ? "32%" : "100%", marginBottom: twoPerRow ? 10 : 0 }}>
+    <View style={{ width: twoPerRow ? "31%" : "100%", marginBottom: twoPerRow ? 6 : 0 }}>
       <AnimatedPressable
         onPress={onPress}
         style={{
-          borderRadius: 16,
-          padding: 10,
+          borderRadius: 12,
+          padding: 6,
           backgroundColor: tint,
           borderWidth: 1,
           borderColor: theme.colors.border,
@@ -941,29 +949,29 @@ export default function DashboardScreen() {
           elevation: 2,
         }}
       >
-        <View style={{ position: "absolute", top: 7, right: 7 }}>
-          <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
-            <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+        <View style={{ position: "absolute", top: 5, right: 5 }}>
+          <View style={{ width: 14, height: 14, borderRadius: 5, backgroundColor: "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="chevron-forward" size={8} color={theme.colors.textMuted} />
           </View>
         </View>
         <View style={{ alignItems: "center" }}>
           <View
             style={{
-              height: 28,
-              width: 28,
-              borderRadius: 10,
+              height: 18,
+              width: 18,
+              borderRadius: 7,
               backgroundColor: iconBg,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name={ICONS[icon]} size={13} color={iconColor} />
+            <Ionicons name={ICONS[icon]} size={9} color={iconColor} />
           </View>
           <Text
             style={{
-              marginTop: 8,
-              fontSize: 20,
-              lineHeight: 24,
+              marginTop: 5,
+              fontSize: 13,
+              lineHeight: 15,
               fontWeight: "800",
               color: theme.colors.text,
               textAlign: "center",
@@ -971,7 +979,7 @@ export default function DashboardScreen() {
           >
             {value}
           </Text>
-          <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, color: theme.colors.textMuted, textAlign: "center" }]}>{label}</Text>
+          <Text style={[theme.typography.bodyStrong, { marginTop: 1, fontSize: 10, color: theme.colors.textMuted, textAlign: "center" }]}>{label}</Text>
         </View>
       </AnimatedPressable>
     </View>
@@ -980,14 +988,16 @@ export default function DashboardScreen() {
   const QuickActionCard = ({
     label,
     icon,
-    helper,
     twoPerRow,
   }: {
     label: string;
     icon: keyof typeof ICONS;
-    helper: string;
     twoPerRow?: boolean;
   }) => {
+    const createMatch = label.match(/^Create\s+(.+)$/i);
+    const topLabel = createMatch ? "Create" : label;
+    const bottomLabel = createMatch ? createMatch[1] : "";
+
     const colors =
       icon === "book"
         ? { bg: "#EEF5FF", iconWrap: "#DDEBFF", icon: "#2D74BF" }
@@ -996,14 +1006,15 @@ export default function DashboardScreen() {
           : icon === "school"
             ? { bg: "#EEF9F2", iconWrap: "#D6F0E0", icon: "#3A9E6A" }
             : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
- 
+
     return (
-      <View style={{ width: twoPerRow ? "48.5%" : "48%", marginBottom: 10 }}>
+      <View style={{ width: twoPerRow ? "31.5%" : "31.5%", marginBottom: 8 }}>
         <AnimatedPressable
           onPress={() => handleActionPress(label)}
           style={{
-            borderRadius: 18,
-            padding: 12,
+            borderRadius: 14,
+            padding: 10,
+            minHeight: 88,
             backgroundColor: colors.bg,
             borderWidth: 1,
             borderColor: theme.colors.border,
@@ -1011,18 +1022,26 @@ export default function DashboardScreen() {
         >
           <View
             style={{
-              height: 34,
-              width: 34,
-              borderRadius: 12,
+              height: 30,
+              width: 30,
+              borderRadius: 10,
               backgroundColor: colors.iconWrap,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name={ICONS[icon]} size={15} color={colors.icon} />
+            <Ionicons name={ICONS[icon]} size={14} color={colors.icon} />
           </View>
-          <Text style={[theme.typography.bodyStrong, { marginTop: 11, fontSize: 14 }]}>{label}</Text>
-          <Text style={[theme.typography.caption, { marginTop: 3, fontSize: 11, color: theme.colors.textMuted }]}>{helper}</Text>
+          <View style={{ marginTop: 8 }}>
+            <Text style={[theme.typography.bodyStrong, { fontSize: 11, lineHeight: 13, textTransform: "uppercase", color: theme.colors.textMuted }]} numberOfLines={1}>
+              {topLabel}
+            </Text>
+            {bottomLabel ? (
+              <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, lineHeight: 15, color: theme.colors.text }]} numberOfLines={1}>
+                {bottomLabel}
+              </Text>
+            ) : null}
+          </View>
         </AnimatedPressable>
       </View>
     );
@@ -1096,6 +1115,70 @@ export default function DashboardScreen() {
       </View>
     );
   };
+
+  const ActivityTabs = () => (
+    <View
+      style={{
+        marginBottom: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surfaceAlt,
+        padding: 3,
+        flexDirection: "row",
+      }}
+    >
+      <TouchableOpacity
+        onPress={() => setActivityTab("lessons")}
+        activeOpacity={0.9}
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 8,
+          borderRadius: 9,
+          backgroundColor: activityTab === "lessons" ? theme.colors.surface : "transparent",
+        }}
+      >
+        <Text
+          style={[
+            theme.typography.caption,
+            {
+              fontWeight: "800",
+              color: activityTab === "lessons" ? theme.colors.text : theme.colors.textMuted,
+            },
+          ]}
+        >
+          Recent Lessons
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => setActivityTab("tests")}
+        activeOpacity={0.9}
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 8,
+          borderRadius: 9,
+          backgroundColor: activityTab === "tests" ? theme.colors.surface : "transparent",
+        }}
+      >
+        <Text
+          style={[
+            theme.typography.caption,
+            {
+              fontWeight: "800",
+              color: activityTab === "tests" ? theme.colors.text : theme.colors.textMuted,
+            },
+          ]}
+        >
+          Recent Tests
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
  
   const RecentLessonsCard = ({ items }: { items: RecentLesson[] }) => {
     const visibleItems = items.slice(0, 5);
@@ -1103,6 +1186,7 @@ export default function DashboardScreen() {
     return (
       <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
         <SectionHeader eyebrow="Activity" title="Recent lessons" subtitle="Your latest lessons in a cleaner, faster-scanning layout." />
+        <ActivityTabs />
  
         {visibleItems.length > 0 ? (
           <>
@@ -1170,6 +1254,7 @@ export default function DashboardScreen() {
     return (
       <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
         <SectionHeader eyebrow="Activity" title="Recent tests" subtitle="Your latest tests with quick signal chips and better spacing." />
+        <ActivityTabs />
  
         {visibleItems.length > 0 ? (
           <>
@@ -1182,41 +1267,27 @@ export default function DashboardScreen() {
                   key={item.id}
                   onPress={() => handleActionPress(`/dashboard/tests/${item.id}/edit`)}
                   style={{
+                    flexDirection: "row",
+                    alignItems: "center",
                     backgroundColor: theme.colors.surfaceAlt,
-                    borderRadius: 18,
+                    borderRadius: 12,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
-                    padding: 14,
-                    marginTop: index === 0 ? 0 : 10,
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    marginTop: index === 0 ? 0 : 6,
+                    gap: 8,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <View
-                      style={{
-                        height: 42,
-                        width: 42,
-                        borderRadius: 16,
-                        backgroundColor: theme.colors.violetSoft,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: 12,
-                      }}
-                    >
-                      <Ionicons name="clipboard-outline" size={18} color={theme.colors.primary} />
-                    </View>
- 
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Created {formatDateTime(item.created_at)}</Text>
-                        <CountPill label="W" value={vocabCount} />
-                        <CountPill label="Q" value={questionCount} />
-                      </View>
-                    </View>
- 
-                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+                  <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: theme.colors.violetSoft, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Ionicons name="clipboard-outline" size={13} color={theme.colors.primary} />
+                  </View>
+                  <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 13, color: theme.colors.text }]} numberOfLines={1}>{item.name}</Text>
+                  <CountPill label="W" value={vocabCount} />
+                  <CountPill label="Q" value={questionCount} />
+                  <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }}>{formatDateTime(item.created_at)}</Text>
+                  <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
                   </View>
                 </AnimatedPressable>
               );
@@ -1374,6 +1445,35 @@ export default function DashboardScreen() {
   const teacherDashboard = (
     <>
       <AnimatedSection delay={0}>
+        <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+          <TouchableOpacity
+            onPress={() => setQuickActionsOpen((o) => !o)}
+            activeOpacity={0.8}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: quickActionsOpen ? 12 : 0 }}
+          >
+            <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Quick actions</Text>
+            <Ionicons name={quickActionsOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+          {quickActionsOpen && (isAdmin ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              <QuickActionCard label="Create Lesson" icon="book" twoPerRow />
+              <QuickActionCard label="Create Student" icon="school" twoPerRow />
+              <QuickActionCard label="Create Teacher" icon="people" twoPerRow />
+              <QuickActionCard label="Create Test" icon="clipboard" twoPerRow />
+              <QuickActionCard label="Create Principal" icon="shield" twoPerRow />
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              <QuickActionCard label="Create Lesson" icon="book" twoPerRow />
+              <QuickActionCard label="Create Student" icon="school" twoPerRow />
+              {isAdmin || isPrincipal ? <QuickActionCard label="Create Teacher" icon="people" twoPerRow /> : null}
+              <QuickActionCard label="Create Test" icon="clipboard" twoPerRow />
+            </View>
+          ))}
+        </GlassCard>
+      </AnimatedSection>
+
+      <AnimatedSection delay={80}>
         <GlassCard style={{ marginBottom: 18, borderRadius: 24, overflow: "hidden" }}>
           <View
             style={{
@@ -1389,8 +1489,6 @@ export default function DashboardScreen() {
                 </Text>
                 <Text style={[theme.typography.title, { marginTop: 8, fontSize: 24, lineHeight: 30 }]}>{`Welcome back, ${teacherName}`}</Text>
                 <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
- 
-                
               </View>
  
               <View
@@ -1407,50 +1505,23 @@ export default function DashboardScreen() {
                 <Ionicons name="shield-checkmark" size={24} color={theme.colors.primary} />
               </View>
             </View>
-          </View>
-        </GlassCard>
-      </AnimatedSection>
- 
-      <AnimatedSection delay={80}>
-        <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-          <SectionHeader eyebrow="Overview" title="Your numbers" subtitle="A more glanceable snapshot of classroom activity." />
-          <View style={{ marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-            {stats.map((s) => (
-              <StatCard
-                key={s.label}
-                label={s.label}
-                value={s.animatedValue}
-                icon={s.icon}
-                iconBg={s.iconBg}
-                iconColor={s.iconColor}
-                tint={s.tint}
-                onPress={s.onPress}
-                twoPerRow
-              />
-            ))}
-          </View>
-        </GlassCard>
-      </AnimatedSection>
- 
-      <AnimatedSection delay={140}>
-        <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-          <SectionHeader eyebrow="Shortcuts" title="Quick actions" subtitle="Large, more visual entry points into your next task." />
-          {isAdmin ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="New Lessons" icon="book" helper="Vocab, conjugations, prepositions" twoPerRow />
-              <QuickActionCard label="New Tests" icon="clipboard" helper="Build an assessment" twoPerRow />
-              <QuickActionCard label="Add Students" icon="school" helper="Invite or assign learners" twoPerRow />
-              <QuickActionCard label="Add Teacher" icon="people" helper="Grow your team" twoPerRow />
-              <QuickActionCard label="Add Principal" icon="shield" helper="Grant leadership access" twoPerRow />
+
+            <View style={{ marginTop: 14, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              {stats.map((s) => (
+                <StatCard
+                  key={s.label}
+                  label={s.label}
+                  value={s.animatedValue}
+                  icon={s.icon}
+                  iconBg={s.iconBg}
+                  iconColor={s.iconColor}
+                  tint={s.tint}
+                  onPress={s.onPress}
+                  twoPerRow
+                />
+              ))}
             </View>
-          ) : (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="New Lesson" icon="book" helper="Vocab, conjugations, prepositions" twoPerRow />
-              <QuickActionCard label="New Test" icon="clipboard" helper="Build an assessment" twoPerRow />
-              <QuickActionCard label="Add Student" icon="school" helper="Invite a learner" twoPerRow />
-              {isAdmin || isPrincipal ? <QuickActionCard label="Add Teacher" icon="people" helper="Add a teacher" twoPerRow /> : null}
-            </View>
-          )}
+          </View>
         </GlassCard>
       </AnimatedSection>
  
@@ -1507,11 +1578,12 @@ export default function DashboardScreen() {
         </AnimatedSection>
       ) : (
         <>
-          <AnimatedSection delay={220}>
-            <RecentLessonsCard items={recentLessons} />
-          </AnimatedSection>
           <AnimatedSection delay={280}>
-            <RecentTestsCard items={recentTests} />
+            {activityTab === "lessons" ? (
+              <RecentLessonsCard items={recentLessons} />
+            ) : (
+              <RecentTestsCard items={recentTests} />
+            )}
           </AnimatedSection>
         </>
       )}

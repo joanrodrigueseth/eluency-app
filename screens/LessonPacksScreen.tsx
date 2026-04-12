@@ -361,9 +361,9 @@ function LanguagePickerModal({
   const modalOptions = options ?? (allowEmpty ? ["", ...PACK_LANGUAGES] : PACK_LANGUAGES);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <TouchableOpacity
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", paddingHorizontal: 16 }}
         activeOpacity={1}
         onPress={onClose}
       >
@@ -371,10 +371,8 @@ function LanguagePickerModal({
           <View
             style={{
               backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              paddingBottom: 28,
-              maxHeight: "84%",
+              borderRadius: 20,
+              maxHeight: "100%",
               borderWidth: 1,
               borderColor: theme.colors.border,
             }}
@@ -457,7 +455,6 @@ export default function LessonPacksScreen() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentRole, setCurrentRole] = useState("teacher");
   const [currentPlan, setCurrentPlan] = useState("Basic");
-  const [currentName, setCurrentName] = useState("Teacher");
 
   const [lessons, setLessons] = useState<LessonRow[]>([]);
   const [packs, setPacks] = useState<PackCardType[]>([]);
@@ -502,7 +499,6 @@ export default function LessonPacksScreen() {
       const normalizedPlan = coercePlanForRole(me?.role ?? "teacher", me?.plan ?? "Basic");
       setCurrentRole(normalizedRole);
       setCurrentPlan(normalizedPlan);
-      setCurrentName(me?.name || "Teacher");
 
       let packsQuery = (supabase.from("lesson_packs") as any)
         .select(
@@ -1359,7 +1355,7 @@ export default function LessonPacksScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1, paddingHorizontal: 10 }}>
           <Text style={theme.typography.label}>Library</Text>
-          <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Lesson Browser</Text>
+          <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Vocabulary Browser</Text>
         </View>
         {canManage ? (
           <TouchableOpacity
@@ -1392,28 +1388,11 @@ export default function LessonPacksScreen() {
           </View>
         ) : null}
 
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
-          <Text style={[theme.typography.title, { fontSize: 22 }]}>Lesson Browser</Text>
-          <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
-            {canManage
-              ? `Welcome back, ${currentName}. You can create and manage lesson categories.`
-              : `Welcome back, ${currentName}. Browse published lessons and add those available on your plan.`}
-          </Text>
-          {!canManage ? (
-            <View style={{ marginTop: 10 }}>
-              <Pill colors={accessPillStyle(theme, "included")}>Plan: {currentPlan}</Pill>
-            </View>
-          ) : null}
-          <TouchableOpacity onPress={() => loadData(false)} style={{ marginTop: 14, alignSelf: "flex-start" }}>
-            <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>Refresh</Text>
-          </TouchableOpacity>
-        </GlassCard>
-
-        <GlassCard style={{ borderRadius: 16 }} padding={16}>
+<GlassCard style={{ borderRadius: 16 }} padding={16}>
           <View style={{ marginBottom: 14 }}>
-            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available Packs</Text>
+            <Text style={[theme.typography.title, { fontSize: 18 }]}>Available Vocabulary</Text>
             <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
-              Browse lessons by category and add the ones you want to your library.
+              Browse vocabulary by category and add the ones you want to your library.
             </Text>
           </View>
 
