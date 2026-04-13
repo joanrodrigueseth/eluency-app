@@ -8,7 +8,7 @@ type AppButtonProps = {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: "primary" | "secondary" | "violet";
+  variant?: "primary" | "secondary" | "violet" | "dangerSoft";
   icon?: ReactNode;
   fullWidth?: boolean;
 };
@@ -24,16 +24,21 @@ export default function AppButton({
 }: AppButtonProps) {
   const theme = useAppTheme();
   const isSecondary = variant === "secondary";
+  const isDangerSoft = variant === "dangerSoft";
   const isDisabled = disabled || loading;
 
   const backgroundColor =
     isSecondary
       ? theme.colors.surfaceAlt
+      : isDangerSoft
+        ? theme.isDark
+          ? "rgba(229, 91, 107, 0.18)"
+          : "rgba(229, 91, 107, 0.12)"
       : variant === "violet"
-      ? theme.colors.violet
-      : theme.colors.primary;
+        ? theme.colors.violet
+        : theme.colors.primary;
 
-  const textColor = isSecondary ? theme.colors.text : theme.colors.primaryText;
+  const textColor = isSecondary ? theme.colors.text : isDangerSoft ? theme.colors.danger : theme.colors.primaryText;
 
   return (
     <TouchableOpacity
@@ -50,13 +55,13 @@ export default function AppButton({
         paddingVertical: 16,
         backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
         borderWidth: 1,
-        borderColor: isSecondary ? theme.colors.border : "transparent",
+        borderColor: isSecondary ? theme.colors.border : isDangerSoft ? "rgba(229, 91, 107, 0.28)" : "transparent",
         minHeight: 56,
-        shadowColor: isSecondary ? "transparent" : theme.colors.shadow,
-        shadowOpacity: isSecondary || isDisabled ? 0 : theme.isDark ? 0.28 : 0.18,
+        shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.colors.shadow,
+        shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.28 : 0.18,
         shadowRadius: 20,
         shadowOffset: { width: 0, height: 12 },
-        elevation: isSecondary || isDisabled ? 0 : 6,
+        elevation: isSecondary || isDangerSoft || isDisabled ? 0 : 6,
       }}
     >
       <View

@@ -521,7 +521,7 @@ export default function LessonsScreen() {
 
       let query = (supabase.from("lessons") as any)
         .select(
-          "id, title, description, status, created_at, cover_image_url, created_by, teacher_id, language, language_level, grade_range, content_json"
+          "id, title, description, status, created_at, cover_image_url, created_by, teacher_id, language, language_level, grade_range"
         )
         .order("created_at", { ascending: false });
 
@@ -732,6 +732,10 @@ export default function LessonsScreen() {
   }, [languageFilter, packFilter, levelFilters, categoryMap, packMap, lessonsForView, searchTerm, sortDirection, sortKey]);
 
   useEffect(() => {
+    layoutEase();
+  }, [searchTerm, teacherView, languageFilter, packFilter, levelFilters, sortKey, sortDirection]);
+
+  useEffect(() => {
     setPage(1);
   }, [searchTerm, teacherView, languageFilter, packFilter, levelFilters, lessonsForView.length]);
 
@@ -783,6 +787,22 @@ export default function LessonsScreen() {
     setSortDirection(key === "title" ? "asc" : "desc");
   };
 
+  const loadLessonContentMap = useCallback(async (lessonIds: string[]) => {
+    if (lessonIds.length === 0) return new Map<string, unknown>();
+
+    const { data, error } = await (supabase.from("lessons") as any)
+      .select("id, content_json")
+      .in("id", lessonIds);
+    if (error) throw error;
+
+    return new Map<string, unknown>(
+      ((data ?? []) as { id: string; content_json?: unknown }[]).map((row) => [
+        row.id,
+        row.content_json ?? { words: [] },
+      ])
+    );
+  }, []);
+
   const duplicateLesson = async (lesson: LessonRow) => {
     if (!canManage) {
       Alert.alert("Upgrade required", "Your current plan can view lessons but cannot duplicate them.");
@@ -793,6 +813,7 @@ export default function LessonsScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user?.id) throw new Error("Session expired");
+      const contentByLessonId = await loadLessonContentMap([lesson.id]);
 
       const slug = `${slugifyLessonTitle(lesson.title)}-${Math.random().toString(36).slice(2, 9)}`;
       const { error } = await (supabase.from("lessons") as any).insert({
@@ -804,7 +825,7 @@ export default function LessonsScreen() {
         language: lesson.language ?? null,
         cover_image_url: lesson.cover_image_url ?? null,
         status: "published",
-        content_json: (lesson as any).content_json ?? { words: [] },
+        content_json: contentByLessonId.get(lesson.id) ?? { words: [] },
         teacher_id: user.id,
         created_by: user.id,
         updated_by: user.id,
@@ -826,6 +847,7 @@ export default function LessonsScreen() {
       if (!user?.id) throw new Error("Session expired");
 
       const rowsToDuplicate = lessons.filter((lesson) => selectedLessonIds.includes(lesson.id));
+      const contentByLessonId = await loadLessonContentMap(rowsToDuplicate.map((lesson) => lesson.id));
       const payload = rowsToDuplicate.map((lesson) => ({
         title: `${lesson.title ?? "Lesson"} (Copy)`,
         slug: `${slugifyLessonTitle(lesson.title)}-${Math.random().toString(36).slice(2, 9)}`,
@@ -835,7 +857,7 @@ export default function LessonsScreen() {
         language: lesson.language ?? null,
         cover_image_url: lesson.cover_image_url ?? null,
         status: "published",
-        content_json: (lesson as any).content_json ?? { words: [] },
+        content_json: contentByLessonId.get(lesson.id) ?? { words: [] },
         teacher_id: user.id,
         created_by: user.id,
         updated_by: user.id,
@@ -1121,7 +1143,7 @@ export default function LessonsScreen() {
         }}
       >
         <FadeInSection delay={20}>
-          <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16} variant="hero">
             <View style={{ position: "relative", overflow: "hidden" }}>
               <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT} top={-50} right={-18} translate={heroGlowOne} />
               <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
@@ -1151,15 +1173,13 @@ export default function LessonsScreen() {
         </FadeInSection>
 
         <FadeInSection delay={90}>
-          <View
+          <GlassCard
             style={{
               marginBottom: 16,
               borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              backgroundColor: theme.isDark ? theme.colors.surface : CARD_BG,
-              padding: 16,
             }}
+            padding={16}
+            variant="strong"
           >
             <View
               style={{
@@ -1645,7 +1665,7 @@ export default function LessonsScreen() {
                 <Ionicons name="chevron-down" size={12} color={levelFilters.length > 0 ? theme.colors.primary : theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
-          </View>
+          </GlassCard>
         </FadeInSection>
 
         <FadeInSection delay={160}>

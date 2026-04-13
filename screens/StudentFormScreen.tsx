@@ -22,7 +22,9 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
+import ScreenReveal from "../components/ScreenReveal";
 import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -78,6 +80,8 @@ export default function StudentFormScreen() {
   const [testPickerOpen, setTestPickerOpen] = useState(false);
   const [teacherModalOpen, setTeacherModalOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastTone, setToastTone] = useState<"success" | "info" | "danger">("success");
   const saveScale = useRef(new Animated.Value(1)).current;
   const copyScale = useRef(new Animated.Value(1)).current;
   const copyGlow = useRef(new Animated.Value(0)).current;
@@ -90,6 +94,12 @@ export default function StudentFormScreen() {
     const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeout = setTimeout(() => setToastMessage(""), 2200);
+    return () => clearTimeout(timeout);
+  }, [toastMessage]);
 
   const ROW_HEIGHT = 57; // paddingVertical 12*2 + text ~20 + badges ~13
   const listHeight = keyboardVisible ? ROW_HEIGHT * 6 : ROW_HEIGHT * 10;
@@ -130,6 +140,11 @@ export default function StudentFormScreen() {
     },
     []
   );
+
+  const showToast = useCallback((message: string, tone: "success" | "info" | "danger" = "success") => {
+    setToastTone(tone);
+    setToastMessage(message);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -266,7 +281,7 @@ export default function StudentFormScreen() {
           Animated.timing(copyGlow, { toValue: 0, duration: 260, useNativeDriver: false }),
         ]),
       ]).start();
-      Alert.alert("Copied", "Access code copied.");
+      showToast("Access code copied", "success");
     } catch {
       Alert.alert("Error", "Could not copy.");
     }
@@ -281,6 +296,7 @@ export default function StudentFormScreen() {
       generated = generateRandomCode();
     }
     setCode(generated);
+    showToast("New access code generated", "info");
   };
 
   const handleSave = async () => {
@@ -311,7 +327,7 @@ export default function StudentFormScreen() {
         if (isAdmin) payload.teacher_id = finalTeacherId;
         const { error } = await (supabase.from("students") as any).update(payload).eq("id", studentId);
         if (error) throw error;
-        Alert.alert("Saved", "Student updated.");
+        showToast("Student updated", "success");
       } else {
         const { error } = await (supabase.from("students") as any).insert({
           name: name.trim(),
@@ -323,7 +339,7 @@ export default function StudentFormScreen() {
           progress: {},
         });
         if (error) throw error;
-        Alert.alert("Created", "Student added.");
+        showToast("Student added", "success");
       }
       navigation.goBack();
     } catch (e: unknown) {
@@ -446,7 +462,8 @@ export default function StudentFormScreen() {
       >
         <TouchableOpacity activeOpacity={1} onPress={() => Keyboard.dismiss()}>
           <View>
-        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
+        <ScreenReveal delay={20}>
+        <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16} variant="hero">
           <Text style={[darkCaption, { textTransform: "uppercase", marginBottom: 8 }]}>Profile</Text>
 
           <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
@@ -521,9 +538,11 @@ export default function StudentFormScreen() {
             style={inputStyle}
           />
         </GlassCard>
+        </ScreenReveal>
 
         {isAdmin ? (
-          <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16}>
+          <ScreenReveal delay={70}>
+          <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16} variant="strong">
             <Text style={[darkCaption, { textTransform: "uppercase", marginBottom: 8 }]}>Teacher</Text>
             <TouchableOpacity
               onPress={() => {
@@ -536,10 +555,12 @@ export default function StudentFormScreen() {
               <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </GlassCard>
+          </ScreenReveal>
         ) : null}
 
         {/* ── Lessons & Tests tabbed card ── */}
-        <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16}>
+        <ScreenReveal delay={110}>
+        <GlassCard style={{ borderRadius: 16, marginBottom: 24 }} padding={16} variant="strong">
           {/* Tab bar */}
           <View style={{ flexDirection: "row", marginBottom: 14, borderRadius: 12, backgroundColor: theme.colors.surfaceAlt, padding: 3 }}>
             {(["lessons", "tests"] as const).map((tab) => {
@@ -694,11 +715,18 @@ export default function StudentFormScreen() {
             </>
           )}
         </GlassCard>
+        </ScreenReveal>
 
         <AppButton label={isEdit ? "Save changes" : "Create student"} onPress={handleSave} loading={saving} />
           </View>
         </TouchableOpacity>
       </ScrollView>
+      <FloatingToast
+        visible={!!toastMessage}
+        message={toastMessage}
+        tone={toastTone}
+        bottom={Math.max(insets.bottom, 20) + 12}
+      />
 
       {/* ── Lesson picker modal ── */}
       <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}>
@@ -709,7 +737,7 @@ export default function StudentFormScreen() {
             onPress={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}
           >
             <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
-              <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+              <GlassCard style={{ borderRadius: 24, overflow: "hidden" }} padding={0} variant="strong">
                 <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <View>
                     <Text style={[theme.typography.title, { fontSize: 18 }]}>Assign lessons</Text>
@@ -770,7 +798,7 @@ export default function StudentFormScreen() {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </GlassCard>
             </TouchableOpacity>
           </TouchableOpacity>
         </View>
@@ -785,7 +813,7 @@ export default function StudentFormScreen() {
             onPress={() => { Keyboard.dismiss(); setTestPickerOpen(false); }}
           >
             <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
-              <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+              <GlassCard style={{ borderRadius: 24, overflow: "hidden" }} padding={0} variant="strong">
                 <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <View>
                     <Text style={[theme.typography.title, { fontSize: 18 }]}>Assign tests</Text>
@@ -843,7 +871,7 @@ export default function StudentFormScreen() {
                     );
                   })}
                 </ScrollView>
-              </View>
+              </GlassCard>
             </TouchableOpacity>
           </TouchableOpacity>
         </View>
@@ -856,14 +884,15 @@ export default function StudentFormScreen() {
           onPress={() => setTeacherModalOpen(false)}
         >
           <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-            <View
+            <GlassCard
               style={{
-                backgroundColor: theme.colors.surface,
                 borderTopLeftRadius: 20,
                 borderTopRightRadius: 20,
-                paddingBottom: insets.bottom + 16,
                 maxHeight: "75%",
               }}
+              contentStyle={{ paddingBottom: insets.bottom + 16 }}
+              padding={0}
+              variant="strong"
             >
               <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
                 <Text style={theme.typography.title}>Assign teacher</Text>
@@ -892,7 +921,7 @@ export default function StudentFormScreen() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-            </View>
+            </GlassCard>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

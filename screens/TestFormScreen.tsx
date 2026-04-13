@@ -1088,7 +1088,7 @@ export default function TestFormScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
-        <GlassCard style={{ borderRadius: 26 }} padding={14}>
+        <GlassCard style={{ borderRadius: 26 }} padding={14} variant="strong">
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
               <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />

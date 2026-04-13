@@ -68,6 +68,7 @@ export function createRecord(args: {
   lessonLanguage?: string | null;
   correct: number;
   total: number;
+  passedOverride?: boolean;
 }): StudyRecord {
   const percentage = gradePercentage(args.correct, args.total);
   return {
@@ -83,7 +84,7 @@ export function createRecord(args: {
     score: args.correct,
     totalWords: args.total,
     percentage,
-    passed: args.type === "test" ? percentage >= 80 : undefined,
+    passed: args.type === "test" ? (args.passedOverride ?? percentage >= 80) : undefined,
   };
 }
 

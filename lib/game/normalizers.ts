@@ -203,7 +203,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
         imageUrl: gameWordImageUrl(rv.image_url ?? rv.img),
         audioUrl: rv.audio_url ?? null,
         promptFormat: rv.audio_url ? "audio" : toImageUrl(rv.img) ? "image" : "text",
-        answerFormat: "specific",
+        answerFormat: "open",
       });
     }
   }

@@ -1249,7 +1249,7 @@ export default function LessonFormScreen() {
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       {pendingLanguage ? (
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 24 }}>
-          <GlassCard style={{ width: "100%", borderRadius: 28 }}>
+          <GlassCard style={{ width: "100%", borderRadius: 28 }} variant="strong">
             <Text style={[theme.typography.title, { marginBottom: 8 }]}>Change language?</Text>
             <Text style={[theme.typography.body, { marginBottom: 16, color: theme.colors.textMuted }]}>
               Switching to <Text style={{ fontWeight: "800", color: theme.colors.text }}>{pendingLanguage}</Text> may affect conjugation and preposition rows.
@@ -1268,7 +1268,7 @@ export default function LessonFormScreen() {
       ) : null}
 
       <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
-        <GlassCard style={{ borderRadius: 26 }} padding={14}>
+        <GlassCard style={{ borderRadius: 26 }} padding={14} variant="strong">
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
               <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />

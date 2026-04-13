@@ -3,7 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "jsx": "react-native",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@screens/*": [
@@ -23,6 +23,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "**/*.d.ts",
     "index.js",
     "nativewind-env.d.ts"
   ],

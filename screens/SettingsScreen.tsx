@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   ScrollView,
   Text,
   TextInput,
@@ -9,12 +10,14 @@ import {
   View,
 } from "react-native";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
+import ScreenReveal from "../components/ScreenReveal";
+import { deleteOwnAccountCascade } from "../lib/api/admin";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules";
@@ -109,7 +112,6 @@ export default function SettingsScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, "Settings">>();
   const insets = useSafeAreaInsets();
-  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
   const initialTab = route.params?.initialTab;
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "profile");
@@ -122,6 +124,10 @@ export default function SettingsScreen() {
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [studentCount, setStudentCount] = useState(0);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastTone, setToastTone] = useState<"success" | "info" | "danger">("success");
+  const [tabBarWidth, setTabBarWidth] = useState(0);
+  const activeTabX = useRef(new Animated.Value(0)).current;
 
   const passwordsMatch =
     passwords.confirmPassword.length > 0 && passwords.confirmPassword === passwords.newPassword;
@@ -207,6 +213,34 @@ export default function SettingsScreen() {
     }
   }, [route.params?.initialTab]);
 
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeout = setTimeout(() => setToastMessage(""), 2200);
+    return () => clearTimeout(timeout);
+  }, [toastMessage]);
+
+  const tabs: { id: SettingsTab; label: string; icon: string; color: string }[] = [
+    { id: "profile",       label: "Profile",       icon: "person-outline",        color: "#3B5EDB" },
+    { id: "security",      label: "Security",      icon: "shield-outline",        color: "#D4462A" },
+    { id: "notifications", label: "Notifications", icon: "notifications-outline", color: "#3EA370" },
+  ];
+
+  useEffect(() => {
+    if (!tabBarWidth) return;
+    const index = tabs.findIndex((tab) => tab.id === activeTab);
+    Animated.spring(activeTabX, {
+      toValue: Math.max(0, index) * (tabBarWidth / tabs.length),
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 6,
+    }).start();
+  }, [activeTab, activeTabX, tabBarWidth]);
+
+  const showToast = (message: string, tone: "success" | "info" | "danger" = "success") => {
+    setToastTone(tone);
+    setToastMessage(message);
+  };
+
   const updateProfile = async () => {
     if (saving) return;
     setSaving(true);
@@ -227,6 +261,7 @@ export default function SettingsScreen() {
         ? "Profile saved. Check your new email address to confirm the change."
         : "Profile saved.");
       setOriginalEmail(profile.email.trim());
+      showToast("Profile saved", "success");
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : "Failed to update profile.");
     } finally {
@@ -244,6 +279,7 @@ export default function SettingsScreen() {
       if (error) throw error;
       setPasswords({ newPassword: "", confirmPassword: "" });
       Alert.alert("Saved", "Password updated successfully.");
+      showToast("Password updated", "success");
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : "Failed to update password.");
     } finally {
@@ -272,79 +308,7 @@ export default function SettingsScreen() {
               if (userError) throw userError;
               if (!user) throw new Error("Not authenticated.");
 
-              const {
-                data: { session },
-                error: sessionError,
-              } = await supabase.auth.getSession();
-              if (sessionError) throw sessionError;
-              const accessToken = session?.access_token;
-              if (!accessToken) throw new Error("Not authenticated.");
-
-              const userId = user.id;
-
-              const { data: lessonRows, error: lessonsLookupError } = await (supabase.from("lessons") as any)
-                .select("id")
-                .eq("created_by", userId);
-              if (lessonsLookupError) throw lessonsLookupError;
-
-              const lessonIds = Array.isArray(lessonRows)
-                ? lessonRows.map((row: { id: string }) => row.id).filter(Boolean)
-                : [];
-
-              const { data: packRows, error: packsLookupError } = await (supabase.from("lesson_packs") as any)
-                .select("id")
-                .eq("created_by", userId);
-              if (packsLookupError) throw packsLookupError;
-
-              const packIds = Array.isArray(packRows)
-                ? packRows.map((row: { id: string }) => row.id).filter(Boolean)
-                : [];
-
-              if (lessonIds.length > 0) {
-                const { error: deleteLessonLinksError } = await (supabase.from("lesson_pack_lessons") as any)
-                  .delete()
-                  .in("lesson_id", lessonIds);
-                if (deleteLessonLinksError) throw deleteLessonLinksError;
-              }
-
-              if (packIds.length > 0) {
-                const { error: deletePackLinksError } = await (supabase.from("lesson_pack_lessons") as any)
-                  .delete()
-                  .in("pack_id", packIds);
-                if (deletePackLinksError) throw deletePackLinksError;
-
-                const { error: deletePacksError } = await (supabase.from("lesson_packs") as any)
-                  .delete()
-                  .in("id", packIds);
-                if (deletePacksError) throw deletePacksError;
-              }
-
-              if (lessonIds.length > 0) {
-                const { error: deleteLessonsError } = await (supabase.from("lessons") as any)
-                  .delete()
-                  .in("id", lessonIds);
-                if (deleteLessonsError) throw deleteLessonsError;
-              }
-
-              const { error: deleteTestsError } = await (supabase.from("tests") as any)
-                .delete()
-                .eq("teacher_id", userId);
-              if (deleteTestsError) throw deleteTestsError;
-
-              const { error: deleteStudentsError } = await (supabase.from("students") as any)
-                .delete()
-                .eq("teacher_id", userId);
-              if (deleteStudentsError) throw deleteStudentsError;
-
-              const base = apiBaseUrl.replace(/\/$/, "");
-              const res = await fetch(`${base}/api/admin/teachers/${userId}`, {
-                method: "DELETE",
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                },
-              });
-              const body = (await res.json().catch(() => ({}))) as { error?: string };
-              if (!res.ok) throw new Error(body?.error ?? `Failed to delete account (${res.status})`);
+              await deleteOwnAccountCascade(user.id);
 
               await supabase.auth.signOut();
               navigation.reset({ index: 0, routes: [{ name: "Login" }] });
@@ -358,12 +322,6 @@ export default function SettingsScreen() {
       ]
     );
   };
-
-  const tabs: { id: SettingsTab; label: string; icon: string; color: string }[] = [
-    { id: "profile",       label: "Profile",       icon: "person-outline",        color: "#3B5EDB" },
-    { id: "security",      label: "Security",      icon: "shield-outline",        color: "#D4462A" },
-    { id: "notifications", label: "Notifications", icon: "notifications-outline", color: "#3EA370" },
-  ];
 
   const planKey = (planInfo?.plan ?? "basic").toLowerCase();
   const planColor = PLAN_COLORS[planKey] ?? PLAN_COLORS.basic;
@@ -408,7 +366,7 @@ export default function SettingsScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 8) + 68, paddingHorizontal: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingTop: Math.max(insets.top, 8) + 68, paddingHorizontal: 20, paddingBottom: 96 }}
       >
         {profileLoading ? (
           <GlassCard style={{ borderRadius: 16 }}>
@@ -420,7 +378,8 @@ export default function SettingsScreen() {
         ) : (
           <>
             {/* Profile hero */}
-            <GlassCard style={{ borderRadius: 20, marginBottom: 16 }} padding={20}>
+            <ScreenReveal key={`hero-${activeTab}`} delay={20}>
+            <GlassCard style={{ borderRadius: 20, marginBottom: 16 }} padding={20} variant="hero">
               <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
                 <View style={{
                   width: 60, height: 60, borderRadius: 20,
@@ -441,9 +400,29 @@ export default function SettingsScreen() {
                 </View>
               </View>
             </GlassCard>
+            </ScreenReveal>
 
             {/* Tab bar */}
-            <View style={{ flexDirection: "row", gap: 6, marginBottom: 16 }}>
+            <GlassCard style={{ marginBottom: 16, borderRadius: 18 }} padding={6} variant="strong">
+            <View style={{ flexDirection: "row", gap: 6 }} onLayout={(event) => setTabBarWidth(event.nativeEvent.layout.width)}>
+              {tabBarWidth ? (
+                <Animated.View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: Math.max(0, tabBarWidth / tabs.length - 4),
+                    margin: 2,
+                    borderRadius: 12,
+                    backgroundColor: tabs.find((tab) => tab.id === activeTab)?.color + "14",
+                    borderWidth: 1,
+                    borderColor: tabs.find((tab) => tab.id === activeTab)?.color + "2E",
+                    transform: [{ translateX: activeTabX }],
+                  }}
+                />
+              ) : null}
               {tabs.map((tab) => {
                 const active = activeTab === tab.id;
                 return (
@@ -457,9 +436,9 @@ export default function SettingsScreen() {
                       paddingHorizontal: 8,
                       paddingVertical: 10,
                       borderRadius: 12,
-                      borderWidth: 1.5,
-                      borderColor: active ? tab.color : theme.colors.border,
-                      backgroundColor: active ? tab.color + "15" : theme.colors.surface,
+                      borderWidth: 1,
+                      borderColor: "transparent",
+                      backgroundColor: "transparent",
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
@@ -478,11 +457,13 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+            </GlassCard>
 
             {/* ── Profile ── */}
             {activeTab === "profile" && (
+              <ScreenReveal key="settings-profile" delay={40}>
               <>
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="strong">
                   <SectionTitle icon="person-outline" label="Profile information" color="#3B5EDB" />
 
                   <View style={{ gap: 14 }}>
@@ -524,7 +505,7 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="strong">
                   <SectionTitle icon="diamond-outline" label="Your plan" color="#9050E7" />
 
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: 14, borderRadius: 14, backgroundColor: planColor.bg, borderWidth: 1, borderColor: planColor.border }}>
@@ -553,12 +534,14 @@ export default function SettingsScreen() {
 
                 </GlassCard>
               </>
+              </ScreenReveal>
             )}
 
             {/* ── Security ── */}
             {activeTab === "security" && (
+              <ScreenReveal key="settings-security" delay={40}>
               <>
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="strong">
                   <SectionTitle icon="lock-closed-outline" label="Change password" color="#D4462A" />
 
                   <View style={{ gap: 12 }}>
@@ -610,7 +593,7 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20} variant="strong">
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>Delete account and content created. This permanently removes your lessons, tests, students, and account.</Text>
                   <TouchableOpacity
                     onPress={deleteAccountAndContent}
@@ -639,11 +622,13 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 </GlassCard>
               </>
+              </ScreenReveal>
             )}
 
             {/* ── Notifications ── */}
             {activeTab === "notifications" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30}>
+              <ScreenReveal key="settings-notifications" delay={40}>
+              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30} variant="strong">
                 <View style={{ alignItems: "center", gap: 12 }}>
                   <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="notifications-outline" size={28} color="#3EA370" />
@@ -654,10 +639,17 @@ export default function SettingsScreen() {
                   </Text>
                 </View>
               </GlassCard>
+              </ScreenReveal>
             )}
           </>
         )}
       </ScrollView>
+      <FloatingToast
+        visible={!!toastMessage}
+        message={toastMessage}
+        tone={toastTone}
+        bottom={Math.max(insets.bottom, 20) + 12}
+      />
     </View>
   );
 }

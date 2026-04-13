@@ -3,9 +3,11 @@ import {
   Animated,
   Alert,
   Easing,
+  FlatList,
   Image,
   LayoutAnimation,
   Linking,
+  ListRenderItemInfo,
   Platform,
   Pressable,
   ScrollView,
@@ -27,6 +29,7 @@ import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
 import SkeletonLoader from "../components/SkeletonLoader";
+import { createAdminTest, deleteTestCascade } from "../lib/api/admin";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -175,6 +178,10 @@ export default function TestsScreen() {
   const isBasicPlan = planUi === "Basic";
 
   useEffect(() => {
+    layoutEase();
+  }, [searchTerm, sortKey, sortDir, teacherView]);
+
+  useEffect(() => {
     const loopOne = Animated.loop(
       Animated.sequence([
         Animated.timing(heroGlowOne, { toValue: 12, duration: 3800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
@@ -224,7 +231,9 @@ export default function TestsScreen() {
       setRole((teacherRow as { role?: string } | null)?.role ?? "");
       setPlanRaw((teacherRow as { plan?: string | null } | null)?.plan ?? null);
 
-      const select = admin ? "*, teachers(name)" : "*";
+      const select = admin
+        ? "id, name, type, cover_image_url, status, description, teacher_id, config_json, teachers(name)"
+        : "id, name, type, cover_image_url, status, description, teacher_id, config_json";
       let query = (supabase.from("tests") as any).select(select).order("created_at", { ascending: false });
       if (!admin) {
         query = query.eq("teacher_id", user.id);
@@ -322,13 +331,6 @@ export default function TestsScreen() {
   const duplicateTest = async (test: TestRow) => {
     setActionLoadingId(test.id);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Not authenticated");
-
-      const base = apiBaseUrl.replace(/\/$/, "");
       const payload = {
         name: `${test.name ?? "Test"} (Copy)`,
         type: test.type ?? "Vocabulary",
@@ -339,14 +341,7 @@ export default function TestsScreen() {
         description: test.description != null && test.description !== "" ? test.description : null,
       };
 
-      let res = await fetch(`${base}/api/admin/tests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      const res = await createAdminTest(payload);
       if (!res.ok) {
         const ins = await (supabase.from("tests") as any).insert({
           name: payload.name,
@@ -358,8 +353,7 @@ export default function TestsScreen() {
           description: payload.description,
         });
         if (ins.error) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data?.error ?? ins.error.message ?? "Duplicate failed");
+          throw new Error(res.json?.error ?? ins.error.message ?? "Duplicate failed");
         }
       }
 
@@ -385,36 +379,11 @@ export default function TestsScreen() {
               throw new Error("You can only delete your own tests.");
             }
 
-            // Keep mobile deletion independent from web cookies endpoint.
-            // First, unassign the test from students that contain it.
-            let studentsQuery = (supabase.from("students") as any)
-              .select("id, assigned_tests")
-              .contains("assigned_tests", [test.id]);
-            if (!isAdmin) {
-              studentsQuery = studentsQuery.eq("teacher_id", currentUserId);
-            }
-            const { data: studentsRows, error: studentsErr } = await studentsQuery;
-            if (studentsErr) throw studentsErr;
-
-            const students = (studentsRows ?? []) as { id: string; assigned_tests?: string[] | null }[];
-            for (const s of students) {
-              const current = Array.isArray(s.assigned_tests) ? s.assigned_tests : [];
-              const next = current.filter((x) => x !== test.id);
-              if (next.length !== current.length) {
-                const { error: upErr } = await (supabase.from("students") as any)
-                  .update({ assigned_tests: next })
-                  .eq("id", s.id);
-                if (upErr) throw upErr;
-              }
-            }
-
-            // Then delete the test itself.
-            let deleteQuery = (supabase.from("tests") as any).delete().eq("id", test.id);
-            if (!isAdmin) {
-              deleteQuery = deleteQuery.eq("teacher_id", currentUserId);
-            }
-            const { error: deleteErr } = await deleteQuery;
-            if (deleteErr) throw deleteErr;
+            await deleteTestCascade({
+              testId: test.id,
+              currentUserId,
+              isAdmin,
+            });
 
             setTests((prev) => prev.filter((t) => t.id !== test.id));
             Alert.alert("Deleted", "Test removed.");
@@ -437,6 +406,97 @@ export default function TestsScreen() {
     color: theme.colors.text,
     backgroundColor: theme.colors.surfaceGlass,
   };
+
+  const renderTestCard = useCallback(
+    ({ item: test, index }: ListRenderItemInfo<TestRow>) => {
+      const cfg = test.config_json ?? {};
+      const wordCount = Array.isArray(cfg.words) ? cfg.words.length : 0;
+      const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
+      const busy = actionLoadingId === test.id;
+      const accentColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
+
+      return (
+        <ScreenReveal key={test.id} delay={index * 45}>
+          <AnimatedPressable
+            onPress={() => navigation.navigate("TestForm", { testId: test.id })}
+            style={{
+              marginBottom: 12,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "#FFFFFF",
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: theme.isDark ? 0.06 : 0.07,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 2,
+            }}
+          >
+            <View style={{ height: 3, backgroundColor: accentColor, opacity: 0.65 }} />
+            <View style={{ paddingHorizontal: 14, paddingVertical: 14 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                {test.cover_image_url?.trim() ? (
+                  <Image
+                    source={{ uri: test.cover_image_url.trim() }}
+                    style={{ width: 48, height: 48, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.border }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 15,
+                      borderWidth: 1,
+                      borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER,
+                      backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons name="clipboard-outline" size={20} color={accentColor} />
+                  </View>
+                )}
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                    {test.name ?? "Untitled"}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
+                    <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, paddingHorizontal: 7, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 9, fontWeight: "900", color: accentColor }}>{wordCount}W</Text>
+                    </View>
+                    <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : "#E6D39A", backgroundColor: theme.isDark ? theme.colors.primarySoft : "#FFF5DA", paddingHorizontal: 7, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 9, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
+                    </View>
+                    <View style={{ flex: 1 }} />
+                    {canManage ? (
+                      <>
+                        <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                          <Ionicons name="pencil-outline" size={12} color={accentColor} />
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: accentColor }}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
+                          {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              </View>
+            </View>
+          </AnimatedPressable>
+        </ScreenReveal>
+      );
+    },
+    [actionLoadingId, canManage, navigation, theme, deleteTest]
+  );
 
   if (loading && tests.length === 0) {
     return (
@@ -519,7 +579,7 @@ export default function TestsScreen() {
         }}
       >
         <ScreenReveal delay={30}>
-        <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
+        <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16} variant="hero">
           <View style={{ position: "relative", overflow: "hidden" }}>
             <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} top={-50} right={-18} translate={heroGlowOne} />
             <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
@@ -550,7 +610,7 @@ export default function TestsScreen() {
         </ScreenReveal>
 
         {!isAdmin && isBasicPlan ? (
-          <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14}>
+          <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14} variant="strong">
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
               Basic includes full test creation with AI tools and a 1 student cap. Upgrade for a larger classroom.
             </Text>
@@ -578,7 +638,7 @@ export default function TestsScreen() {
         ) : null}
 
         <ScreenReveal delay={150}>
-        <GlassCard style={{ borderRadius: 18 }} padding={16}>
+        <GlassCard style={{ borderRadius: 18 }} padding={16} variant="strong">
           {isAdmin ? (
             <View style={{ marginBottom: 14 }}>
               <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase" }]}>Filter by teacher</Text>

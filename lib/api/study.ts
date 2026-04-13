@@ -86,14 +86,15 @@ export async function requestTtsBase64(
   text: string,
   sessionId: string,
   lang = "pt-BR"
-): Promise<{ mimeType: string; data: string } | null> {
+): Promise<{ mimeType: string; data?: string; url?: string } | null> {
   const res = await fetch(`${apiBaseUrl}/api/ai/speech`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, lang, session: sessionId }),
   });
-  const json = await parseJsonSafe<{ mimeType?: string; data?: string; error?: string }>(res);
-  if (!res.ok || !json || json.error || !json.data) return null;
-  return { mimeType: json.mimeType ?? "audio/wav", data: json.data };
+  const json = await parseJsonSafe<{ mimeType?: string; data?: string; url?: string; audioUrl?: string; error?: string }>(res);
+  const playableUrl = json?.url ?? json?.audioUrl;
+  if (!res.ok || !json || json.error || (!json.data && !playableUrl)) return null;
+  return { mimeType: json.mimeType ?? "audio/wav", data: json.data, url: playableUrl };
 }
 

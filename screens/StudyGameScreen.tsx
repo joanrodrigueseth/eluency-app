@@ -6,7 +6,9 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text,
@@ -19,6 +21,7 @@ import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } fr
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Speech from "expo-speech";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import Svg, { Circle } from "react-native-svg";
 
@@ -26,6 +29,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
+import IconTile from "../components/IconTile";
+import ScreenReveal from "../components/ScreenReveal";
 import { useAppTheme } from "../lib/theme";
 import { clearStoredStudentSessionId } from "../lib/studentSession";
 import {
@@ -71,6 +76,13 @@ type RootStackParamList = {
 
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
 type RuntimeScreen = "dashboard" | "lesson-detail" | "test-detail" | "session" | "results";
+type SessionIssue = {
+  id: string;
+  prompt: string;
+  expected: string;
+  answer?: string;
+  kind: "correct" | "wrong" | "close" | "skip" | "open_review";
+};
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -210,6 +222,40 @@ function getLevelInfo(totalXP: number) {
   return { current, next, xpInLevel, xpForLevel, progress };
 }
 
+function uniqueIssues(items: SessionIssue[]) {
+  const map = new Map<string, SessionIssue>();
+  for (const item of items) {
+    if (!map.has(item.id)) map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
+function ttsLangFromShort(shortCode: string) {
+  switch (shortCode.toUpperCase()) {
+    case "PT":
+      return "pt-BR";
+    case "ES":
+      return "es-ES";
+    case "FR":
+      return "fr-FR";
+    case "DE":
+      return "de-DE";
+    case "IT":
+      return "it-IT";
+    case "JA":
+      return "ja-JP";
+    case "KO":
+      return "ko-KR";
+    case "ZH":
+      return "zh-CN";
+    case "AR":
+      return "ar-SA";
+    case "EN":
+    default:
+      return "en-US";
+  }
+}
+
 export default function StudyGameScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -238,7 +284,7 @@ export default function StudyGameScreen() {
   const [mistakeWordIds, setMistakeWordIds] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<{ state: "correct" | "close" | "wrong"; text: string } | null>(null);
   const [ttsLoading, setTtsLoading] = useState(false);
-  const [resultRecord, setResultRecord] = useState<{ score: number; total: number; percentage: number; passed: boolean } | null>(null);
+  const [resultRecord, setResultRecord] = useState<{ score: number; total: number; percentage: number; passed: boolean; issues: SessionIssue[] } | null>(null);
   const [selectedLessonDetail, setSelectedLessonDetail] = useState<LessonGamePayload | null>(null);
   const [selectedTestDetail, setSelectedTestDetail] = useState<{ type: "test"; test: TestGamePayload } | { type: "lesson"; lesson: LessonGamePayload } | null>(null);
   const [lessonDetailMode, setLessonDetailMode] = useState<StudySessionMode>("typing");
@@ -265,10 +311,13 @@ export default function StudyGameScreen() {
     direction: StudyDirection;
     pool: GameWord[];
   } | null>(null);
+  const [sessionIssues, setSessionIssues] = useState<SessionIssue[]>([]);
   const audioPlayerRef = useRef<any>(null);
   const audioTempFileRef = useRef<string | null>(null);
   const initialCatalogLoadedRef = useRef(false);
   const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
+  const correctCountRef = useRef(0);
+  const sessionIssuesRef = useRef<SessionIssue[]>([]);
 
   const refreshCatalog = useCallback(async () => {
     if (!sessionId) return;
@@ -542,6 +591,36 @@ export default function StudyGameScreen() {
     [sessionId]
   );
 
+  const setCorrectCountValue = useCallback((value: number) => {
+    correctCountRef.current = value;
+    setCorrectCount(value);
+  }, []);
+
+  const incrementCorrectCount = useCallback(() => {
+    const next = correctCountRef.current + 1;
+    correctCountRef.current = next;
+    setCorrectCount(next);
+  }, []);
+
+  const clearSessionIssues = useCallback(() => {
+    sessionIssuesRef.current = [];
+    setSessionIssues([]);
+  }, []);
+
+  const recordSessionIssue = useCallback((issue: SessionIssue) => {
+    const next = [...sessionIssuesRef.current, issue];
+    sessionIssuesRef.current = next;
+    setSessionIssues(next);
+  }, []);
+
+  useEffect(() => {
+    correctCountRef.current = correctCount;
+  }, [correctCount]);
+
+  useEffect(() => {
+    sessionIssuesRef.current = sessionIssues;
+  }, [sessionIssues]);
+
   const triggerHaptic = useCallback(
     async (type: "success" | "warning" | "error") => {
       if (!progress?.preferences.hapticEnabled) return;
@@ -578,6 +657,7 @@ export default function StudyGameScreen() {
   );
 
   const openLessonDetail = useCallback((lesson: LessonGamePayload) => {
+    setSelectedTestDetail(null);
     setSelectedLessonDetail(lesson);
     setLessonDetailMode("typing");
     setRuntimeScreen("lesson-detail");
@@ -610,7 +690,7 @@ export default function StudyGameScreen() {
     setActiveWords(savedResume.activeWords);
     setIdx(savedResume.idx);
     setInput("");
-    setCorrectCount(savedResume.correctCount);
+    setCorrectCountValue(savedResume.correctCount);
     setFeedback(null);
     setShowHint(false);
     setNeedsRetype(false);
@@ -619,14 +699,16 @@ export default function StudyGameScreen() {
     setSessionContext({ id: savedResume.lessonId, name: savedResume.lessonName });
     setSessionPool(savedResume.pool);
     setRuntimeScreen("session");
-  }, [lessonsData, savedResume]);
+  }, [lessonsData, savedResume, setCorrectCountValue]);
 
   const openTestDetailFromTest = useCallback((test: TestGamePayload) => {
+    setSelectedLessonDetail(null);
     setSelectedTestDetail({ type: "test", test });
     setRuntimeScreen("test-detail");
   }, []);
 
   const openTestDetailFromLesson = useCallback((lesson: LessonGamePayload) => {
+    setSelectedLessonDetail(null);
     setSelectedTestDetail({ type: "lesson", lesson });
     setRuntimeScreen("test-detail");
   }, []);
@@ -660,7 +742,7 @@ export default function StudyGameScreen() {
       setActiveWords(selected);
       setIdx(0);
       setInput("");
-      setCorrectCount(0);
+      setCorrectCountValue(0);
       setFeedback(null);
       setShowHint(false);
       setNeedsRetype(false);
@@ -668,17 +750,28 @@ export default function StudyGameScreen() {
       setGeminiCorrection("");
       setConjugationInputs([]);
       setConjugationRowFeedback([]);
+      clearSessionIssues();
       setSessionContext({ id: context?.id ?? null, name: context?.name ?? null });
       setSessionPool(expandedBase);
       setRuntimeScreen("session");
     },
-    [allWords, mistakeWordIds, progress]
+    [allWords, clearSessionIssues, mistakeWordIds, progress, setCorrectCountValue]
   );
 
   const finishSession = useCallback(async () => {
     if (!progress) return;
     const total = activeWords.length;
-    const percentage = gradePercentage(correctCount, total);
+    const finalCorrectCount = correctCountRef.current;
+    const finalIssues = sessionIssuesRef.current;
+    const percentage = gradePercentage(finalCorrectCount, total);
+    const allQuestionsAreOpenResponse =
+      sessionType === "test" &&
+      activeWords.length > 0 &&
+      activeWords.every((word) => word.answerFormat === "open");
+    const passed =
+      sessionType === "test"
+        ? (allQuestionsAreOpenResponse ? finalCorrectCount === activeWords.length : percentage >= 80)
+        : percentage >= 80;
     const sessionLesson = sessionContext.id != null ? lessonsData.find((l) => l.id === sessionContext.id) : null;
     const rec = createRecord({
       type: sessionType,
@@ -688,8 +781,9 @@ export default function StudyGameScreen() {
       lessonName: sessionContext.name,
       languagePair: sessionLesson?.language_pair ?? null,
       lessonLanguage: sessionLesson?.language?.trim() || null,
-      correct: correctCount,
+      correct: finalCorrectCount,
       total,
+      passedOverride: passed,
     });
 
     const practiceHistory = sessionType === "test" ? progress.practiceHistory : [rec, ...progress.practiceHistory];
@@ -714,11 +808,11 @@ export default function StudyGameScreen() {
     if (sessionId) await flushProgressSync(sessionId, nextProgress);
     if (sessionType === "test") callTeacherCompletionEdge("test_completed").catch(() => {});
     if (sessionType === "practice" || sessionType === "smart-review") callTeacherCompletionEdge("lesson_completed").catch(() => {});
-    setResultRecord({ score: correctCount, total, percentage, passed: percentage >= 80 });
+    setResultRecord({ score: finalCorrectCount, total, percentage, passed, issues: finalIssues });
     setSavedResume(null);
     AsyncStorage.removeItem("eluency_lesson_resume").catch(() => {});
     setRuntimeScreen("results");
-  }, [activeWords.length, callTeacherCompletionEdge, correctCount, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType]);
+  }, [activeWords, callTeacherCompletionEdge, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType]);
 
   const answerCurrent = useCallback(async () => {
     if (!current || !progress) return;
@@ -729,8 +823,15 @@ export default function StudyGameScreen() {
     if (isOpenAnswer) {
       applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
       triggerHaptic("success").catch(() => {});
-      setCorrectCount((v) => v + 1);
-      setFeedback({ state: "correct", text: "Answer submitted." });
+      incrementCorrectCount();
+      recordSessionIssue({
+        id: current.id,
+        prompt,
+        expected: feedbackExpected || expected,
+        answer: userAnswer,
+        kind: "open_review",
+      });
+      setFeedback({ state: "correct", text: sessionType === "test" ? "Answer counted." : "Answer submitted." });
       setTimeout(() => {
         setFeedback(null);
         setInput("");
@@ -797,17 +898,20 @@ export default function StudyGameScreen() {
 
     if (result === "correct") {
       triggerHaptic("success").catch(() => {});
-      setCorrectCount((v) => v + 1);
+      incrementCorrectCount();
+      recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected || expected, answer: userAnswer, kind: "correct" });
       setFeedback({ state: "correct", text: "Correct!" });
     } else if (result === "close") {
       triggerHaptic("warning").catch(() => {});
-      setCorrectCount((v) => v + 1);
-      setFeedback({ state: "close", text: "Almost there. Type the expected answer to continue." });
+      incrementCorrectCount();
+      setFeedback({ state: "close", text: sessionType === "test" ? `Almost! Expected: ${feedbackExpected}` : "Almost there. Type the expected answer to continue." });
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+      recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: userAnswer, kind: "close" });
     } else {
       triggerHaptic("error").catch(() => {});
       setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+      recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: userAnswer, kind: "wrong" });
     }
 
     if (exactMatch) {
@@ -821,6 +925,20 @@ export default function StudyGameScreen() {
         if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
         else setIdx((v) => v + 1);
       }, 700);
+      return;
+    }
+
+    if (sessionType === "test") {
+      setTimeout(() => {
+        setFeedback(null);
+        setInput("");
+        setShowHint(false);
+        setNeedsRetype(false);
+        setShowInfinitiveNote(false);
+        setGeminiCorrection("");
+        if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+        else setIdx((v) => v + 1);
+      }, 1500);
       return;
     }
 
@@ -839,8 +957,10 @@ export default function StudyGameScreen() {
     needsRetype,
     progress,
     prompt,
+    recordSessionIssue,
     targetLang,
     triggerHaptic,
+    sessionType,
   ]);
 
   const submitConjugationTable = useCallback(async () => {
@@ -858,16 +978,31 @@ export default function StudyGameScreen() {
     applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, done) });
     if (done) {
       triggerHaptic("success").catch(() => {});
-      setCorrectCount((v) => v + 1);
+      incrementCorrectCount();
+      recordSessionIssue({
+        id: current.id,
+        prompt: current.conjugationTable.infinitive,
+        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; "),
+        answer: conjugationInputs.join("; "),
+        kind: "correct",
+      });
       setFeedback({ state: "correct", text: "Correct!" });
     } else if (anyRight) {
       triggerHaptic("warning").catch(() => {});
+      recordSessionIssue({
+        id: current.id,
+        prompt: current.conjugationTable.infinitive,
+        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; "),
+        answer: conjugationInputs.join("; "),
+        kind: "close",
+      });
       setFeedback({ state: "close", text: "Some forms need correction. Check the highlighted rows." });
     } else {
       triggerHaptic("error").catch(() => {});
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
       const lines = entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; ");
       setFeedback({ state: "wrong", text: `Expected: ${lines}` });
+      recordSessionIssue({ id: current.id, prompt: current.conjugationTable.infinitive, expected: lines, kind: "wrong" });
     }
     setTimeout(() => {
       setFeedback(null);
@@ -882,8 +1017,10 @@ export default function StudyGameScreen() {
     conjugationRowFeedback.length,
     current,
     finishSession,
+    incrementCorrectCount,
     idx,
     progress,
+    recordSessionIssue,
     triggerHaptic,
   ]);
 
@@ -946,8 +1083,15 @@ export default function StudyGameScreen() {
       if (isOpen) {
         applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
         triggerHaptic("success").catch(() => {});
-        setCorrectCount((v) => v + 1);
-        setFeedback({ state: "correct", text: "Answer submitted." });
+        incrementCorrectCount();
+        recordSessionIssue({
+          id: current.id,
+          prompt,
+          expected: feedbackExpected || expected,
+          answer: choiceText,
+          kind: "open_review",
+        });
+        setFeedback({ state: "correct", text: sessionType === "test" ? "Answer counted." : "Answer submitted." });
         setTimeout(() => {
           setFeedback(null);
           setInput("");
@@ -978,13 +1122,15 @@ export default function StudyGameScreen() {
       if (isCorrect) {
         setShowInfinitiveNote(isInfinitiveWord(current, expected, prompt, targetLang));
         triggerHaptic("success").catch(() => {});
-        setCorrectCount((v) => v + 1);
+        incrementCorrectCount();
+        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected || expected, answer: choiceText, kind: "correct" });
         setFeedback({ state: "correct", text: "Correct!" });
       } else {
         setShowInfinitiveNote(false);
         triggerHaptic("error").catch(() => {});
         setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
         setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: choiceText, kind: "wrong" });
       }
 
       setInput("");
@@ -1007,9 +1153,12 @@ export default function StudyGameScreen() {
       feedbackExpected,
       feedback,
       finishSession,
+      incrementCorrectCount,
       idx,
       progress,
       prompt,
+      recordSessionIssue,
+      sessionType,
       targetLang,
       triggerHaptic,
     ]
@@ -1033,10 +1182,14 @@ export default function StudyGameScreen() {
 
     await clearPlayer();
 
-    if (current.audioUrl) {
-      const player = createAudioPlayer(current.audioUrl);
+    const playUri = async (uri: string) => {
+      const player = createAudioPlayer(uri);
       audioPlayerRef.current = player;
       player.play();
+    };
+
+    if (current.audioUrl) {
+      await playUri(current.audioUrl);
       return;
     }
 
@@ -1052,8 +1205,12 @@ export default function StudyGameScreen() {
     try {
       const lang = direction === "pt-en" ? "pt-BR" : "en-US";
       const generated = await requestTtsBase64(text, sessionId, lang);
+      if (generated?.url) {
+        await playUri(generated.url);
+        return;
+      }
       if (!generated?.data) {
-        Alert.alert("Audio", "Gemini did not return playable audio.");
+        await Speech.speak(text, { language: lang, pitch: 1, rate: 0.95 });
         return;
       }
 
@@ -1074,10 +1231,48 @@ export default function StudyGameScreen() {
         }
       });
       player.play();
+    } catch (error) {
+      await Speech.speak(text, { language: direction === "pt-en" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
     } finally {
       setTtsLoading(false);
     }
   }, [current, direction, prompt, sessionId]);
+
+  const playStudyTextAudio = useCallback(
+    async (text: string, lang: "a" | "b" = "a") => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (!sessionId) {
+        await Speech.speak(trimmed, { language: lang === "a" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+        return;
+      }
+      try {
+        const meta = getDisplayLanguageMeta(activeLanguagePair, activeLessonLanguage);
+        const speechLang = ttsLangFromShort(lang === "a" ? meta.shortA : meta.shortB);
+        const generated = await requestTtsBase64(trimmed, sessionId, speechLang);
+        if (generated?.url) {
+          const player = createAudioPlayer(generated.url);
+          audioPlayerRef.current = player;
+          player.play();
+          return;
+        }
+        if (generated?.data) {
+          const extension = generated.mimeType.includes("mpeg") ? "mp3" : generated.mimeType.includes("wav") ? "wav" : "m4a";
+          const tempUri = `${FileSystem.cacheDirectory}study-text-${Date.now()}.${extension}`;
+          await FileSystem.writeAsStringAsync(tempUri, generated.data, { encoding: "base64" as any });
+          audioTempFileRef.current = tempUri;
+          const player = createAudioPlayer(tempUri);
+          audioPlayerRef.current = player;
+          player.play();
+          return;
+        }
+        await Speech.speak(trimmed, { language: speechLang, pitch: 1, rate: 0.95 });
+      } catch {
+        await Speech.speak(trimmed, { language: lang === "a" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+      }
+    },
+    [activeLanguagePair, activeLessonLanguage, sessionId]
+  );
 
   useEffect(() => {
     setAudioModeAsync({
@@ -1189,36 +1384,67 @@ export default function StudyGameScreen() {
   const uiIsDark = progress.preferences.darkMode ?? theme.isDark;
   const ui = uiIsDark
     ? {
-        bg: "#141414",
-        card: "#1F1F1F",
-        text: "#F5F5F5",
-        muted: "#A0A0A0",
-        border: "#343434",
-        borderSoft: "#2A2A2A",
-        primary: "#F07020",
-        primarySoft: "rgba(240,112,32,0.16)",
-        secondary: "#D4943C",
-        success: "#46A05D",
+        bg: theme.colors.background,
+        card: theme.colors.surfaceGlass,
+        cardStrong: "rgba(23,33,43,0.84)",
+        text: theme.colors.text,
+        muted: theme.colors.textMuted,
+        border: theme.colors.border,
+        borderStrong: theme.colors.borderStrong,
+        borderSoft: "rgba(255,255,255,0.08)",
+        primary: theme.colors.primary,
+        primarySoft: theme.colors.primarySoft,
+        secondary: theme.colors.violet,
+        success: theme.colors.success,
         warning: "#D4943C",
-        danger: "#C05050",
+        danger: theme.colors.danger,
       }
     : {
-        bg: "#F4F4F5",
-        card: "#FFFFFF",
-        text: "#222222",
-        muted: "#7A7A7A",
-        border: "#E8E8E8",
-        borderSoft: "#EFEFEF",
-        primary: "#E5621A",
-        primarySoft: "#FFF0E6",
-        secondary: "#D08A2D",
-        success: "#46A05D",
+        bg: theme.colors.background,
+        card: theme.colors.surfaceGlass,
+        cardStrong: "rgba(252,250,246,0.9)",
+        text: theme.colors.text,
+        muted: theme.colors.textMuted,
+        border: theme.colors.border,
+        borderStrong: theme.colors.borderStrong,
+        borderSoft: "rgba(15,23,42,0.06)",
+        primary: theme.colors.primary,
+        primarySoft: theme.colors.primarySoft,
+        secondary: theme.colors.violet,
+        success: theme.colors.success,
         warning: "#D4943C",
-        danger: "#C05050",
+        danger: theme.colors.danger,
       };
+  const reviewViewportMaxHeight = 488;
 
   return (
     <View className="flex-1" style={{ backgroundColor: ui.bg }}>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: -40,
+          right: -70,
+          width: 220,
+          height: 220,
+          borderRadius: 110,
+          backgroundColor: ui.primarySoft,
+          opacity: uiIsDark ? 0.2 : 0.45,
+        }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 180,
+          left: -80,
+          width: 180,
+          height: 180,
+          borderRadius: 90,
+          backgroundColor: `${ui.secondary}22`,
+          opacity: uiIsDark ? 0.18 : 0.28,
+        }}
+      />
       {runtimeScreen === "dashboard" ? (
         <>
           <View
@@ -1228,7 +1454,7 @@ export default function StudyGameScreen() {
               left: 0,
               right: 0,
               zIndex: 50,
-              backgroundColor: ui.card,
+              backgroundColor: uiIsDark ? theme.colors.background : theme.colors.surface,
               borderBottomWidth: 1,
               borderBottomColor: ui.border,
               paddingTop: Math.max(insets.top, 8),
@@ -1276,13 +1502,14 @@ export default function StudyGameScreen() {
           >
             {activeTab === "home" ? (
               <>
-                <GlassCard style={{ borderRadius: 18, marginBottom: 14, backgroundColor: ui.card }} padding={14}>
+                <ScreenReveal delay={20}>
+                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14} variant="hero">
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View>
                       <Text style={{ fontSize: 26 }}>🎓</Text>
                     </View>
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>
+                      <Text style={{ fontWeight: "800", fontSize: 20, color: ui.text }}>
                         Level {levelInfo.current.level} — {levelInfo.current.name}
                       </Text>
                       <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>
@@ -1299,8 +1526,10 @@ export default function StudyGameScreen() {
                     <View style={{ height: "100%", width: `${levelInfo.progress}%`, backgroundColor: ui.secondary }} />
                   </View>
                 </GlassCard>
+                </ScreenReveal>
 
-                <GlassCard style={{ borderRadius: 22, marginBottom: 14, backgroundColor: ui.card }} padding={18}>
+                <ScreenReveal delay={70}>
+                <GlassCard style={{ borderRadius: 22, marginBottom: 14 }} padding={18} variant="hero">
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                     <View
                       style={{
@@ -1326,7 +1555,7 @@ export default function StudyGameScreen() {
                           origin="52,52"
                         />
                       </Svg>
-                      <Text style={{ color: ui.primary, fontWeight: "900", fontSize: 30 }}>{overallProgress}%</Text>
+                      <Text style={{ color: ui.primary, fontWeight: "900", fontSize: 24 }}>{overallProgress}%</Text>
                       <Text style={{ fontSize: 9, color: ui.muted, fontWeight: "700", marginTop: -1 }}>PROGRESS</Text>
                     </View>
                     <View style={{ flex: 1 }}>
@@ -1385,8 +1614,10 @@ export default function StudyGameScreen() {
                     </View>
                   </TouchableOpacity>
                 </GlassCard>
+                </ScreenReveal>
 
-                <GlassCard style={{ borderRadius: 16, marginBottom: 14, backgroundColor: ui.card }} padding={14}>
+                <ScreenReveal delay={110}>
+                <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14} variant="strong">
                   <Text style={{ fontWeight: "700", fontSize: 18, color: ui.text, marginBottom: 10 }}>Activity</Text>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", height: 46 }}>
                     {weeklyActivity.map((count, i) => (
@@ -1406,10 +1637,11 @@ export default function StudyGameScreen() {
                     ))}
                   </View>
                 </GlassCard>
+                </ScreenReveal>
 
                 {savedResume ? (
                   <TouchableOpacity onPress={resumeSession} activeOpacity={0.85} style={{ marginBottom: 14 }}>
-                    <GlassCard style={{ borderRadius: 16, backgroundColor: ui.primarySoft, borderWidth: 1, borderColor: ui.primary }} padding={14}>
+                    <GlassCard style={{ borderRadius: 16, borderWidth: 1, borderColor: ui.primary }} padding={14} variant="strong">
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                         <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: ui.primary, alignItems: "center", justifyContent: "center" }}>
                           <Ionicons name="play" size={20} color="#fff" />
@@ -1451,7 +1683,7 @@ export default function StudyGameScreen() {
                             </View>
                           )}
                           <View style={{ flex: 1, marginLeft: 10 }}>
-                            <Text style={{ fontWeight: "700", fontSize: 20, color: ui.text }} numberOfLines={1}>{lesson.name}</Text>
+                            <Text style={{ fontWeight: "700", fontSize: 16, lineHeight: 20, color: ui.text }} numberOfLines={2}>{lesson.name}</Text>
                             <View style={{ marginTop: 8, height: 8, borderRadius: 999, backgroundColor: ui.borderSoft, overflow: "hidden" }}>
                               <View style={{ width: `${pct}%`, height: "100%", backgroundColor: ui.primary }} />
                             </View>
@@ -1470,29 +1702,34 @@ export default function StudyGameScreen() {
 
             {activeTab === "lessons" ? (
               <>
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontWeight: "800", fontSize: 30, color: "#222" }}>Lessons</Text>
-                  <Text style={{ color: "#7A7A7A", fontSize: 14, marginTop: 4 }}>Select a lesson to study and practice:</Text>
-                </View>
+                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16} variant="hero">
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <IconTile icon="book-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Lessons</Text>
+                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>Select a lesson to study and practice.</Text>
+                    </View>
+                  </View>
+                </GlassCard>
                 {lessonsData.map((lesson) => (
-                  <GlassCard key={lesson.id} style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 10 }} padding={12}>
+                  <GlassCard key={lesson.id} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                     <TouchableOpacity
                       onPress={() => openLessonDetail(lesson)}
                       style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
                     >
                       {lesson.cover_image_url ? (
-                        <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF" }} resizeMode="cover" />
+                        <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
                       ) : (
-                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF", alignItems: "center", justifyContent: "center" }}>
+                        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                           <Text style={{ fontSize: 22 }}>📚</Text>
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: "700", fontSize: 16, color: "#222" }}>{lesson.name}</Text>
-                        <Text style={{ color: "#777", fontSize: 13, marginTop: 2 }}>{lesson.words.length} words</Text>
+                        <Text style={{ fontWeight: "700", fontSize: 16, color: ui.text }}>{lesson.name}</Text>
+                        <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>{lesson.words.length} words</Text>
                       </View>
-                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: "#FCEDE2", alignItems: "center", justifyContent: "center" }}>
-                        <Text style={{ color: "#E56A1E", fontSize: 18 }}>→</Text>
+                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="arrow-forward" size={17} color={ui.primary} />
                       </View>
                     </TouchableOpacity>
                   </GlassCard>
@@ -1502,10 +1739,15 @@ export default function StudyGameScreen() {
 
             {activeTab === "practice" ? (
               <>
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontWeight: "800", fontSize: 30, color: "#222" }}>Practice</Text>
-                  <Text style={{ color: "#7A7A7A", fontSize: 14, marginTop: 4 }}>Choose your study mode:</Text>
-                </View>
+                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16} variant="hero">
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <IconTile icon="play-circle-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Practice</Text>
+                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>Choose your study mode.</Text>
+                    </View>
+                  </View>
+                </GlassCard>
                 {[
                   { label: "Typing Practice", type: "practice" as StudySessionType, mode: "typing" as StudySessionMode, icon: "⌨️" },
                   { label: "Multiple Choice", type: "practice" as StudySessionType, mode: "multiple-choice" as StudySessionMode, icon: "✅" },
@@ -1514,13 +1756,13 @@ export default function StudyGameScreen() {
                   { label: "Review Mistakes", type: "review-mistakes" as StudySessionType, mode: "typing" as StudySessionMode, icon: "🧠" },
                   { label: "Smart Review", type: "smart-review" as StudySessionType, mode: "typing" as StudySessionMode, icon: "✨" },
                 ].map((item) => (
-                  <GlassCard key={item.label} style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 10 }} padding={12}>
+                  <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                     <TouchableOpacity onPress={() => startSession(item.type, item.mode, "pt-en")} style={{ flexDirection: "row", alignItems: "center" }}>
-                      <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: "#FFF0E6", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                      <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
                         <Text style={{ fontSize: 22 }}>{item.icon}</Text>
                       </View>
-                      <Text style={{ flex: 1, fontWeight: "700", fontSize: 16, color: "#222" }}>{item.label}</Text>
-                      <Text style={{ color: "#E56A1E", fontSize: 20 }}>›</Text>
+                      <Text style={{ flex: 1, fontWeight: "700", fontSize: 16, color: ui.text }}>{item.label}</Text>
+                      <Ionicons name="chevron-forward" size={18} color={ui.primary} />
                     </TouchableOpacity>
                   </GlassCard>
                 ))}
@@ -1529,38 +1771,43 @@ export default function StudyGameScreen() {
 
             {activeTab === "tests" ? (
               <>
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontWeight: "800", fontSize: 30, color: "#222" }}>Tests</Text>
-                  <Text style={{ color: "#7A7A7A", fontSize: 14, marginTop: 4 }}>
+                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16} variant="hero">
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <IconTile icon="clipboard-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Tests</Text>
+                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>
                     {testsData.length > 0 ? "Test your knowledge. Select a test or lesson:" : "Test your knowledge without hints. Select a lesson to test:"}
-                  </Text>
-                </View>
+                      </Text>
+                    </View>
+                  </View>
+                </GlassCard>
 
                 {testsData.length > 0 ? (
                   <>
-                    <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Your tests</Text>
+                    <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Your tests</Text>
                     {testsData.map((item, index) => (
-                      <GlassCard key={`${item.id ?? "test"}-${index}`} style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 10 }} padding={12}>
+                      <GlassCard key={`${item.id ?? "test"}-${index}`} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                         <TouchableOpacity
                           onPress={() => openTestDetailFromTest(item)}
                           style={{ flexDirection: "row", alignItems: "center" }}
                         >
                           {item.cover_image_url ? (
-                            <Image source={{ uri: item.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF" }} resizeMode="cover" />
+                            <Image source={{ uri: item.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
                           ) : (
-                            <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF", alignItems: "center", justifyContent: "center" }}>
+                            <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                               <Text style={{ fontSize: 22 }}>📝</Text>
                             </View>
                           )}
                           <View style={{ flex: 1, marginLeft: 12 }}>
-                            <Text style={{ fontWeight: "700", color: "#222", fontSize: 15 }}>{item.name}</Text>
-                            <Text style={{ fontSize: 12, color: "#777", marginTop: 2 }}>{item.words.length} questions</Text>
+                            <Text style={{ fontWeight: "700", color: ui.text, fontSize: 15 }}>{item.name}</Text>
+                            <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>{item.words.length} questions</Text>
                           </View>
-                          <Text style={{ color: "#E56A1E", fontSize: 20 }}>→</Text>
+                          <Ionicons name="arrow-forward" size={18} color={ui.primary} />
                         </TouchableOpacity>
                       </GlassCard>
                     ))}
-                    <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginVertical: 10 }}>Test by lesson</Text>
+                    <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginVertical: 10 }}>Test by lesson</Text>
                   </>
                 ) : null}
 
@@ -1569,29 +1816,29 @@ export default function StudyGameScreen() {
                   const pct = last?.percentage ?? 0;
                   const passed = pct >= 80;
                   return (
-                    <GlassCard key={`${lesson.id ?? "lesson"}-${index}`} style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 10 }} padding={12}>
+                    <GlassCard key={`${lesson.id ?? "lesson"}-${index}`} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                       <TouchableOpacity
                         onPress={() => openTestDetailFromLesson(lesson)}
                         style={{ flexDirection: "row", alignItems: "center" }}
                       >
                         {lesson.cover_image_url ? (
-                          <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF" }} resizeMode="cover" />
+                          <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
                         ) : (
-                          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: "#EFEFEF", alignItems: "center", justifyContent: "center" }}>
+                          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                             <Text style={{ fontSize: 22 }}>📘</Text>
                           </View>
                         )}
                         <View style={{ flex: 1, marginLeft: 12 }}>
-                          <Text style={{ fontWeight: "700", color: "#222", fontSize: 15 }}>{lesson.name}</Text>
-                          <Text style={{ fontSize: 12, color: "#777", marginTop: 2 }}>
+                          <Text style={{ fontWeight: "700", color: ui.text, fontSize: 15 }}>{lesson.name}</Text>
+                          <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>
                             {lesson.words.length} words{last?.date ? ` • Last: ${new Date(last.date).toLocaleDateString()}` : ""}
                           </Text>
-                          <View style={{ marginTop: 6, height: 5, borderRadius: 999, backgroundColor: "#E4E4E4", overflow: "hidden" }}>
+                          <View style={{ marginTop: 6, height: 5, borderRadius: 999, backgroundColor: ui.borderSoft, overflow: "hidden" }}>
                             <View style={{ width: `${pct}%`, height: "100%", backgroundColor: pct >= 80 ? "#46A05D" : pct >= 50 ? "#D4943C" : "#C05050" }} />
                           </View>
                         </View>
                         <View style={{ marginLeft: 8, alignItems: "flex-end" }}>
-                          <Text style={{ fontWeight: "800", color: passed ? "#46A05D" : pct >= 50 ? "#D4943C" : "#777", fontSize: 13 }}>
+                          <Text style={{ fontWeight: "800", color: passed ? ui.success : pct >= 50 ? ui.warning : ui.muted, fontSize: 13 }}>
                             {last ? `${pct}%` : "NOT TAKEN"}
                           </Text>
                         </View>
@@ -1602,26 +1849,26 @@ export default function StudyGameScreen() {
 
                 {progress.testHistory.length > 0 ? (
                   <>
-                    <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginTop: 10, marginBottom: 10 }}>Test history</Text>
+                    <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginTop: 10, marginBottom: 10 }}>Test history</Text>
                     {progress.testHistory.slice(0, 5).map((record, index) => (
-                      <GlassCard key={`${record.id ?? record.lessonId ?? "history"}-${index}`} style={{ borderRadius: 14, backgroundColor: "#FFFFFF", marginBottom: 10 }} padding={12}>
+                      <GlassCard key={`${record.id ?? record.lessonId ?? "history"}-${index}`} style={{ borderRadius: 14, marginBottom: 10 }} padding={12} variant="strong">
                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                           <View style={{ flex: 1, marginRight: 10 }}>
-                            <Text style={{ fontWeight: "600", color: "#222" }} numberOfLines={1}>{record.lessonName || "Lesson test"}</Text>
-                            <Text style={{ color: "#7A7A7A", fontSize: 12, marginTop: 2 }}>
+                            <Text style={{ fontWeight: "600", color: ui.text }} numberOfLines={1}>{record.lessonName || "Lesson test"}</Text>
+                            <Text style={{ color: ui.muted, fontSize: 12, marginTop: 2 }}>
                               {record.date ? new Date(record.date).toLocaleDateString() : ""} •{" "}
                               {historyDirectionLabel(record.direction, record.languagePair, record.lessonLanguage)}
                             </Text>
                           </View>
                           <View
                             style={{
-                              backgroundColor: record.percentage >= 80 ? "#E9F7EE" : record.percentage >= 50 ? "#FDF3E5" : "#FDEDED",
+                              backgroundColor: record.percentage >= 80 ? `${ui.success}20` : record.percentage >= 50 ? `${ui.warning}20` : `${ui.danger}18`,
                               borderRadius: 999,
                               paddingHorizontal: 10,
                               paddingVertical: 6,
                             }}
                           >
-                            <Text style={{ fontWeight: "800", color: record.percentage >= 80 ? "#46A05D" : record.percentage >= 50 ? "#D4943C" : "#C05050" }}>
+                            <Text style={{ fontWeight: "800", color: record.percentage >= 80 ? ui.success : record.percentage >= 50 ? ui.warning : ui.danger }}>
                               {record.percentage}%
                             </Text>
                           </View>
@@ -1635,31 +1882,34 @@ export default function StudyGameScreen() {
 
             {activeTab === "settings" ? (
               <>
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontWeight: "800", fontSize: 30, color: "#222" }}>Settings</Text>
-                </View>
-
-                <GlassCard style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 12 }} padding={14}>
-                  <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Profile</Text>
+                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16} variant="hero">
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: "#FCEDE2", alignItems: "center", justifyContent: "center" }}>
+                    <IconTile icon="settings-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
+                    <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Settings</Text>
+                  </View>
+                </GlassCard>
+
+                <GlassCard style={{ borderRadius: 16, marginBottom: 12 }} padding={14} variant="strong">
+                  <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Profile</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <View style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}>
                       <Text style={{ fontSize: 24 }}>👤</Text>
                     </View>
                     <View>
-                      <Text style={{ fontWeight: "700", fontSize: 18, color: "#222" }}>{studentName || "Student"}</Text>
-                      <Text style={{ color: "#777", fontSize: 13, marginTop: 2 }}>Learning Portuguese</Text>
+                      <Text style={{ fontWeight: "700", fontSize: 18, color: ui.text }}>{studentName || "Student"}</Text>
+                      <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>Learning Portuguese</Text>
                     </View>
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 12 }} padding={14}>
-                  <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Teacher Information</Text>
-                  <Text style={{ fontWeight: "600", color: "#222" }}>{teacherName}</Text>
-                  <Text style={{ color: "#777", marginTop: 2 }}>Contact your teacher for lesson assignments and progress.</Text>
+                <GlassCard style={{ borderRadius: 16, marginBottom: 12 }} padding={14} variant="strong">
+                  <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Teacher Information</Text>
+                  <Text style={{ fontWeight: "600", color: ui.text }}>{teacherName}</Text>
+                  <Text style={{ color: ui.muted, marginTop: 2 }}>Contact your teacher for lesson assignments and progress.</Text>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 16, backgroundColor: "#FFFFFF", marginBottom: 12 }} padding={14}>
-                  <Text style={{ fontSize: 11, color: "#777", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Preferences</Text>
+                <GlassCard style={{ borderRadius: 16, marginBottom: 12 }} padding={14} variant="strong">
+                  <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Preferences</Text>
                   <TouchableOpacity
                     onPress={() =>
                       applyProgress({
@@ -1667,13 +1917,13 @@ export default function StudyGameScreen() {
                         preferences: { ...progress.preferences, darkMode: !progress.preferences.darkMode },
                       })
                     }
-                    style={{ borderTopWidth: 1, borderTopColor: "#EFEFEF", paddingTop: 10, paddingBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                    style={{ borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10, paddingBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                   >
                     <View>
-                      <Text style={{ fontWeight: "600", color: "#222" }}>Dark Mode</Text>
-                      <Text style={{ color: "#777", fontSize: 12, marginTop: 3 }}>Use dark color palette</Text>
+                      <Text style={{ fontWeight: "600", color: ui.text }}>Dark Mode</Text>
+                      <Text style={{ color: ui.muted, fontSize: 12, marginTop: 3 }}>Use dark color palette</Text>
                     </View>
-                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: progress.preferences.darkMode ? "#E56A1E" : "#D9D9D9", justifyContent: "center", paddingHorizontal: 3 }}>
+                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: progress.preferences.darkMode ? ui.primary : ui.border, justifyContent: "center", paddingHorizontal: 3 }}>
                       <View
                         style={{
                           width: 24,
@@ -1695,10 +1945,10 @@ export default function StudyGameScreen() {
                     style={{ paddingTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                   >
                     <View>
-                      <Text style={{ fontWeight: "600", color: "#222" }}>Haptic Feedback</Text>
-                      <Text style={{ color: "#777", fontSize: 12, marginTop: 3 }}>Vibrate on interactions</Text>
+                      <Text style={{ fontWeight: "600", color: ui.text }}>Haptic Feedback</Text>
+                      <Text style={{ color: ui.muted, fontSize: 12, marginTop: 3 }}>Vibrate on interactions</Text>
                     </View>
-                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: progress.preferences.hapticEnabled ? "#46A05D" : "#D9D9D9", justifyContent: "center", paddingHorizontal: 3 }}>
+                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: progress.preferences.hapticEnabled ? ui.success : ui.border, justifyContent: "center", paddingHorizontal: 3 }}>
                       <View
                         style={{
                           width: 24,
@@ -1711,7 +1961,7 @@ export default function StudyGameScreen() {
                     </View>
                   </TouchableOpacity>
                   <View style={{ marginTop: 10 }}>
-                    <Text style={{ color: "#777", fontSize: 12 }}>Current app theme: {theme.isDark ? "Dark" : "Light"}</Text>
+                    <Text style={{ color: ui.muted, fontSize: 12 }}>Current app theme: {theme.isDark ? "Dark" : "Light"}</Text>
                   </View>
                 </GlassCard>
 
@@ -1720,9 +1970,9 @@ export default function StudyGameScreen() {
                     clearStoredStudentSessionId().catch(() => {});
                     navigation.reset({ index: 0, routes: [{ name: "Login" }] });
                   }}
-                  style={{ borderRadius: 14, borderWidth: 1, borderColor: "#D16060", backgroundColor: "#FDEEEE", paddingVertical: 14, alignItems: "center", marginBottom: 8 }}
+                  style={{ borderRadius: 14, borderWidth: 1, borderColor: ui.danger, backgroundColor: `${ui.danger}18`, paddingVertical: 14, alignItems: "center", marginBottom: 8 }}
                 >
-                  <Text style={{ color: "#C05050", fontWeight: "700", fontSize: 15 }}>Log out</Text>
+                  <Text style={{ color: ui.danger, fontWeight: "700", fontSize: 15 }}>Log out</Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -1913,25 +2163,57 @@ export default function StudyGameScreen() {
                       </View>
                     )}
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={{ color: ui.text, fontWeight: "800", fontSize: 20 }}>
-                        {lessonDetailDisplayMeta.shortA}  {row.termA || "-"}
-                      </Text>
-                      <Text style={{ color: ui.muted, fontSize: 18, marginTop: 2 }}>
-                        {lessonDetailDisplayMeta.shortB}  {row.termB || "-"}
-                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{ flex: 1, color: ui.text, fontWeight: "800", fontSize: 18 }}>
+                          {lessonDetailDisplayMeta.shortA}  {row.termA || "-"}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => playStudyTextAudio(row.termA || "", "a").catch(() => {})}
+                          style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}
+                        >
+                          <Ionicons name="volume-medium-outline" size={15} color={ui.primary} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                        <Text style={{ flex: 1, color: ui.muted, fontSize: 16 }}>
+                          {lessonDetailDisplayMeta.shortB}  {row.termB || "-"}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => playStudyTextAudio(row.termB || "", "b").catch(() => {})}
+                          style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}
+                        >
+                          <Ionicons name="volume-medium-outline" size={15} color={ui.muted} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                   {(row.ctxA || row.ctxB) ? (
                     <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10 }}>
                       {row.ctxA ? (
-                        <Text style={{ color: ui.text, fontSize: 14, marginBottom: 4 }}>
-                          {lessonDetailDisplayMeta.shortA}  {row.ctxA}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 }}>
+                          <Text style={{ flex: 1, color: ui.text, fontSize: 14 }}>
+                            {lessonDetailDisplayMeta.shortA}  {row.ctxA}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => playStudyTextAudio(row.ctxA || "", "a").catch(() => {})}
+                            style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}
+                          >
+                            <Ionicons name="volume-medium-outline" size={14} color={ui.primary} />
+                          </TouchableOpacity>
+                        </View>
                       ) : null}
                       {row.ctxB ? (
-                        <Text style={{ color: ui.muted, fontSize: 14 }}>
-                          {lessonDetailDisplayMeta.shortB}  {row.ctxB}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                          <Text style={{ flex: 1, color: ui.muted, fontSize: 14 }}>
+                            {lessonDetailDisplayMeta.shortB}  {row.ctxB}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => playStudyTextAudio(row.ctxB || "", "b").catch(() => {})}
+                            style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}
+                          >
+                            <Ionicons name="volume-medium-outline" size={14} color={ui.muted} />
+                          </TouchableOpacity>
+                        </View>
                       ) : null}
                     </View>
                   ) : null}
@@ -2001,7 +2283,7 @@ export default function StudyGameScreen() {
                   </Text>
                   <Text style={{ color: ui.muted, marginTop: 4, fontSize: 14 }}>
                     {selectedTestDetail.type === "test"
-                      ? `${(selectedTestDetail.test.reviewVocabulary?.length || selectedTestDetail.test.words.length)} words • No hints`
+                      ? `${selectedTestDetail.test.words.length} questions • No hints`
                       : `${selectedTestDetail.lesson.words.length} words • No hints`}
                   </Text>
                 </View>
@@ -2036,12 +2318,12 @@ export default function StudyGameScreen() {
             <Text style={{ color: ui.muted, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>
               STUDY MATERIAL (
               {selectedTestDetail.type === "test"
-                ? (selectedTestDetail.test.reviewVocabulary?.length || selectedTestDetail.test.words.length)
+                ? (selectedTestDetail.test.reviewVocabulary?.length ?? 0)
                 : selectedTestDetail.lesson.words.length}
               )
             </Text>
             {(selectedTestDetail.type === "test"
-              ? ((selectedTestDetail.test.reviewVocabulary?.length ? selectedTestDetail.test.reviewVocabulary : selectedTestDetail.test.words) as any[])
+              ? ((selectedTestDetail.test.reviewVocabulary ?? []) as any[])
               : (selectedTestDetail.lesson.words as any[])
             ).map((word, index) => (
               <GlassCard key={`study-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
@@ -2108,7 +2390,9 @@ export default function StudyGameScreen() {
                       text: "Exit",
                       style: "destructive",
                       onPress: () => {
-                        if (selectedLessonDetail) {
+                        if (sessionType === "test" && selectedTestDetail) {
+                          setRuntimeScreen("test-detail");
+                        } else if (selectedLessonDetail) {
                           saveResumeData();
                           setRuntimeScreen("lesson-detail");
                         } else if (selectedTestDetail) {
@@ -2547,6 +2831,7 @@ export default function StudyGameScreen() {
                       triggerHaptic("error").catch(() => {});
                       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
                       setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
+                      recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, kind: "skip" });
                       if (sessionType === "test" || current.practiceKind === "conjugation-table") {
                         setTimeout(() => {
                           setFeedback(null);
@@ -2609,7 +2894,6 @@ export default function StudyGameScreen() {
           setRuntimeScreen("dashboard");
         };
 
-        const barBottom = Math.max(insets.bottom - 32, 0);
         const tabs = [
           { id: "home", icon: "home-outline", label: "Home" },
           { id: "lessons", icon: "book-outline", label: "Lessons" },
@@ -2622,32 +2906,30 @@ export default function StudyGameScreen() {
           <View
             style={{
               position: "absolute",
-              left: 12,
-              right: 12,
-              bottom: barBottom,
-              borderRadius: 32,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
               overflow: "hidden",
+              backgroundColor: uiIsDark ? theme.colors.background : theme.colors.surface,
+              borderWidth: 1,
+              borderColor: ui.border,
+              flexDirection: "row",
+              alignItems: "flex-end",
+              justifyContent: "space-around",
+              paddingTop: 2,
+              paddingBottom: 12,
+              paddingHorizontal: 12,
               shadowColor: "#000",
-              shadowOpacity: 0.18,
-              shadowRadius: 24,
+              shadowOpacity: uiIsDark ? 0.24 : 0.12,
+              shadowRadius: 18,
               shadowOffset: { width: 0, height: 8 },
-              elevation: 12,
+              elevation: 10,
             }}
           >
-            <BlurView
-              intensity={Platform.OS === "ios" ? 60 : 100}
-              tint={uiIsDark ? "dark" : "light"}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-around",
-                paddingVertical: 18,
-                paddingHorizontal: 10,
-                backgroundColor: Platform.OS === "android"
-                  ? uiIsDark ? "rgba(31,31,31,0.97)" : "rgba(255,255,255,0.97)"
-                  : "transparent",
-              }}
-            >
               {tabs.map((tab) => {
                 if (tab.id === "__play__") {
                   return (
@@ -2656,23 +2938,23 @@ export default function StudyGameScreen() {
                       onPress={() => handleTabPress("practice")}
                       activeOpacity={0.85}
                       style={{
-                        width: 76,
-                        height: 76,
+                        width: 68,
+                        height: 65,
                         borderRadius: 24,
                         backgroundColor: ui.primary,
                         alignItems: "center",
                         justifyContent: "center",
-                        marginTop: -5,
+                        marginBottom: 1,
                         shadowColor: ui.primary,
-                        shadowOpacity: 0.55,
+                        shadowOpacity: 0.38,
                         shadowRadius: 14,
-                        shadowOffset: { width: 0, height: 7 },
+                        shadowOffset: { width: 0, height: 6 },
                         elevation: 10,
                         borderWidth: 4,
-                        borderColor: uiIsDark ? "#141414" : "#FFFFFF",
+                        borderColor: uiIsDark ? theme.colors.background : theme.colors.surface,
                       }}
                     >
-                      <Ionicons name="play" size={40} color="#fff" />
+                      <Ionicons name="play" size={34} color="#fff" style={{ marginLeft: 2 }} />
                     </TouchableOpacity>
                   );
                 }
@@ -2683,23 +2965,25 @@ export default function StudyGameScreen() {
                     key={tab.id}
                     onPress={() => handleTabPress(tab.id)}
                     activeOpacity={0.75}
-                    style={{ alignItems: "center", minWidth: 60, paddingVertical: 2 }}
+                    style={{ alignItems: "center", minWidth: 54, paddingTop: 0, paddingBottom: 10 }}
                   >
                     <View
                       style={{
-                        width: 54,
-                        height: 40,
+                        width: 46,
+                        height: 28,
                         borderRadius: 14,
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: active ? ui.primarySoft : "transparent",
+                        borderWidth: active ? 1 : 0,
+                        borderColor: active ? `${ui.primary}30` : "transparent",
                       }}
                     >
-                      <Ionicons name={tab.icon as any} size={28} color={active ? ui.primary : ui.muted} />
+                      <Ionicons name={tab.icon as any} size={22} color={active ? ui.primary : ui.muted} />
                     </View>
                     <Text
                       style={{
-                        fontSize: 12,
+                        fontSize: 11,
                         marginTop: 4,
                         color: active ? ui.primary : ui.muted,
                         fontWeight: active ? "800" : "500",
@@ -2711,45 +2995,185 @@ export default function StudyGameScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </BlurView>
           </View>
         );
       })() : null}
 
-      {runtimeScreen === "results" && resultRecord ? (
-        <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
-          <GlassCard style={{ borderRadius: 16 }} padding={16}>
-            <Text style={[theme.typography.label, { marginBottom: 6 }]}>Session complete</Text>
-            <Text style={[theme.typography.title, { fontSize: 24 }]}>{resultRecord.percentage}%</Text>
-            <Text style={[theme.typography.body, { marginTop: 8 }]}>
-              {resultRecord.score} / {resultRecord.total} correct
-            </Text>
-            {sessionType === "test" ? (
-              <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: resultRecord.passed ? theme.colors.success : theme.colors.danger }]}>
-                {resultRecord.passed ? "Passed" : "Not passed"}
-              </Text>
-            ) : null}
-            <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <AppButton
-                  label="Back home"
-                  onPress={() => {
-                    setRuntimeScreen("dashboard");
-                    setActiveTab("home");
-                    setResultRecord(null);
-                  }}
-                />
-              </View>
-              <TouchableOpacity
-                onPress={() => startSession(sessionType, sessionMode, direction, sessionPool, sessionContext)}
-                style={{ justifyContent: "center", paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#DDD" }}
-              >
-                <Text style={{ fontWeight: "700", color: "#333" }}>Retry</Text>
-              </TouchableOpacity>
+      <Modal
+        visible={runtimeScreen === "results" && !!resultRecord}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setRuntimeScreen("dashboard");
+          setActiveTab("home");
+          setResultRecord(null);
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              paddingTop: Math.max(insets.top, 18),
+              paddingBottom: Math.max(insets.bottom, 18),
+              paddingHorizontal: 16,
+            }}
+          >
+            <Pressable
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: theme.isDark ? "rgba(0,0,0,0.55)" : "rgba(10,14,20,0.32)",
+              }}
+              onPress={() => {
+                setRuntimeScreen("dashboard");
+                setActiveTab("home");
+                setResultRecord(null);
+              }}
+            />
+            <View>
+              <ScreenReveal delay={20} distance={22} scaleFrom={0.98}>
+                <GlassCard style={{ borderRadius: 24, overflow: "hidden", maxHeight: "100%" }} padding={0} variant="strong">
+                  {resultRecord ? (
+                    <>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                          <Text style={[theme.typography.title, { fontSize: 18 }]}>Session complete</Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                            {sessionType === "test" ? "Test" : "Lesson"} • {sessionContext.name || "General practice"}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={[theme.typography.title, { fontSize: 24 }]}>{resultRecord.percentage}%</Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                            {resultRecord.score}/{resultRecord.total} correct
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", gap: 8 }}>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{sessionMode.replace("-", " ")}</Text>
+                        </View>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{direction.toUpperCase()}</Text>
+                        </View>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{resultRecord.total}Q</Text>
+                        </View>
+                      </View>
+
+                      <ScrollView
+                        style={{ maxHeight: reviewViewportMaxHeight }}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
+                      >
+                        {resultRecord.issues.length > 0 ? (
+                          <View>
+                            <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 }}>
+                              {resultRecord.issues.map((issue, index) => (
+                                <View
+                                  key={`${issue.id}-${index}`}
+                                  style={{
+                                    width: "48.5%",
+                                    borderRadius: 12,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.border,
+                                    backgroundColor: theme.colors.surfaceGlass,
+                                    padding: 9,
+                                  }}
+                                >
+                                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                    <Ionicons
+                                      name={
+                                        issue.kind === "correct"
+                                          ? "checkmark-circle"
+                                          : issue.kind === "open_review"
+                                            ? "document-text-outline"
+                                            : issue.kind === "close"
+                                              ? "alert-circle-outline"
+                                              : "close-circle"
+                                      }
+                                      size={14}
+                                      color={
+                                        issue.kind === "correct"
+                                          ? theme.colors.success
+                                          : issue.kind === "open_review"
+                                            ? theme.colors.primary
+                                            : issue.kind === "close"
+                                              ? "#D4943C"
+                                              : theme.colors.danger
+                                      }
+                                    />
+                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
+                                      {issue.kind === "correct"
+                                        ? "Correct"
+                                        : issue.kind === "open_review"
+                                          ? "Review"
+                                          : issue.kind === "skip"
+                                            ? "Skipped"
+                                            : issue.kind === "close"
+                                              ? "Close"
+                                              : "Wrong"}
+                                    </Text>
+                                  </View>
+                                  <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                                    P: {issue.prompt || "Untitled"}
+                                  </Text>
+                                  {issue.expected ? (
+                                    <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                      E: {issue.expected}
+                                    </Text>
+                                  ) : null}
+                                  {issue.answer ? (
+                                    <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                      A: {issue.answer}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+                            No question details were recorded for this run.
+                          </Text>
+                        )}
+                      </ScrollView>
+
+                      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, borderTopWidth: 1, borderTopColor: theme.colors.border, flexDirection: "row", gap: 10, backgroundColor: theme.colors.surfaceGlass }}>
+                        <View style={{ flex: 1 }}>
+                          <AppButton
+                            label="Return Home"
+                            onPress={() => {
+                              setRuntimeScreen("dashboard");
+                              setActiveTab("home");
+                              setResultRecord(null);
+                            }}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <AppButton
+                            label="Re-take"
+                            variant="dangerSoft"
+                            onPress={() => startSession(sessionType, sessionMode, direction, sessionPool, sessionContext)}
+                          />
+                        </View>
+                      </View>
+                    </>
+                  ) : null}
+                </GlassCard>
+              </ScreenReveal>
             </View>
-          </GlassCard>
+          </View>
         </View>
-      ) : null}
+      </Modal>
     </View>
   );
 }
