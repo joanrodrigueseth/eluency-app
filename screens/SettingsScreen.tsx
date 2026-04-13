@@ -25,6 +25,7 @@ import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules"
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
+  Notifications: undefined;
   Subscription: undefined;
   Login: undefined;
 };
@@ -627,8 +628,7 @@ export default function SettingsScreen() {
 
             {/* ── Notifications ── */}
             {activeTab === "notifications" && (
-              <ScreenReveal key="settings-notifications" delay={40}>
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30} variant="strong">
+              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30}>
                 <View style={{ alignItems: "center", gap: 12 }}>
                   <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="notifications-outline" size={28} color="#3EA370" />
@@ -639,7 +639,6 @@ export default function SettingsScreen() {
                   </Text>
                 </View>
               </GlassCard>
-              </ScreenReveal>
             )}
           </>
         )}

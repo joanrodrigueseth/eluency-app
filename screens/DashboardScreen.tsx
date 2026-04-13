@@ -30,6 +30,7 @@ type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Chats: undefined;
   SendNotifications: undefined;
+  Notifications: undefined;
   Teachers: undefined;
   Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
   Subscription: undefined;
@@ -379,6 +380,7 @@ export default function DashboardScreen() {
   const [recentTests, setRecentTests] = useState<RecentTest[]>([]);
   const [activityTab, setActivityTab] = useState<ActivityTab>("lessons");
   const [teacherCapacity, setTeacherCapacity] = useState<TeacherCapacityItem[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
  
   const [studentName, setStudentName] = useState<string>("");
   const [studentTeacherName, setStudentTeacherName] = useState<string>("");
@@ -711,6 +713,47 @@ export default function DashboardScreen() {
       isMounted = false;
     };
   }, [PLAN_PRICE_MONTHLY, apiBaseUrl, isStudentMode, navigation, sessionId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadUnreadCount = async () => {
+      if (isStudentMode || isAdmin || isPrincipal) {
+        if (mounted) setUnreadNotificationCount(0);
+        return;
+      }
+
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          if (mounted) setUnreadNotificationCount(0);
+          return;
+        }
+
+        const { count } = await (supabase.from("teacher_notifications") as any)
+          .select("*", { count: "exact", head: true })
+          .eq("teacher_id", user.id)
+          .is("read_at", null);
+
+        if (mounted) {
+          setUnreadNotificationCount(count ?? 0);
+        }
+      } catch {
+        if (mounted) setUnreadNotificationCount(0);
+      }
+    };
+
+    loadUnreadCount();
+    const unsubscribe = navigation.addListener("focus", loadUnreadCount);
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [isAdmin, isPrincipal, isStudentMode, navigation]);
  
   const animateDrawer = (toValue: number, onDone?: () => void) => {
     Animated.parallel([
@@ -1879,21 +1922,63 @@ export default function DashboardScreen() {
             </View>
           </View>
  
-          <AnimatedPressable
-            onPress={() => navigation.navigate("Settings")}
-            style={{
-              height: 42,
-              width: 42,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              backgroundColor: theme.colors.surfaceGlass,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Text style={[theme.typography.bodyStrong, { fontWeight: "800", color: theme.colors.text }]}>{currentUserInitial}</Text>
-          </AnimatedPressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {!isStudentMode && !isAdmin && !isPrincipal ? (
+              <AnimatedPressable
+                onPress={() => navigation.navigate("Notifications")}
+                style={{
+                  height: 42,
+                  width: 42,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surfaceGlass,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+                </View>
+                {unreadNotificationCount > 0 ? (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: 4,
+                      right: 4,
+                      minWidth: 17,
+                      height: 17,
+                      borderRadius: 8.5,
+                      paddingHorizontal: 3,
+                      backgroundColor: "#E85D4A",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" }}>
+                      {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </AnimatedPressable>
+            ) : null}
+
+            <AnimatedPressable
+              onPress={() => navigation.navigate("Settings")}
+              style={{
+                height: 42,
+                width: 42,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surfaceGlass,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={[theme.typography.bodyStrong, { fontWeight: "800", color: theme.colors.text }]}>{currentUserInitial}</Text>
+            </AnimatedPressable>
+          </View>
         </Animated.View>
  
         <Animated.ScrollView
