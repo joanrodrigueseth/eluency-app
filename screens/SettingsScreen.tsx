@@ -22,6 +22,7 @@ import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules"
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
+  Notifications: undefined;
   Subscription: undefined;
   Login: undefined;
 };
@@ -643,16 +644,16 @@ export default function SettingsScreen() {
 
             {/* ── Notifications ── */}
             {activeTab === "notifications" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30}>
-                <View style={{ alignItems: "center", gap: 12 }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
-                    <Ionicons name="notifications-outline" size={28} color="#3EA370" />
-                  </View>
-                  <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>Coming soon</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center", maxWidth: 240 }]}>
-                    Notification preferences will be available in a future update.
-                  </Text>
-                </View>
+              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20}>
+                <SectionTitle icon="notifications-outline" label="Notification center" color="#3EA370" />
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 20, marginBottom: 18 }]}>
+                  Open your notification inbox to read student activity and admin announcements.
+                </Text>
+                <AppButton
+                  label="Open notifications"
+                  onPress={() => navigation.navigate("Notifications")}
+                  icon={<Ionicons name="flag-outline" size={18} color="#fff" />}
+                />
               </GlassCard>
             )}
           </>
