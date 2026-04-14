@@ -14,17 +14,20 @@ import {
   View,
 } from "react-native";
 
-if (Platform.OS === "android") UIManager.setLayoutAnimationEnabledExperimental?.(true);
+if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) UIManager.setLayoutAnimationEnabledExperimental?.(true);
 const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { NavigationProp, useNavigation, useFocusEffect } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import FloatingToast from "../components/FloatingToast";
+import type { FloatingToastTone } from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
 import SkeletonLoader from "../components/SkeletonLoader";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -36,9 +39,10 @@ import {
 
 export type RootStudentsStackParams = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Students: undefined;
+  Students: { flashMessage?: string; flashTone?: FloatingToastTone } | undefined;
   StudentForm: { studentId?: string } | undefined;
   Subscription: undefined;
+  Notifications: undefined;
 };
 
 type StudentRow = {
@@ -159,6 +163,7 @@ export default function StudentsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootStudentsStackParams>>();
+  const route = useRoute<RouteProp<RootStudentsStackParams, "Students">>();
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
 
@@ -175,6 +180,13 @@ export default function StudentsScreen() {
 
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
+
+  useEffect(() => {
+    if (!route.params?.flashMessage) return;
+    showToast(route.params.flashMessage, route.params.flashTone ?? "success");
+    navigation.setParams({ flashMessage: undefined, flashTone: undefined });
+  }, [navigation, route.params?.flashMessage, route.params?.flashTone, showToast]);
 
   useEffect(() => {
     const loopOne = Animated.loop(
@@ -306,9 +318,9 @@ export default function StudentsScreen() {
     if (!code) return;
     try {
       await Clipboard.setStringAsync(code);
-      Alert.alert("Copied", "Access code copied to clipboard.");
+      showToast("Access code copied", "success");
     } catch {
-      Alert.alert("Error", "Could not copy.");
+      showToast("Could not copy access code.", "danger");
     }
   };
 
@@ -316,10 +328,7 @@ export default function StudentsScreen() {
     const currentlyActive = student.is_active !== false;
     const newStatus = !currentlyActive;
     if (newStatus && isMaxed && !isAdmin) {
-      Alert.alert(
-        "Capacity reached",
-        `You can have up to ${studentLimit} active students. Deactivate another student first.`
-      );
+      showToast(`You can have up to ${studentLimit} active students. Deactivate another student first.`, "danger");
       return;
     }
     setToggleLoadingId(student.id);
@@ -331,8 +340,9 @@ export default function StudentsScreen() {
       setStudents((prev) =>
         prev.map((s) => (s.id === student.id ? { ...s, is_active: newStatus } : s))
       );
+      showToast(newStatus ? `${student.name} activated` : `${student.name} deactivated`, "success");
     } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to update status");
+      showToast(e instanceof Error ? e.message : "Failed to update status", "danger");
     } finally {
       setToggleLoadingId(null);
     }
@@ -350,8 +360,9 @@ export default function StudentsScreen() {
             const { error } = await supabase.from("students").delete().eq("id", student.id);
             if (error) throw error;
             setStudents((prev) => prev.filter((s) => s.id !== student.id));
+            showToast("Student removed", "success");
           } catch (e: unknown) {
-            Alert.alert("Error", e instanceof Error ? e.message : "Delete failed");
+            showToast(e instanceof Error ? e.message : "Delete failed", "danger");
           } finally {
             setDeleteLoadingId(null);
           }
@@ -416,6 +427,13 @@ export default function StudentsScreen() {
           <Text style={theme.typography.label}>Directory</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Students</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center", marginRight: 8 }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
         {isMaxed && !isAdmin ? (
           <View style={{ alignItems: "flex-end" }}>
             <View style={{ opacity: 0.7, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
@@ -883,6 +901,7 @@ export default function StudentsScreen() {
           </ScrollView>
         </View>
       ) : null}
+      <FloatingToast {...toastProps} />
     </View>
   );
 }
@@ -933,5 +952,3 @@ function KpiTile({
     </View>
   );
 }
-
-

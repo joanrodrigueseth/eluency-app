@@ -25,6 +25,7 @@ type RootStackParamList = {
   Register: undefined;
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Chats: undefined;
+  Notifications: undefined;
 };
 
 type PublicConversationMessagesResponse = {
@@ -245,7 +246,7 @@ export default function ChatsScreen() {
         .limit(100)
         .then(({ data }: { data: Conversation[] | null }) => setConversations((data ?? []) as Conversation[]))
         .catch((error: unknown) => {
-          console.warn("chat conversations poll failed", error);
+          if (__DEV__) console.warn("chat conversations poll failed", error);
         });
     }, 10_000);
     return () => clearInterval(interval);
@@ -265,7 +266,7 @@ export default function ChatsScreen() {
       fetchConversationMessages(selectedId)
         .then((messagesData) => setMessages(messagesData))
         .catch((error: unknown) => {
-          console.warn("chat messages poll failed", error);
+          if (__DEV__) console.warn("chat messages poll failed", error);
         });
     }, 10_000);
     return () => clearInterval(interval);
@@ -439,6 +440,13 @@ export default function ChatsScreen() {
             style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
           />
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center", marginLeft: 8 }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 12 }}>

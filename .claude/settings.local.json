@@ -26,7 +26,15 @@
       "Bash(sed -i 's/PURPLE/accentPurple/g' screens/TestFormScreen.tsx)",
       "Bash(grep -v \"rgba\\\\|//\")",
       "Bash(sed -n '38,45p' screens/TestFormScreen.tsx)",
-      "Bash(sed -n '248,257p' screens/TestFormScreen.tsx)"
+      "Bash(sed -n '248,257p' screens/TestFormScreen.tsx)",
+      "Bash(grep -E \"\\\\.\\(png|jpeg|jpg\\)$\")",
+      "Bash(identify \"c:\\\\Users\\\\nate-\\\\OneDrive\\\\Desktop\\\\Projects\\\\April8\\\\eluency-app\\\\assets\\\\icon.png\")",
+      "Bash(python3 -c \"from PIL import Image; print\\(Image.open\\('c:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\nate-\\\\\\\\\\\\\\\\OneDrive\\\\\\\\\\\\\\\\Desktop\\\\\\\\\\\\\\\\Projects\\\\\\\\\\\\\\\\April8\\\\\\\\\\\\\\\\eluency-app\\\\\\\\\\\\\\\\assets\\\\\\\\\\\\\\\\icon.png'\\).size\\)\")",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"export default function\" /c/Users/nate-/OneDrive/Desktop/Projects/April8/eluency-app/screens/*.tsx)",
+      "Read(//c/Users/nate-/OneDrive/Desktop/Projects/April8/eluency-app/**)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(npx expo-doctor:*)"
     ]
   }
 }

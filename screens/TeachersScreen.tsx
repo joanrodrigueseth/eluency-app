@@ -32,6 +32,7 @@ type RootStackParamList = {
   Teachers: undefined;
   Chats: undefined;
   SendNotifications: undefined;
+  Notifications: undefined;
   Login: undefined;
   Register: undefined;
 };
@@ -145,7 +146,7 @@ export default function TeachersScreen() {
         .single();
 
       if (meError) {
-        console.warn("Teachers: current teacher", meError);
+        if (__DEV__) console.warn("Teachers: current teacher", meError);
       }
 
       const meRow = me
@@ -158,7 +159,7 @@ export default function TeachersScreen() {
         .order("created_at", { ascending: false });
 
       if (teachersError) {
-        console.warn("Teachers: list", teachersError);
+        if (__DEV__) console.warn("Teachers: list", teachersError);
         throw teachersError;
       }
 
@@ -235,7 +236,7 @@ export default function TeachersScreen() {
         .eq("role", "principal")
         .order("created_at", { ascending: false });
       if (cancelled) return;
-      if (error) console.warn("Add teacher: principals list", error);
+      if (error && __DEV__) console.warn("Add teacher: principals list", error);
       const rows = ((data ?? []) as any[])
         .map((r) => ({
           user_id: r.user_id as string,
@@ -603,6 +604,13 @@ export default function TeachersScreen() {
           <Text style={theme.typography.label}>{isAdmin ? "Admin" : isPrincipal ? "Principal" : "Workspace"}</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Teachers</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center", marginRight: (isAdmin || isPrincipal) ? 8 : 0 }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
         {(isAdmin || isPrincipal) && (
           <TouchableOpacity
             onPress={openAddTeacher}

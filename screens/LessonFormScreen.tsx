@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, Easing, Image, Keyboard, LayoutAnimation, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
 
-if (Platform.OS === "android") {
+if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
 
@@ -18,17 +18,27 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { decode as decodeBase64 } from "base64-arraybuffer";
-import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
+import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import FloatingToast from "../components/FloatingToast";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import GlassCard from "../components/GlassCard";
 import { getOrCreateVocabImage } from "../lib/api/imageBank";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
-import type { RootLessonsStackParams } from "./LessonsScreen";
+import type { FloatingToastTone } from "../components/FloatingToast";
+import type { RootLessonsStackParams } from "../types/lessons-navigation";
+
+type LessonFormNavigationProp = NativeStackNavigationProp<RootLessonsStackParams, "LessonForm">;
+type LessonFlashParams = {
+  flashMessage: string;
+  flashTone: FloatingToastTone;
+};
 
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -565,7 +575,8 @@ function FormSectionHeader({
 export default function LessonFormScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<NavigationProp<RootLessonsStackParams>>();
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
+  const navigation = useNavigation<LessonFormNavigationProp>();
   const route = useRoute<RouteProp<RootLessonsStackParams, "LessonForm">>();
   const lessonId = route.params?.lessonId;
   const isEdit = !!lessonId;
@@ -1105,8 +1116,14 @@ export default function LessonFormScreen() {
   };
 
   const save = async () => {
-    if (!title.trim()) return Alert.alert("Validation", "Title required.");
-    if (coverUploading) return Alert.alert("Upload in progress", "Please wait for the cover image to finish uploading.");
+    if (!title.trim()) {
+      showToast("Title required.", "danger");
+      return;
+    }
+    if (coverUploading) {
+      showToast("Please wait for the cover image to finish uploading.", "info");
+      return;
+    }
     const serializedWords = words
       .map((w) => ({
         rowType: w.rowType,
@@ -1189,10 +1206,13 @@ export default function LessonFormScreen() {
         await syncLessonCategoryLink(savedLessonId, lessonCategory, currentUserId);
       }
       triggerSuccessHaptic();
-      Alert.alert("Saved", isEdit ? "Lesson updated." : "Lesson created.");
-      navigation.goBack();
+      const lessonsFlashParams: LessonFlashParams = {
+        flashMessage: isEdit ? "Lesson updated." : "Lesson created.",
+        flashTone: "success",
+      };
+      navigation.navigate("Lessons", lessonsFlashParams);
     } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Save failed");
+      showToast(e instanceof Error ? e.message : "Save failed", "danger");
     } finally {
       setSaving(false);
     }
@@ -1278,6 +1298,9 @@ export default function LessonFormScreen() {
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit lesson" : "New lesson"}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity onPress={() => navigation.navigate("Notifications")} activeOpacity={0.85} style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={openWeb} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
                 <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
@@ -1733,6 +1756,7 @@ export default function LessonFormScreen() {
           </View>
         </TouchableOpacity>
       </ScrollView>
+      <FloatingToast {...toastProps} />
     </View>
   );
 }

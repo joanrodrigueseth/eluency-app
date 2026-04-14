@@ -694,22 +694,37 @@ function ConsentRow({
   value,
   onValueChange,
   label,
+  linkLabel,
+  linkUrl,
   theme,
 }: {
   value: boolean;
   onValueChange: (v: boolean) => void;
   label: string;
+  linkLabel?: string;
+  linkUrl?: string;
   theme: ReturnType<typeof useAppTheme>;
 }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <Switch
         value={value}
         onValueChange={onValueChange}
         thumbColor={value ? theme.colors.primary : "#F8FAFC"}
         trackColor={{ false: "#CBD5E1", true: theme.colors.primarySoft }}
+        style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
       />
-      <Text style={[theme.typography.body, { flex: 1 }]}>{label}</Text>
+      <Text style={{ flex: 1, fontSize: 12, lineHeight: 16, color: theme.colors.textMuted }}>
+        {label}{" "}
+        {linkLabel && linkUrl ? (
+          <Text
+            style={{ color: theme.colors.primary, textDecorationLine: "underline", fontWeight: "600" }}
+            onPress={() => Linking.openURL(linkUrl).catch(() => {})}
+          >
+            {linkLabel}
+          </Text>
+        ) : null}
+      </Text>
     </View>
   );
 }
@@ -877,7 +892,7 @@ export default function RegisterScreen() {
           },
           body: JSON.stringify({ email: cleanedEmail, name: cleanedName }),
         }).catch((error) => {
-          console.warn("send-registration-email failed", error);
+          if (__DEV__) console.warn("send-registration-email failed", error);
         });
       }
 
@@ -914,7 +929,7 @@ export default function RegisterScreen() {
           })),
         }),
       }).catch((error) => {
-        console.warn("teacher onboarding completion failed", error);
+        if (__DEV__) console.warn("teacher onboarding completion failed", error);
       });
 
       goToDashboard();
@@ -1199,19 +1214,23 @@ export default function RegisterScreen() {
               icon={<Feather name="message-square" size={18} color={theme.colors.primary} />}
             />
 
-            <GlassCard style={{ borderRadius: 14 }} padding={12}>
-              <View style={{ gap: 12 }}>
+            <GlassCard style={{ borderRadius: 14 }} padding={10}>
+              <View style={{ gap: 6 }}>
                 <ConsentRow
                   value={consentTerms}
                   onValueChange={setConsentTerms}
-                  label="I agree to the Terms and Conditions."
+                  label="I agree to the"
+                  linkLabel="Terms and Conditions."
+                  linkUrl="https://www.eluency.com/terms"
                   theme={theme}
                 />
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} />
                 <ConsentRow
                   value={consentSecurity}
                   onValueChange={setConsentSecurity}
-                  label="I agree to the Privacy & Security Policy."
+                  label="I agree to the"
+                  linkLabel="Privacy & Security Policy."
+                  linkUrl="https://www.eluency.com/privacy"
                   theme={theme}
                 />
               </View>

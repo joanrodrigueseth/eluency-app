@@ -40,6 +40,7 @@ import {
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   LessonPacks: undefined;
+  Notifications: undefined;
 };
 
 type LessonPackLessonRow = { pack_id: string; lesson_id: string; sort_order: number | null };
@@ -1357,6 +1358,13 @@ export default function LessonPacksScreen() {
           <Text style={theme.typography.label}>Library</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Vocabulary Browser</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center", marginRight: canManage ? 8 : 0 }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
         {canManage ? (
           <TouchableOpacity
             onPress={() => setNewModalOpen(true)}

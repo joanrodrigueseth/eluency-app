@@ -3,6 +3,7 @@ import type {
   StudyDirection,
   StudyProgress,
   StudyRecord,
+  StudyRecordIssue,
   StudySessionMode,
   StudySessionType,
   UserStats,
@@ -69,6 +70,7 @@ export function createRecord(args: {
   correct: number;
   total: number;
   passedOverride?: boolean;
+  issues?: StudyRecordIssue[];
 }): StudyRecord {
   const percentage = gradePercentage(args.correct, args.total);
   return {
@@ -85,6 +87,7 @@ export function createRecord(args: {
     totalWords: args.total,
     percentage,
     passed: args.type === "test" ? (args.passedOverride ?? percentage >= 80) : undefined,
+    issues: Array.isArray(args.issues) ? args.issues : [],
   };
 }
 

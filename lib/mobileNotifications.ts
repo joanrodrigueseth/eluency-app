@@ -45,7 +45,6 @@ export async function ensureLocalNotificationsReady(): Promise<boolean> {
   if (!handlerConfigured) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
-        shouldShowAlert: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
         shouldShowBanner: true,

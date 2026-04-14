@@ -12,25 +12,31 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.eluency.mobile",
+      "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
-        "NSUserNotificationUsageDescription": "Eluency uses notifications for assignments, announcements, and learning updates."
+        "NSUserNotificationUsageDescription": "Eluency uses notifications for assignments, announcements, and learning updates.",
+        "NSPhotoLibraryUsageDescription": "Eluency uses your photo library to choose images for lessons, tests, and covers."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "versionCode": 1,
+      "package": "com.eluency.mobile",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
-      ],
-      "package": "com.anonymous.eluencymobile"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "androidStatusBar": {
       "hidden": false,
@@ -42,7 +48,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Eluency to select images for lesson pack covers."
+          "photosPermission": "Allow Eluency to choose images for lessons, tests, and covers."
         }
       ],
       [

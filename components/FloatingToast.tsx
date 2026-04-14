@@ -11,6 +11,8 @@ type FloatingToastProps = {
   bottom?: number;
 };
 
+export type FloatingToastTone = NonNullable<FloatingToastProps["tone"]>;
+
 const toneConfig = {
   success: { icon: "checkmark-circle" as const, color: "#1F8A54", bg: "rgba(225,248,235,0.96)" },
   info: { icon: "information-circle" as const, color: "#2E7ABF", bg: "rgba(234,243,251,0.96)" },

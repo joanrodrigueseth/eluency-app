@@ -17,21 +17,28 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Asset } from "expo-asset";
+import * as IntentLauncher from "expo-intent-launcher";
+import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Speech from "expo-speech";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
-import Svg, { Circle } from "react-native-svg";
+import Svg, { Circle, SvgUri } from "react-native-svg";
+import { encode as encodeBase64 } from "base64-arraybuffer";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
+import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
-import { useAppTheme } from "../lib/theme";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
+import { useAppTheme, type AppTheme } from "../lib/theme";
 import { clearStoredStudentSessionId } from "../lib/studentSession";
 import {
   getAssignedLessons,
@@ -63,6 +70,8 @@ import type {
   LessonGamePayload,
   StudyDirection,
   StudyProgress,
+  StudyRecord,
+  StudyRecordIssue,
   StudySessionMode,
   StudySessionType,
   TestGamePayload,
@@ -72,17 +81,106 @@ type RootStackParamList = {
   Login: undefined;
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   StudyGame: { sessionId: string };
+  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
 };
 
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
 type RuntimeScreen = "dashboard" | "lesson-detail" | "test-detail" | "session" | "results";
-type SessionIssue = {
-  id: string;
-  prompt: string;
-  expected: string;
-  answer?: string;
-  kind: "correct" | "wrong" | "close" | "skip" | "open_review";
+type SessionIssue = StudyRecordIssue;
+
+type StudentEmptyStateProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  body: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  secondaryLabel?: string;
+  onSecondaryAction?: () => void;
 };
+
+type ContinueSuggestion =
+  | {
+      kind: "resume";
+      title: string;
+      subtitle: string;
+      meta: string;
+      ctaLabel: string;
+    }
+  | {
+      kind: "lesson";
+      title: string;
+      subtitle: string;
+      meta: string;
+      ctaLabel: string;
+      lessonId: string;
+    }
+  | {
+      kind: "test";
+      title: string;
+      subtitle: string;
+      meta: string;
+      ctaLabel: string;
+      testId: string;
+    };
+
+function StudentEmptyState({
+  icon,
+  title,
+  body,
+  actionLabel,
+  onAction,
+  secondaryLabel,
+  onSecondaryAction,
+}: StudentEmptyStateProps) {
+  const theme = useAppTheme();
+  const ui = theme.colors;
+
+  return (
+    <GlassCard style={{ borderRadius: 20 }} padding={18} variant="hero">
+      <View style={{ alignItems: "center" }}>
+        <View
+          style={{
+            width: 60,
+            height: 60,
+            borderRadius: 18,
+            backgroundColor: ui.primarySoft,
+            borderWidth: 1,
+            borderColor: ui.borderStrong,
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 14,
+          }}
+        >
+          <Ionicons name={icon} size={26} color={ui.primary} />
+        </View>
+        <Text style={{ color: ui.text, fontSize: 20, fontWeight: "800", textAlign: "center" }}>{title}</Text>
+        <Text style={{ color: ui.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8 }}>{body}</Text>
+        {actionLabel && onAction ? (
+          <TouchableOpacity
+            onPress={onAction}
+            activeOpacity={0.88}
+            style={{
+              marginTop: 16,
+              minWidth: 170,
+              borderRadius: 14,
+              backgroundColor: ui.primary,
+              paddingHorizontal: 18,
+              paddingVertical: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>{actionLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {secondaryLabel && onSecondaryAction ? (
+          <TouchableOpacity onPress={onSecondaryAction} activeOpacity={0.8} style={{ marginTop: 10, padding: 4 }}>
+            <Text style={{ color: ui.primary, fontSize: 13, fontWeight: "700" }}>{secondaryLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </GlassCard>
+  );
+}
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -222,12 +320,34 @@ function getLevelInfo(totalXP: number) {
   return { current, next, xpInLevel, xpForLevel, progress };
 }
 
-function uniqueIssues(items: SessionIssue[]) {
-  const map = new Map<string, SessionIssue>();
-  for (const item of items) {
-    if (!map.has(item.id)) map.set(item.id, item);
-  }
-  return Array.from(map.values());
+function reviewIssueLabel(kind: SessionIssue["kind"]) {
+  if (kind === "correct") return "Correct";
+  if (kind === "open_review") return "Review";
+  if (kind === "skip") return "Skipped";
+  if (kind === "close") return "Close";
+  return "Wrong";
+}
+
+function reviewIssueIcon(kind: SessionIssue["kind"]) {
+  if (kind === "correct") return "checkmark-circle" as const;
+  if (kind === "open_review") return "document-text-outline" as const;
+  if (kind === "close") return "alert-circle-outline" as const;
+  return "close-circle" as const;
+}
+
+function reviewIssueColor(theme: AppTheme, kind: SessionIssue["kind"]) {
+  if (kind === "correct") return theme.colors.success;
+  if (kind === "open_review") return theme.colors.primary;
+  if (kind === "close") return "#D4943C";
+  return theme.colors.danger;
+}
+
+function buildEmbeddedPdfViewerUrl(sourceUrl: string) {
+  return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(sourceUrl)}`;
+}
+
+function sanitizePdfFileStem(value: string) {
+  return value.replace(/[^a-z0-9-_]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "lesson-pdf";
 }
 
 function ttsLangFromShort(shortCode: string) {
@@ -262,6 +382,7 @@ export default function StudyGameScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, "StudyGame">>();
   const sessionId = route.params?.sessionId;
+  const tinyLogoUri = useMemo(() => Asset.fromModule(require("../assets/2.svg")).uri, []);
 
   const [loading, setLoading] = useState(true);
   const [runtimeScreen, setRuntimeScreen] = useState<RuntimeScreen>("dashboard");
@@ -274,6 +395,10 @@ export default function StudyGameScreen() {
   const [testsWords, setTestsWords] = useState<GameWord[]>([]);
   const [progress, setProgress] = useState<StudyProgress | null>(null);
 
+  const QUICK_PLAY_COUNTS = [10, 15, 20, 30, 0] as const; // 0 = All
+  const [quickPlayCount, setQuickPlayCount] = useState<number>(15);
+  const [quickPlayDirection, setQuickPlayDirection] = useState<StudyDirection>("pt-en");
+
   const [sessionType, setSessionType] = useState<StudySessionType>("practice");
   const [sessionMode, setSessionMode] = useState<StudySessionMode>("typing");
   const [direction, setDirection] = useState<StudyDirection>("pt-en");
@@ -284,7 +409,9 @@ export default function StudyGameScreen() {
   const [mistakeWordIds, setMistakeWordIds] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<{ state: "correct" | "close" | "wrong"; text: string } | null>(null);
   const [ttsLoading, setTtsLoading] = useState(false);
+  const [lessonPdfOpening, setLessonPdfOpening] = useState(false);
   const [resultRecord, setResultRecord] = useState<{ score: number; total: number; percentage: number; passed: boolean; issues: SessionIssue[] } | null>(null);
+  const [selectedHistoryRecord, setSelectedHistoryRecord] = useState<StudyRecord | null>(null);
   const [selectedLessonDetail, setSelectedLessonDetail] = useState<LessonGamePayload | null>(null);
   const [selectedTestDetail, setSelectedTestDetail] = useState<{ type: "test"; test: TestGamePayload } | { type: "lesson"; lesson: LessonGamePayload } | null>(null);
   const [lessonDetailMode, setLessonDetailMode] = useState<StudySessionMode>("typing");
@@ -312,12 +439,21 @@ export default function StudyGameScreen() {
     pool: GameWord[];
   } | null>(null);
   const [sessionIssues, setSessionIssues] = useState<SessionIssue[]>([]);
+  const [sessionStreak, setSessionStreak] = useState(0);
   const audioPlayerRef = useRef<any>(null);
   const audioTempFileRef = useRef<string | null>(null);
   const initialCatalogLoadedRef = useRef(false);
   const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
   const correctCountRef = useRef(0);
   const sessionIssuesRef = useRef<SessionIssue[]>([]);
+  const sessionStreakRef = useRef(0);
+  const runtimeScreenRef = useRef<RuntimeScreen>("dashboard");
+  const saveResumeDataRef = useRef<() => void>(() => {});
+  const runtimeToastBottom =
+    runtimeScreen === "dashboard" || runtimeScreen === "lesson-detail" || runtimeScreen === "test-detail"
+      ? Math.max(insets.bottom, 20) + 88
+      : Math.max(insets.bottom, 20) + 12;
+  const { showToast, toastProps } = useFeedbackToast({ bottom: runtimeToastBottom });
 
   const refreshCatalog = useCallback(async () => {
     if (!sessionId) return;
@@ -355,11 +491,11 @@ export default function StudyGameScreen() {
     try {
       await refreshCatalog();
     } catch (e) {
-      Alert.alert("Atualizar", e instanceof Error ? e.message : "Não foi possível atualizar lições e testes.");
+      showToast(e instanceof Error ? e.message : "Could not refresh lessons and tests.", "danger");
     } finally {
       setCatalogRefreshing(false);
     }
-  }, [refreshCatalog]);
+  }, [refreshCatalog, showToast]);
 
   const allWords = useMemo(() => [...lessonsWords, ...testsWords], [lessonsWords, testsWords]);
   const current = activeWords[idx];
@@ -448,6 +584,19 @@ export default function StudyGameScreen() {
     sessionMode === "image" ||
     (sessionMode === "listening" && !!current?.imageUrl) ||
     (sessionMode !== "listening" && (!!current?.imageUrl || (!showMcq && !hidePlaceholderIllustration)));
+  const sessionHeaderLabel = isConjugationTable
+    ? "Conjugate"
+    : isConjugationDrill
+      ? (sessionMode === "listening" ? "Listen" : showMcq ? "Multiple Choice" : "Conjugate")
+      : sessionMode === "listening"
+        ? "Listen"
+        : sessionMode === "image"
+          ? "Look"
+          : isFillBlank
+            ? "Fill Blank"
+            : showMcq
+              ? "Multiple Choice"
+              : "Translate";
 
   const getWordStat = useCallback(
     (word: GameWord) => {
@@ -545,6 +694,77 @@ export default function StudyGameScreen() {
     return Array.from(map.values());
   }, [getWordStat, lessonsWords]);
 
+  const latestLearningRecord = useMemo(() => {
+    const records = [...(progress?.practiceHistory ?? []), ...(progress?.testHistory ?? [])];
+    if (!records.length) return null;
+    return [...records].sort((a, b) => {
+      const leftRaw = typeof (a as any).date === "string" ? (a as any).date : typeof (a as any).timestamp === "string" ? (a as any).timestamp : "";
+      const rightRaw = typeof (b as any).date === "string" ? (b as any).date : typeof (b as any).timestamp === "string" ? (b as any).timestamp : "";
+      return (Date.parse(rightRaw) || 0) - (Date.parse(leftRaw) || 0);
+    })[0];
+  }, [progress?.practiceHistory, progress?.testHistory]);
+
+  const continueSuggestion = useMemo<ContinueSuggestion | null>(() => {
+    if (savedResume) {
+      return {
+        kind: "resume",
+        title: savedResume.lessonName,
+        subtitle: `${savedResume.sessionMode.replace("-", " ")} session`,
+        meta: `Word ${savedResume.idx + 1} of ${savedResume.activeWords.length}`,
+        ctaLabel: "Resume session",
+      };
+    }
+
+    if (!latestLearningRecord) return null;
+
+    const rawId =
+      typeof (latestLearningRecord as any).lessonId === "string"
+        ? (latestLearningRecord as any).lessonId
+        : typeof (latestLearningRecord as any).lesson_id === "string"
+          ? (latestLearningRecord as any).lesson_id
+          : "";
+    const rawName =
+      typeof (latestLearningRecord as any).lessonName === "string"
+        ? (latestLearningRecord as any).lessonName
+        : typeof (latestLearningRecord as any).lesson_name === "string"
+          ? (latestLearningRecord as any).lesson_name
+          : "Recent activity";
+    const percentage = typeof (latestLearningRecord as any).percentage === "number" ? (latestLearningRecord as any).percentage : 0;
+    const mode =
+      typeof (latestLearningRecord as any).mode === "string"
+        ? String((latestLearningRecord as any).mode).replace("-", " ")
+        : "practice";
+    const isTestRecord = ((latestLearningRecord as any).type as StudySessionType | undefined) === "test";
+
+    if (isTestRecord) {
+      const matchedTest = testsData.find((item) => item.id === rawId) ?? testsData.find((item) => item.name === rawName);
+      if (matchedTest) {
+        return {
+          kind: "test",
+          title: matchedTest.name,
+          subtitle: "Revisit your latest test",
+          meta: `${percentage}% last score • ${mode}`,
+          ctaLabel: "Open test",
+          testId: matchedTest.id,
+        };
+      }
+    }
+
+    const matchedLesson = lessonsData.find((item) => item.id === rawId) ?? lessonsData.find((item) => item.name === rawName);
+    if (matchedLesson) {
+      return {
+        kind: "lesson",
+        title: matchedLesson.name,
+        subtitle: "Pick up your latest lesson",
+        meta: `${percentage}% last run • ${mode}`,
+        ctaLabel: "Open lesson",
+        lessonId: matchedLesson.id,
+      };
+    }
+
+    return null;
+  }, [latestLearningRecord, lessonsData, savedResume, testsData]);
+
   const weeklyActivity = useMemo(() => {
     const records = [...(progress?.practiceHistory ?? []), ...(progress?.testHistory ?? [])];
     const days = Array.from({ length: 7 }).map((_, i) => {
@@ -581,6 +801,8 @@ export default function StudyGameScreen() {
     if (!selectedLessonDetail) return [];
     return lessonsWords.filter((word) => word.lessonId === selectedLessonDetail.id);
   }, [lessonsWords, selectedLessonDetail]);
+
+  const hasStudyContent = lessonsData.length > 0 || testsData.length > 0 || allWords.length > 0;
 
   const applyProgress = useCallback(
     (next: StudyProgress) => {
@@ -701,6 +923,75 @@ export default function StudyGameScreen() {
     setRuntimeScreen("session");
   }, [lessonsData, savedResume, setCorrectCountValue]);
 
+  const openLessonDocument = useCallback(async () => {
+    const documentUrl = selectedLessonDetail?.document_url?.trim();
+    if (!documentUrl) {
+      showToast("No lesson PDF is attached to this lesson yet.", "info");
+      return;
+    }
+    if (!FileSystem.cacheDirectory) {
+      showToast("Local file storage is unavailable on this device.", "danger");
+      return;
+    }
+    setLessonPdfOpening(true);
+    try {
+      const response = await fetch(documentUrl);
+      if (!response.ok) {
+        throw new Error("The lesson PDF could not be downloaded.");
+      }
+      const buffer = await response.arrayBuffer();
+      const fileStem = sanitizePdfFileStem(selectedLessonDetail?.document_name || selectedLessonDetail?.name || "lesson-pdf");
+      const localUri = `${FileSystem.cacheDirectory}${fileStem}-${selectedLessonDetail?.id ?? Date.now()}.pdf`;
+      await FileSystem.writeAsStringAsync(localUri, encodeBase64(buffer), { encoding: "base64" as any });
+
+      if (Platform.OS === "android") {
+        const fileSystemWithContentUri = FileSystem as typeof FileSystem & {
+          getContentUriAsync?: (uri: string) => Promise<string>;
+        };
+        if (!fileSystemWithContentUri.getContentUriAsync) {
+          throw new Error("Android PDF opening is unavailable.");
+        }
+        const contentUri = await fileSystemWithContentUri.getContentUriAsync(localUri);
+        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+          data: contentUri,
+          flags: 1,
+          type: "application/pdf",
+        });
+        return;
+      }
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(localUri, {
+          UTI: "com.adobe.pdf",
+          mimeType: "application/pdf",
+          dialogTitle: selectedLessonDetail?.document_name || "Lesson PDF",
+        });
+        return;
+      }
+
+      try {
+        const supported = await Linking.canOpenURL(localUri);
+        if (!supported) {
+          throw new Error("This PDF could not be opened on this device.");
+        }
+        await Linking.openURL(localUri);
+      } catch {
+        try {
+          await WebBrowser.openBrowserAsync(buildEmbeddedPdfViewerUrl(documentUrl), {
+            controlsColor: theme.colors.primary,
+            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          });
+        } catch {
+          throw new Error("Could not open the lesson PDF right now.");
+        }
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not open the lesson PDF right now.", "danger");
+    } finally {
+      setLessonPdfOpening(false);
+    }
+  }, [selectedLessonDetail?.document_name, selectedLessonDetail?.document_url, selectedLessonDetail?.id, selectedLessonDetail?.name, showToast, theme.colors.primary]);
+
   const openTestDetailFromTest = useCallback((test: TestGamePayload) => {
     setSelectedLessonDetail(null);
     setSelectedTestDetail({ type: "test", test });
@@ -712,6 +1003,21 @@ export default function StudyGameScreen() {
     setSelectedTestDetail({ type: "lesson", lesson });
     setRuntimeScreen("test-detail");
   }, []);
+
+  const openContinueSuggestion = useCallback(() => {
+    if (!continueSuggestion) return;
+    if (continueSuggestion.kind === "resume") {
+      resumeSession();
+      return;
+    }
+    if (continueSuggestion.kind === "lesson") {
+      const lesson = lessonsData.find((item) => item.id === continueSuggestion.lessonId);
+      if (lesson) openLessonDetail(lesson);
+      return;
+    }
+    const test = testsData.find((item) => item.id === continueSuggestion.testId);
+    if (test) openTestDetailFromTest(test);
+  }, [continueSuggestion, lessonsData, openLessonDetail, openTestDetailFromTest, resumeSession, testsData]);
 
   const startSession = useCallback(
     (
@@ -733,7 +1039,7 @@ export default function StudyGameScreen() {
         progress.wordStats
       );
       if (!selected.length) {
-        Alert.alert("No content", "No words available for this mode.");
+        showToast("No words available for this mode yet.", "info");
         return;
       }
       setSessionType(type);
@@ -751,18 +1057,20 @@ export default function StudyGameScreen() {
       setConjugationInputs([]);
       setConjugationRowFeedback([]);
       clearSessionIssues();
+      sessionStreakRef.current = 0;
+      setSessionStreak(0);
       setSessionContext({ id: context?.id ?? null, name: context?.name ?? null });
       setSessionPool(expandedBase);
       setRuntimeScreen("session");
     },
-    [allWords, clearSessionIssues, mistakeWordIds, progress, setCorrectCountValue]
+    [allWords, clearSessionIssues, mistakeWordIds, progress, setCorrectCountValue, showToast]
   );
 
   const finishSession = useCallback(async () => {
     if (!progress) return;
     const total = activeWords.length;
     const finalCorrectCount = correctCountRef.current;
-    const finalIssues = sessionIssuesRef.current;
+    const finalIssues = [...sessionIssuesRef.current];
     const percentage = gradePercentage(finalCorrectCount, total);
     const allQuestionsAreOpenResponse =
       sessionType === "test" &&
@@ -784,6 +1092,7 @@ export default function StudyGameScreen() {
       correct: finalCorrectCount,
       total,
       passedOverride: passed,
+      issues: finalIssues,
     });
 
     const practiceHistory = sessionType === "test" ? progress.practiceHistory : [rec, ...progress.practiceHistory];
@@ -824,6 +1133,8 @@ export default function StudyGameScreen() {
       applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
       triggerHaptic("success").catch(() => {});
       incrementCorrectCount();
+      sessionStreakRef.current += 1;
+      setSessionStreak(sessionStreakRef.current);
       recordSessionIssue({
         id: current.id,
         prompt,
@@ -899,16 +1210,22 @@ export default function StudyGameScreen() {
     if (result === "correct") {
       triggerHaptic("success").catch(() => {});
       incrementCorrectCount();
+      sessionStreakRef.current += 1;
+      setSessionStreak(sessionStreakRef.current);
       recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected || expected, answer: userAnswer, kind: "correct" });
       setFeedback({ state: "correct", text: "Correct!" });
     } else if (result === "close") {
       triggerHaptic("warning").catch(() => {});
       incrementCorrectCount();
+      sessionStreakRef.current = 0;
+      setSessionStreak(0);
       setFeedback({ state: "close", text: sessionType === "test" ? `Almost! Expected: ${feedbackExpected}` : "Almost there. Type the expected answer to continue." });
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
       recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: userAnswer, kind: "close" });
     } else {
       triggerHaptic("error").catch(() => {});
+      sessionStreakRef.current = 0;
+      setSessionStreak(0);
       setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
       recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: userAnswer, kind: "wrong" });
@@ -1232,11 +1549,15 @@ export default function StudyGameScreen() {
       });
       player.play();
     } catch (error) {
-      await Speech.speak(text, { language: direction === "pt-en" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+      try {
+        await Speech.speak(text, { language: direction === "pt-en" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+      } catch {
+        showToast("Audio unavailable right now.", "danger");
+      }
     } finally {
       setTtsLoading(false);
     }
-  }, [current, direction, prompt, sessionId]);
+  }, [current, direction, prompt, sessionId, showToast]);
 
   const playStudyTextAudio = useCallback(
     async (text: string, lang: "a" | "b" = "a") => {
@@ -1268,10 +1589,14 @@ export default function StudyGameScreen() {
         }
         await Speech.speak(trimmed, { language: speechLang, pitch: 1, rate: 0.95 });
       } catch {
-        await Speech.speak(trimmed, { language: lang === "a" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+        try {
+          await Speech.speak(trimmed, { language: lang === "a" ? "pt-BR" : "en-US", pitch: 1, rate: 0.95 });
+        } catch {
+          showToast("This audio hint is unavailable right now.", "danger");
+        }
       }
     },
-    [activeLanguagePair, activeLessonLanguage, sessionId]
+    [activeLanguagePair, activeLessonLanguage, sessionId, showToast]
   );
 
   useEffect(() => {
@@ -1335,6 +1660,9 @@ export default function StudyGameScreen() {
     const sub = AppState.addEventListener("change", (s) => {
       if (s !== "active") {
         flushProgressSync(sessionId, progress).catch(() => {});
+        if (runtimeScreenRef.current === "session") {
+          saveResumeDataRef.current();
+        }
         return;
       }
       if (resumeTimer) clearTimeout(resumeTimer);
@@ -1371,6 +1699,22 @@ export default function StudyGameScreen() {
       if (sessionId && progress) flushProgressSync(sessionId, progress).catch(() => {});
     };
   }, [progress, sessionId]);
+
+  useEffect(() => {
+    if (!selectedLessonDetail) return;
+    const validModes: StudySessionMode[] = ["typing", "multiple-choice", "listening", "image"];
+    AsyncStorage.getItem(`eluency_lesson_mode_${selectedLessonDetail.id}`)
+      .then((saved) => {
+        if (saved && validModes.includes(saved as StudySessionMode)) {
+          setLessonDetailMode(saved as StudySessionMode);
+        }
+      })
+      .catch(() => {});
+  }, [selectedLessonDetail?.id]);
+
+  // Keep refs in sync with current render values so callbacks/effects can read them safely
+  runtimeScreenRef.current = runtimeScreen;
+  saveResumeDataRef.current = saveResumeData;
 
   if (loading || !progress) {
     return (
@@ -1464,9 +1808,24 @@ export default function StudyGameScreen() {
               alignItems: "center",
             }}
           >
-            {activeTab !== "home" ? (
+            <View style={{ width: 44, height: 44, marginRight: 12, alignItems: "center", justifyContent: "center" }}>
+              <SvgUri width="88%" height="88%" uri={tinyLogoUri} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontWeight: "800",
+                  fontSize: 18,
+                  color: ui.text,
+                  textTransform: activeTab === "home" ? undefined : "capitalize",
+                }}
+              >
+                {activeTab === "home" ? "Home" : activeTab}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <TouchableOpacity
-                onPress={() => setActiveTab("home")}
+                activeOpacity={1}
                 style={{
                   width: 40,
                   height: 40,
@@ -1476,30 +1835,40 @@ export default function StudyGameScreen() {
                   backgroundColor: ui.card,
                   alignItems: "center",
                   justifyContent: "center",
-                  marginRight: 12,
                 }}
               >
-                <Ionicons name="chevron-back" size={18} color={ui.muted} />
+                <Ionicons name="notifications-outline" size={18} color={ui.muted} />
               </TouchableOpacity>
-            ) : (
-              <View style={{ width: 40, marginRight: 12 }} />
-            )}
-            <Text
-              style={{
-                fontWeight: "800",
-                fontSize: 18,
-                color: ui.text,
-                textTransform: activeTab === "home" ? undefined : "capitalize",
-              }}
-            >
-              {activeTab === "home" ? "Eluency" : activeTab}
-            </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setRuntimeScreen("dashboard");
+                  setActiveTab("settings");
+                }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color={ui.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView
-            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingTop: Math.max(insets.top, 8) + (activeTab === "home" ? 60 : 60),
+              paddingBottom: 108,
+            }}
             refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
           >
+            <ScreenReveal key={`dashboard-${activeTab}`} delay={12} distance={16} scaleFrom={0.992}>
             {activeTab === "home" ? (
               <>
                 <ScreenReveal delay={20}>
@@ -1527,6 +1896,50 @@ export default function StudyGameScreen() {
                   </View>
                 </GlassCard>
                 </ScreenReveal>
+
+                {continueSuggestion ? (
+                  <TouchableOpacity onPress={openContinueSuggestion} activeOpacity={0.86} style={{ marginBottom: 14 }}>
+                    <GlassCard style={{ borderRadius: 18, borderWidth: 1, borderColor: `${ui.primary}55` }} padding={14} variant="strong">
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                        <View style={{ width: 46, height: 46, borderRadius: 14, backgroundColor: ui.primary, alignItems: "center", justifyContent: "center" }}>
+                          <Ionicons name={continueSuggestion.kind === "test" ? "clipboard-outline" : "play"} size={20} color="#fff" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: ui.primary, letterSpacing: 1, marginBottom: 3 }}>
+                            {continueSuggestion.kind === "resume" ? "CONTINUE WHERE YOU LEFT OFF" : "PICK UP WHERE YOU LEFT OFF"}
+                          </Text>
+                          <Text style={{ fontSize: 17, fontWeight: "800", color: ui.text }} numberOfLines={1}>
+                            {continueSuggestion.title}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }} numberOfLines={1}>
+                            {continueSuggestion.subtitle}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: ui.muted, marginTop: 3 }}>{continueSuggestion.meta}</Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end", gap: 5 }}>
+                          <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: ui.primarySoft }}>
+                            <Text style={{ color: ui.primary, fontSize: 11, fontWeight: "800" }}>{continueSuggestion.ctaLabel}</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color={ui.primary} />
+                        </View>
+                      </View>
+                    </GlassCard>
+                  </TouchableOpacity>
+                ) : null}
+
+                {!hasStudyContent ? (
+                  <View style={{ marginBottom: 14 }}>
+                    <StudentEmptyState
+                      icon="sparkles-outline"
+                      title="Waiting for your first assignment"
+                      body="Your teacher has not shared lessons or tests with you yet. Pull to refresh here and new work will appear automatically."
+                      actionLabel="Refresh"
+                      onAction={() => {
+                        onCatalogPullRefresh().catch(() => {});
+                      }}
+                    />
+                  </View>
+                ) : null}
 
                 <ScreenReveal delay={70}>
                 <GlassCard style={{ borderRadius: 22, marginBottom: 14 }} padding={18} variant="hero">
@@ -1639,24 +2052,6 @@ export default function StudyGameScreen() {
                 </GlassCard>
                 </ScreenReveal>
 
-                {savedResume ? (
-                  <TouchableOpacity onPress={resumeSession} activeOpacity={0.85} style={{ marginBottom: 14 }}>
-                    <GlassCard style={{ borderRadius: 16, borderWidth: 1, borderColor: ui.primary }} padding={14} variant="strong">
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                        <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: ui.primary, alignItems: "center", justifyContent: "center" }}>
-                          <Ionicons name="play" size={20} color="#fff" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 11, fontWeight: "700", color: ui.primary, letterSpacing: 1, marginBottom: 2 }}>CONTINUE WHERE YOU LEFT OFF</Text>
-                          <Text style={{ fontSize: 16, fontWeight: "800", color: ui.text }} numberOfLines={1}>{savedResume.lessonName}</Text>
-                          <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>Word {savedResume.idx + 1} of {savedResume.activeWords.length}</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color={ui.primary} />
-                      </View>
-                    </GlassCard>
-                  </TouchableOpacity>
-                ) : null}
-
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <Text style={{ fontWeight: "700", fontSize: 20, color: ui.text }}>Lessons</Text>
                   <TouchableOpacity onPress={() => setActiveTab("lessons")}>
@@ -1664,11 +2059,28 @@ export default function StudyGameScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {lessonsOverview.slice(0, 5).map((lesson) => {
+                {lessonsOverview.length === 0 ? (
+                  <StudentEmptyState
+                    icon="book-outline"
+                    title="No lessons yet"
+                    body="Assigned lessons will show up here as soon as your teacher shares them."
+                    actionLabel={testsData.length > 0 ? "Open tests" : "Refresh"}
+                    onAction={
+                      testsData.length > 0
+                        ? () => setActiveTab("tests")
+                        : () => {
+                            onCatalogPullRefresh().catch(() => {});
+                          }
+                    }
+                  />
+                ) : null}
+
+                {lessonsOverview.slice(0, 5).map((lesson, index) => {
                   const pct = lesson.total > 0 ? Math.round((lesson.practiced / lesson.total) * 100) : 0;
                   const fullLesson = lessonsData.find((l) => l.id === lesson.id);
                   return (
-                    <TouchableOpacity key={lesson.id} activeOpacity={0.85} onPress={() => fullLesson && openLessonDetail(fullLesson)}>
+                    <ScreenReveal key={lesson.id} delay={130 + index * 28} distance={14} scaleFrom={0.994}>
+                    <TouchableOpacity activeOpacity={0.85} onPress={() => fullLesson && openLessonDetail(fullLesson)}>
                       <GlassCard style={{ borderRadius: 16, marginBottom: 10, backgroundColor: ui.card }} padding={12}>
                         <View style={{ flexDirection: "row", alignItems: "center" }}>
                           {lesson.cover ? (
@@ -1695,6 +2107,7 @@ export default function StudyGameScreen() {
                         </View>
                       </GlassCard>
                     </TouchableOpacity>
+                    </ScreenReveal>
                   );
                 })}
               </>
@@ -1711,6 +2124,19 @@ export default function StudyGameScreen() {
                     </View>
                   </View>
                 </GlassCard>
+                {lessonsData.length === 0 ? (
+                  <StudentEmptyState
+                    icon="book-outline"
+                    title="No lessons assigned"
+                    body="Your teacher has not assigned a lesson yet. Pull to refresh and check back here soon."
+                    actionLabel="Refresh"
+                    onAction={() => {
+                      onCatalogPullRefresh().catch(() => {});
+                    }}
+                    secondaryLabel={testsData.length > 0 ? "Open tests" : undefined}
+                    onSecondaryAction={testsData.length > 0 ? () => setActiveTab("tests") : undefined}
+                  />
+                ) : null}
                 {lessonsData.map((lesson) => (
                   <GlassCard key={lesson.id} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                     <TouchableOpacity
@@ -1739,33 +2165,120 @@ export default function StudyGameScreen() {
 
             {activeTab === "practice" ? (
               <>
-                <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16} variant="hero">
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <IconTile icon="play-circle-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Practice</Text>
-                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>Choose your study mode.</Text>
-                    </View>
-                  </View>
-                </GlassCard>
-                {[
-                  { label: "Typing Practice", type: "practice" as StudySessionType, mode: "typing" as StudySessionMode, icon: "⌨️" },
-                  { label: "Multiple Choice", type: "practice" as StudySessionType, mode: "multiple-choice" as StudySessionMode, icon: "✅" },
-                  { label: "Listening", type: "practice" as StudySessionType, mode: "listening" as StudySessionMode, icon: "🎧" },
-                  { label: "Image Mode", type: "practice" as StudySessionType, mode: "image" as StudySessionMode, icon: "🖼️" },
-                  { label: "Review Mistakes", type: "review-mistakes" as StudySessionType, mode: "typing" as StudySessionMode, icon: "🧠" },
-                  { label: "Smart Review", type: "smart-review" as StudySessionType, mode: "typing" as StudySessionMode, icon: "✨" },
-                ].map((item) => (
-                  <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
-                    <TouchableOpacity onPress={() => startSession(item.type, item.mode, "pt-en")} style={{ flexDirection: "row", alignItems: "center" }}>
-                      <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                        <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+                {allWords.length === 0 ? (
+                  <StudentEmptyState
+                    icon="play-circle-outline"
+                    title="Practice opens after your first lesson"
+                    body="Once lesson words are assigned, you will be able to use typing, listening, review, and image practice here."
+                    actionLabel="Refresh"
+                    onAction={() => { onCatalogPullRefresh().catch(() => {}); }}
+                    secondaryLabel={lessonsData.length > 0 ? "Open lessons" : undefined}
+                    onSecondaryAction={lessonsData.length > 0 ? () => setActiveTab("lessons") : undefined}
+                  />
+                ) : (
+                  <>
+                    {/* ── Quick Play Card ── */}
+                    <GlassCard style={{ borderRadius: 20, marginBottom: 14 }} padding={16} variant="hero">
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: ui.primary, alignItems: "center", justifyContent: "center" }}>
+                          <Ionicons name="play" size={18} color="#fff" />
+                        </View>
+                        <View>
+                          <Text style={{ fontWeight: "900", fontSize: 18, color: ui.text }}>Quick Play</Text>
+                          <Text style={{ fontSize: 12, color: ui.muted, marginTop: 1 }}>All lessons · random words</Text>
+                        </View>
                       </View>
-                      <Text style={{ flex: 1, fontWeight: "700", fontSize: 16, color: ui.text }}>{item.label}</Text>
-                      <Ionicons name="chevron-forward" size={18} color={ui.primary} />
-                    </TouchableOpacity>
-                  </GlassCard>
-                ))}
+
+                      {/* Direction */}
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Direction</Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+                        {(["pt-en", "en-pt"] as StudyDirection[]).map((dir) => {
+                          const fwd = lessonsData[0];
+                          const label = dir === "pt-en"
+                            ? labelDirectionForward(fwd?.language_pair, fwd?.language)
+                            : labelDirectionReverse(fwd?.language_pair, fwd?.language);
+                          const active = quickPlayDirection === dir;
+                          return (
+                            <TouchableOpacity
+                              key={dir}
+                              onPress={() => setQuickPlayDirection(dir)}
+                              activeOpacity={0.85}
+                              style={{
+                                flex: 1,
+                                paddingVertical: 10,
+                                borderRadius: 12,
+                                borderWidth: 1.5,
+                                alignItems: "center",
+                                backgroundColor: active ? ui.primary : ui.card,
+                                borderColor: active ? ui.primary : ui.border,
+                              }}
+                            >
+                              <Text style={{ fontSize: 13, fontWeight: "800", color: active ? "#fff" : ui.muted }}>{label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {/* Word count slider */}
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Words</Text>
+                      <View style={{ flexDirection: "row", gap: 6, marginBottom: 18 }}>
+                        {QUICK_PLAY_COUNTS.map((n) => {
+                          const active = quickPlayCount === n;
+                          const label = n === 0 ? "All" : String(n);
+                          return (
+                            <TouchableOpacity
+                              key={n}
+                              onPress={() => setQuickPlayCount(n)}
+                              activeOpacity={0.85}
+                              style={{
+                                flex: 1,
+                                paddingVertical: 9,
+                                borderRadius: 10,
+                                borderWidth: 1.5,
+                                alignItems: "center",
+                                backgroundColor: active ? ui.primary : ui.card,
+                                borderColor: active ? ui.primary : ui.border,
+                              }}
+                            >
+                              <Text style={{ fontSize: 13, fontWeight: "800", color: active ? "#fff" : ui.muted }}>{label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                    </GlassCard>
+
+                    {/* ── Session mode list ── */}
+                    <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Study modes</Text>
+                    {[
+                      { label: "Typing Practice", type: "practice" as StudySessionType, mode: "typing" as StudySessionMode, icon: "⌨️" },
+                      { label: "Multiple Choice", type: "practice" as StudySessionType, mode: "multiple-choice" as StudySessionMode, icon: "✅" },
+                      { label: "Listening", type: "practice" as StudySessionType, mode: "listening" as StudySessionMode, icon: "🎧" },
+                      { label: "Image Mode", type: "practice" as StudySessionType, mode: "image" as StudySessionMode, icon: "🖼️" },
+                      { label: "Review Mistakes", type: "review-mistakes" as StudySessionType, mode: "typing" as StudySessionMode, icon: "🧠" },
+                      { label: "Smart Review", type: "smart-review" as StudySessionType, mode: "typing" as StudySessionMode, icon: "✨" },
+                    ].map((item) => (
+                      <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
+                        <TouchableOpacity
+                          onPress={() => {
+                            const words = quickPlayCount === 0
+                              ? allWords
+                              : shuffle(allWords).slice(0, quickPlayCount);
+                            if (!words.length) { showToast("No words available.", "info"); return; }
+                            startSession(item.type, item.mode, quickPlayDirection, words, { id: null, name: "Quick Play" });
+                          }}
+                          style={{ flexDirection: "row", alignItems: "center" }}
+                        >
+                          <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+                          </View>
+                          <Text style={{ flex: 1, fontWeight: "700", fontSize: 16, color: ui.text }}>{item.label}</Text>
+                          <Ionicons name="chevron-forward" size={18} color={ui.primary} />
+                        </TouchableOpacity>
+                      </GlassCard>
+                    ))}
+                  </>
+                )}
               </>
             ) : null}
 
@@ -1782,6 +2295,22 @@ export default function StudyGameScreen() {
                     </View>
                   </View>
                 </GlassCard>
+
+                {testsData.length === 0 && progress.testHistory.length === 0 ? (
+                  <StudentEmptyState
+                    icon="clipboard-outline"
+                    title="No tests assigned yet"
+                    body="When your teacher assigns a test, it will appear here together with your recent scores."
+                    actionLabel={lessonsData.length > 0 ? "Open lessons" : "Refresh"}
+                    onAction={
+                      lessonsData.length > 0
+                        ? () => setActiveTab("lessons")
+                        : () => {
+                            onCatalogPullRefresh().catch(() => {});
+                          }
+                    }
+                  />
+                ) : null}
 
                 {testsData.length > 0 ? (
                   <>
@@ -1807,72 +2336,45 @@ export default function StudyGameScreen() {
                         </TouchableOpacity>
                       </GlassCard>
                     ))}
-                    <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginVertical: 10 }}>Test by lesson</Text>
                   </>
                 ) : null}
-
-                {lessonsData.map((lesson, index) => {
-                  const last = latestTestByLesson.get(lesson.id);
-                  const pct = last?.percentage ?? 0;
-                  const passed = pct >= 80;
-                  return (
-                    <GlassCard key={`${lesson.id ?? "lesson"}-${index}`} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
-                      <TouchableOpacity
-                        onPress={() => openTestDetailFromLesson(lesson)}
-                        style={{ flexDirection: "row", alignItems: "center" }}
-                      >
-                        {lesson.cover_image_url ? (
-                          <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
-                        ) : (
-                          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
-                            <Text style={{ fontSize: 22 }}>📘</Text>
-                          </View>
-                        )}
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <Text style={{ fontWeight: "700", color: ui.text, fontSize: 15 }}>{lesson.name}</Text>
-                          <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>
-                            {lesson.words.length} words{last?.date ? ` • Last: ${new Date(last.date).toLocaleDateString()}` : ""}
-                          </Text>
-                          <View style={{ marginTop: 6, height: 5, borderRadius: 999, backgroundColor: ui.borderSoft, overflow: "hidden" }}>
-                            <View style={{ width: `${pct}%`, height: "100%", backgroundColor: pct >= 80 ? "#46A05D" : pct >= 50 ? "#D4943C" : "#C05050" }} />
-                          </View>
-                        </View>
-                        <View style={{ marginLeft: 8, alignItems: "flex-end" }}>
-                          <Text style={{ fontWeight: "800", color: passed ? ui.success : pct >= 50 ? ui.warning : ui.muted, fontSize: 13 }}>
-                            {last ? `${pct}%` : "NOT TAKEN"}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    </GlassCard>
-                  );
-                })}
 
                 {progress.testHistory.length > 0 ? (
                   <>
                     <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginTop: 10, marginBottom: 10 }}>Test history</Text>
                     {progress.testHistory.slice(0, 5).map((record, index) => (
                       <GlassCard key={`${record.id ?? record.lessonId ?? "history"}-${index}`} style={{ borderRadius: 14, marginBottom: 10 }} padding={12} variant="strong">
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <TouchableOpacity
+                          activeOpacity={0.84}
+                          onPress={() => setSelectedHistoryRecord(record)}
+                          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+                        >
                           <View style={{ flex: 1, marginRight: 10 }}>
                             <Text style={{ fontWeight: "600", color: ui.text }} numberOfLines={1}>{record.lessonName || "Lesson test"}</Text>
                             <Text style={{ color: ui.muted, fontSize: 12, marginTop: 2 }}>
                               {record.date ? new Date(record.date).toLocaleDateString() : ""} •{" "}
                               {historyDirectionLabel(record.direction, record.languagePair, record.lessonLanguage)}
                             </Text>
-                          </View>
-                          <View
-                            style={{
-                              backgroundColor: record.percentage >= 80 ? `${ui.success}20` : record.percentage >= 50 ? `${ui.warning}20` : `${ui.danger}18`,
-                              borderRadius: 999,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
-                            }}
-                          >
-                            <Text style={{ fontWeight: "800", color: record.percentage >= 80 ? ui.success : record.percentage >= 50 ? ui.warning : ui.danger }}>
-                              {record.percentage}%
+                            <Text style={{ color: ui.primary, fontSize: 11, fontWeight: "700", marginTop: 5 }}>
+                              Review questions and answers
                             </Text>
                           </View>
-                        </View>
+                          <View style={{ alignItems: "flex-end", gap: 8 }}>
+                            <View
+                              style={{
+                                backgroundColor: record.percentage >= 80 ? `${ui.success}20` : record.percentage >= 50 ? `${ui.warning}20` : `${ui.danger}18`,
+                                borderRadius: 999,
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                              }}
+                            >
+                              <Text style={{ fontWeight: "800", color: record.percentage >= 80 ? ui.success : record.percentage >= 50 ? ui.warning : ui.danger }}>
+                                {record.percentage}%
+                              </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={ui.primary} />
+                          </View>
+                        </TouchableOpacity>
                       </GlassCard>
                     ))}
                   </>
@@ -1976,6 +2478,7 @@ export default function StudyGameScreen() {
                 </TouchableOpacity>
               </>
             ) : null}
+            </ScreenReveal>
           </ScrollView>
         </>
       ) : null}
@@ -2015,13 +2518,49 @@ export default function StudyGameScreen() {
             >
               <Ionicons name="chevron-back" size={18} color={ui.muted} />
             </TouchableOpacity>
-            <Text style={{ fontWeight: "800", fontSize: 18, color: ui.text }}>Lesson</Text>
+            <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>Lesson</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={1}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="notifications-outline" size={18} color={ui.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setRuntimeScreen("dashboard");
+                  setActiveTab("settings");
+                }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color={ui.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
             refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
           >
+            <ScreenReveal key={`lesson-detail-${selectedLessonDetail.id}`} delay={18} distance={18} scaleFrom={0.992}>
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedLessonDetail.cover_image_url ? (
@@ -2039,9 +2578,59 @@ export default function StudyGameScreen() {
             </GlassCard>
 
             {selectedLessonDetail.document_url ? (
+              <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14} variant="strong">
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <View
+                    style={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 16,
+                      backgroundColor: ui.primarySoft,
+                      borderWidth: 1,
+                      borderColor: ui.borderStrong,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={24} color={ui.primary} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: ui.primary, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 }}>LESSON PDF</Text>
+                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 16, marginTop: 4 }} numberOfLines={1}>
+                      {selectedLessonDetail.document_name || `${selectedLessonDetail.name} PDF`}
+                    </Text>
+                    <Text style={{ color: ui.muted, fontSize: 13, marginTop: 4 }} numberOfLines={2}>
+                      Open the teacher's attached PDF for lesson notes and extra study material.
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={openLessonDocument}
+                  disabled={lessonPdfOpening}
+                  activeOpacity={0.85}
+                  style={{
+                    marginTop: 14,
+                    borderRadius: 14,
+                    backgroundColor: lessonPdfOpening ? ui.borderStrong : ui.primary,
+                    paddingHorizontal: 16,
+                    paddingVertical: 13,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  {lessonPdfOpening ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document-attach-outline" size={18} color="#fff" />}
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>{lessonPdfOpening ? "Opening Lesson PDF..." : "View Lesson PDF"}</Text>
+                </TouchableOpacity>
+              </GlassCard>
+            ) : null}
+
+            {/*
+            {false && selectedLessonDetail?.document_url ? (
               <GlassCard style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 12 }} padding={12}>
                 <TouchableOpacity
-                  onPress={() => Linking.openURL(selectedLessonDetail.document_url!).catch(() => {})}
+                  onPress={() => Linking.openURL(selectedLessonDetail?.document_url ?? "").catch(() => {})}
                   style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
                 >
                   <Text style={{ color: ui.primary, fontWeight: "700", fontSize: 16 }} numberOfLines={1}>
@@ -2051,6 +2640,7 @@ export default function StudyGameScreen() {
                 </TouchableOpacity>
               </GlassCard>
             ) : null}
+            */}
 
             {savedResume && savedResume.lessonId === selectedLessonDetail?.id ? (
               <TouchableOpacity onPress={resumeSession} activeOpacity={0.85} style={{ marginBottom: 14 }}>
@@ -2082,7 +2672,12 @@ export default function StudyGameScreen() {
                   return (
                     <TouchableOpacity
                       key={mode.key}
-                      onPress={() => setLessonDetailMode(mode.key)}
+                      onPress={() => {
+                        setLessonDetailMode(mode.key);
+                        if (selectedLessonDetail) {
+                          AsyncStorage.setItem(`eluency_lesson_mode_${selectedLessonDetail.id}`, mode.key).catch(() => {});
+                        }
+                      }}
                       style={{ flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: selected ? ui.primarySoft : "transparent" }}
                     >
                       <Text style={{ fontWeight: "700", color: selected ? ui.primary : ui.muted, fontSize: 13 }}>{mode.label}</Text>
@@ -2220,6 +2815,7 @@ export default function StudyGameScreen() {
                 </GlassCard>
               );
             })}
+            </ScreenReveal>
           </ScrollView>
         </>
       ) : null}
@@ -2259,13 +2855,54 @@ export default function StudyGameScreen() {
             >
               <Ionicons name="chevron-back" size={18} color={ui.muted} />
             </TouchableOpacity>
-            <Text style={{ fontWeight: "800", fontSize: 18, color: ui.text }}>Test</Text>
+            <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>Test</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={1}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="notifications-outline" size={18} color={ui.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  setRuntimeScreen("dashboard");
+                  setActiveTab("settings");
+                }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color={ui.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
             refreshControl={<RefreshControl refreshing={catalogRefreshing} onRefresh={() => onCatalogPullRefresh()} tintColor={ui.primary} colors={[ui.primary]} />}
           >
+            <ScreenReveal
+              key={`test-detail-${selectedTestDetail.type}-${selectedTestDetail.type === "test" ? selectedTestDetail.test.id : selectedTestDetail.lesson.id}`}
+              delay={18}
+              distance={18}
+              scaleFrom={0.992}
+            >
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedTestDetail.type === "test" && selectedTestDetail.test.cover_image_url ? (
@@ -2360,6 +2997,7 @@ export default function StudyGameScreen() {
                         ) : null}
                       </GlassCard>
                     ))}
+            </ScreenReveal>
           </ScrollView>
         </>
       ) : null}
@@ -2369,8 +3007,8 @@ export default function StudyGameScreen() {
           {/* Fixed top bar — stays in place when keyboard opens */}
           <View
             style={{
-              paddingTop: Math.max(insets.top, 4),
-              paddingBottom: 4,
+              paddingTop: Math.max(insets.top, 5),
+              paddingBottom: 5,
               paddingHorizontal: 12,
               borderBottomWidth: 1,
               borderBottomColor: ui.border,
@@ -2406,9 +3044,9 @@ export default function StudyGameScreen() {
                 )
               }
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 8,
+                width: 31,
+                height: 31,
+                borderRadius: 9,
                 borderWidth: 1,
                 borderColor: ui.border,
                 backgroundColor: ui.card,
@@ -2416,14 +3054,48 @@ export default function StudyGameScreen() {
                 justifyContent: "center",
               }}
             >
-              <Ionicons name="close" size={13} color={ui.muted} />
+              <Ionicons name="close" size={14} color={ui.muted} />
             </TouchableOpacity>
 
-            <View style={{ paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, backgroundColor: ui.primarySoft }}>
-              <Text style={{ fontWeight: "800", color: ui.primary, fontSize: 13 }}>{correctCount}/{idx + 1}</Text>
+            <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 10 }}>
+              <Text
+                style={{ color: ui.text, fontSize: 14, fontWeight: "800", textAlign: "center" }}
+                numberOfLines={1}
+              >
+                {current.lessonName || current.testName || "Session"}
+              </Text>
+              <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.2, marginTop: 1 }}>
+                {sessionHeaderLabel.toUpperCase()}
+              </Text>
             </View>
 
-            <View style={{ width: 28 }} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {sessionStreak >= 2 ? (
+                <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "#FFF0DA", borderWidth: 1, borderColor: "#F5C070" }}>
+                  <Text style={{ fontSize: 12 }}>🔥</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: "#E07A10", marginLeft: 2 }}>{sessionStreak}</Text>
+                </View>
+              ) : null}
+              <View style={{ width: 44, height: 44 }}>
+                <Svg width={44} height={44} style={{ position: "absolute" }}>
+                  <Circle cx={22} cy={22} r={17} stroke={ui.borderSoft} strokeWidth={3} fill="none" />
+                  <Circle
+                    cx={22} cy={22} r={17}
+                    stroke={ui.primary}
+                    strokeWidth={3}
+                    fill="none"
+                    strokeDasharray={`${(2 * Math.PI * 17).toFixed(2)}`}
+                    strokeDashoffset={`${(2 * Math.PI * 17 * (1 - Math.min(idx + 1, activeWords.length) / Math.max(activeWords.length, 1))).toFixed(2)}`}
+                    strokeLinecap="round"
+                    rotation="-90"
+                    origin="22,22"
+                  />
+                </Svg>
+                <View style={{ position: "absolute", width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 9, fontWeight: "900", color: ui.primary }}>{idx + 1}/{activeWords.length}</Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           {/* Keyboard-aware content area */}
@@ -2439,58 +3111,24 @@ export default function StudyGameScreen() {
               keyboardDismissMode="interactive"
               showsVerticalScrollIndicator={false}
             >
+              <ScreenReveal key={`session-${sessionType}-${sessionMode}-${sessionContext.id ?? "general"}`} delay={14} distance={16} scaleFrom={0.994}>
               <GlassCard style={{ borderRadius: 22, backgroundColor: ui.card }} padding={14}>
-                {/* Lesson title + mode label on same row */}
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <View style={{ borderRadius: 999, backgroundColor: ui.primarySoft, paddingHorizontal: 10, paddingVertical: 3, flexShrink: 1, marginRight: 8 }}>
-                    <Text style={{ color: ui.primary, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                      {current.lessonName || current.testName || "Lesson"}
-                    </Text>
+                {current.imageUrl && !showSessionIllustration ? (
+                  <View style={{ alignSelf: "center", marginBottom: 10 }}>
+                    <Image
+                      source={{ uri: current.imageUrl }}
+                      style={{ width: 88, height: 88, borderRadius: 16 }}
+                      resizeMode="cover"
+                    />
                   </View>
-                  {isConjugationTable ? null : isConjugationDrill ? (
-                    sessionMode === "listening" || showMcq ? (
-                      <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
-                        {sessionMode === "listening" ? "LISTEN" : "MULTIPLE CHOICE"}
-                      </Text>
-                    ) : null
-                  ) : (
-                    <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.5 }}>
-                      {sessionMode === "listening"
-                        ? "LISTEN"
-                        : sessionMode === "image"
-                          ? "LOOK"
-                          : isFillBlank
-                            ? "FILL BLANK"
-                            : showMcq
-                              ? "MULTIPLE CHOICE"
-                              : "TRANSLATE"}
-                    </Text>
-                  )}
-                </View>
-                <Text
-                  style={{
-                    color: ui.muted,
-                    fontSize: 11,
-                    fontWeight: "800",
-                    textAlign: "center",
-                    marginBottom: 10,
-                    letterSpacing: isConjugationDrill || isConjugationTable ? 1.2 : 0,
-                  }}
-                >
-                  {isConjugationDrill || isConjugationTable
-                    ? "CONJUGATE"
-                    : direction === "pt-en"
-                      ? labelDirectionForward(activeLanguagePair, activeLessonLanguage)
-                      : labelDirectionReverse(activeLanguagePair, activeLessonLanguage)}
-                </Text>
-
+                ) : null}
                 {(sessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
                   <View style={{ alignItems: "center", marginBottom: 10 }}>
                     <View
                       style={{
-                        width: sessionMode === "image" || !!current.imageUrl ? 220 : 150,
-                        height: sessionMode === "image" || !!current.imageUrl ? 220 : 150,
-                        borderRadius: sessionMode === "image" || !!current.imageUrl ? 28 : 22,
+                        width: sessionMode === "image" || !!current.imageUrl ? 198 : 135,
+                        height: sessionMode === "image" || !!current.imageUrl ? 198 : 135,
+                        borderRadius: sessionMode === "image" || !!current.imageUrl ? 25 : 20,
                         backgroundColor: ui.borderSoft,
                         alignItems: "center",
                         justifyContent: "center",
@@ -2500,7 +3138,7 @@ export default function StudyGameScreen() {
                       {current.imageUrl ? (
                         <Image source={{ uri: current.imageUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                       ) : (
-                        <Text style={{ fontSize: sessionMode === "image" || !!current.imageUrl ? 60 : 48 }}>
+                        <Text style={{ fontSize: sessionMode === "image" || !!current.imageUrl ? 54 : 43 }}>
                           {current.sourceType === "test" ? "📝" : "📚"}
                         </Text>
                       )}
@@ -2688,8 +3326,14 @@ export default function StudyGameScreen() {
                 ) : null}
 
                 {showHint && sentenceHint ? (
-                  <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10 }}>
-                    <Text style={{ color: ui.text, fontSize: 13 }}>{sentenceHint}</Text>
+                  <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Text style={{ flex: 1, color: ui.text, fontSize: 13 }}>{sentenceHint}</Text>
+                    <TouchableOpacity
+                      onPress={() => playStudyTextAudio(sentenceHint, direction === "pt-en" ? "b" : "a").catch(() => {})}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ui.card, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Ionicons name="volume-medium-outline" size={14} color={ui.primary} />
+                    </TouchableOpacity>
                   </View>
                 ) : null}
 
@@ -2763,17 +3407,30 @@ export default function StudyGameScreen() {
                 ) : null}
 
                 {showInfinitiveNote ? (
-                  <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10 }}>
-                    <Text style={{ color: ui.text, fontSize: 13 }}>Infinitives in English often use to + verb.</Text>
+                  <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Text style={{ flex: 1, color: ui.text, fontSize: 13 }}>Infinitives in English often use to + verb.</Text>
+                    <TouchableOpacity
+                      onPress={() => playStudyTextAudio("Infinitives in English often use to plus verb.", "b").catch(() => {})}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ui.card, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Ionicons name="volume-medium-outline" size={14} color={ui.primary} />
+                    </TouchableOpacity>
                   </View>
                 ) : null}
 
                 {geminiCorrection ? (
-                  <View style={{ marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, padding: 10 }}>
-                    <Text style={{ color: ui.text, fontSize: 13 }}>{geminiCorrection}</Text>
+                  <View style={{ marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                    <Text style={{ flex: 1, color: ui.text, fontSize: 13 }}>{geminiCorrection}</Text>
+                    <TouchableOpacity
+                      onPress={() => playStudyTextAudio(geminiCorrection, "b").catch(() => {})}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}
+                    >
+                      <Ionicons name="volume-medium-outline" size={14} color={ui.primary} />
+                    </TouchableOpacity>
                   </View>
                 ) : null}
               </GlassCard>
+              </ScreenReveal>
             </ScrollView>
 
             {/* Pinned bottom: input + feedback + submit/skip + progress — always visible above keyboard */}
@@ -2865,19 +3522,6 @@ export default function StudyGameScreen() {
                 ) : null}
               </View>
 
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 18 }}>🦉</Text>
-                <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 11 }}>{idx + 1}/{activeWords.length}</Text>
-                <View style={{ flex: 1, height: 4, borderRadius: 999, overflow: "hidden", backgroundColor: ui.borderSoft }}>
-                  <View style={{ width: `${((idx + 1) / Math.max(1, activeWords.length)) * 100}%`, height: "100%", backgroundColor: ui.primary }} />
-                </View>
-                <Text style={{ fontSize: 14 }}>🎓</Text>
-                <View style={{ width: 48, height: 4, borderRadius: 999, overflow: "hidden", backgroundColor: ui.borderSoft }}>
-                  <View style={{ width: `${levelInfo.progress}%`, height: "100%", backgroundColor: ui.secondary }} />
-                </View>
-                <Text style={{ color: ui.muted, fontWeight: "700", fontSize: 11 }}>Lv.{levelInfo.current.level}</Text>
-              </View>
-
             </View>
           </KeyboardAvoidingView>
         </View>
@@ -2920,8 +3564,8 @@ export default function StudyGameScreen() {
               flexDirection: "row",
               alignItems: "flex-end",
               justifyContent: "space-around",
-              paddingTop: 2,
-              paddingBottom: 12,
+              paddingTop: 20,
+              paddingBottom: 7,
               paddingHorizontal: 12,
               shadowColor: "#000",
               shadowOpacity: uiIsDark ? 0.24 : 0.12,
@@ -2938,13 +3582,13 @@ export default function StudyGameScreen() {
                       onPress={() => handleTabPress("practice")}
                       activeOpacity={0.85}
                       style={{
-                        width: 68,
-                        height: 65,
-                        borderRadius: 24,
+                        width: 72,
+                        height: 64,
+                        borderRadius: 25,
                         backgroundColor: ui.primary,
                         alignItems: "center",
                         justifyContent: "center",
-                        marginBottom: 1,
+                        marginBottom: 12,
                         shadowColor: ui.primary,
                         shadowOpacity: 0.38,
                         shadowRadius: 14,
@@ -2954,7 +3598,7 @@ export default function StudyGameScreen() {
                         borderColor: uiIsDark ? theme.colors.background : theme.colors.surface,
                       }}
                     >
-                      <Ionicons name="play" size={34} color="#fff" style={{ marginLeft: 2 }} />
+                      <Ionicons name="play" size={37} color="#fff" style={{ marginLeft: 2 }} />
                     </TouchableOpacity>
                   );
                 }
@@ -2965,26 +3609,37 @@ export default function StudyGameScreen() {
                     key={tab.id}
                     onPress={() => handleTabPress(tab.id)}
                     activeOpacity={0.75}
-                    style={{ alignItems: "center", minWidth: 54, paddingTop: 0, paddingBottom: 10 }}
+                    style={{
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 68,
+                      paddingTop: 0,
+                      paddingBottom: 4,
+                      paddingHorizontal: 8,
+                      borderRadius: 16,
+                      backgroundColor: active ? ui.primarySoft : "transparent",
+                      borderWidth: active ? 1 : 0,
+                      borderColor: active ? `${ui.primary}30` : "transparent",
+                    }}
                   >
                     <View
                       style={{
                         width: 46,
-                        height: 28,
+                        height: 30,
                         borderRadius: 14,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: active ? ui.primarySoft : "transparent",
-                        borderWidth: active ? 1 : 0,
-                        borderColor: active ? `${ui.primary}30` : "transparent",
+                        backgroundColor: "transparent",
+                        borderWidth: 0,
+                        borderColor: "transparent",
                       }}
                     >
-                      <Ionicons name={tab.icon as any} size={22} color={active ? ui.primary : ui.muted} />
+                      <Ionicons name={tab.icon as any} size={25} color={active ? ui.primary : ui.muted} />
                     </View>
                     <Text
                       style={{
-                        fontSize: 11,
-                        marginTop: 4,
+                        fontSize: 11.5,
+                        marginTop: 2,
                         color: active ? ui.primary : ui.muted,
                         fontWeight: active ? "800" : "500",
                         letterSpacing: 0.2,
@@ -3091,36 +3746,12 @@ export default function StudyGameScreen() {
                                 >
                                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                                     <Ionicons
-                                      name={
-                                        issue.kind === "correct"
-                                          ? "checkmark-circle"
-                                          : issue.kind === "open_review"
-                                            ? "document-text-outline"
-                                            : issue.kind === "close"
-                                              ? "alert-circle-outline"
-                                              : "close-circle"
-                                      }
+                                      name={reviewIssueIcon(issue.kind)}
                                       size={14}
-                                      color={
-                                        issue.kind === "correct"
-                                          ? theme.colors.success
-                                          : issue.kind === "open_review"
-                                            ? theme.colors.primary
-                                            : issue.kind === "close"
-                                              ? "#D4943C"
-                                              : theme.colors.danger
-                                      }
+                                      color={reviewIssueColor(theme, issue.kind)}
                                     />
                                     <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
-                                      {issue.kind === "correct"
-                                        ? "Correct"
-                                        : issue.kind === "open_review"
-                                          ? "Review"
-                                          : issue.kind === "skip"
-                                            ? "Skipped"
-                                            : issue.kind === "close"
-                                              ? "Close"
-                                              : "Wrong"}
+                                      {reviewIssueLabel(issue.kind)}
                                     </Text>
                                   </View>
                                   <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
@@ -3174,6 +3805,143 @@ export default function StudyGameScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={!!selectedHistoryRecord}
+        animationType="fade"
+        transparent
+        onRequestClose={() => {
+          setSelectedHistoryRecord(null);
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              paddingTop: Math.max(insets.top, 18),
+              paddingBottom: Math.max(insets.bottom, 18),
+              paddingHorizontal: 16,
+            }}
+          >
+            <Pressable
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: theme.isDark ? "rgba(0,0,0,0.55)" : "rgba(10,14,20,0.32)",
+              }}
+              onPress={() => {
+                setSelectedHistoryRecord(null);
+              }}
+            />
+            <View>
+              <ScreenReveal delay={20} distance={22} scaleFrom={0.98}>
+                <GlassCard style={{ borderRadius: 24, overflow: "hidden", maxHeight: "100%" }} padding={0} variant="strong">
+                  {selectedHistoryRecord ? (
+                    <>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                          <Text style={[theme.typography.title, { fontSize: 18 }]}>Test review</Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                            {(selectedHistoryRecord.lessonName || "Past test")} • {selectedHistoryRecord.date ? new Date(selectedHistoryRecord.date).toLocaleDateString() : "Past attempt"}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={[theme.typography.title, { fontSize: 24 }]}>{selectedHistoryRecord.percentage}%</Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                            {selectedHistoryRecord.score}/{selectedHistoryRecord.totalWords} correct
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", gap: 8 }}>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{selectedHistoryRecord.mode.replace("-", " ")}</Text>
+                        </View>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{selectedHistoryRecord.direction.toUpperCase()}</Text>
+                        </View>
+                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{selectedHistoryRecord.totalWords}Q</Text>
+                        </View>
+                      </View>
+
+                      <ScrollView
+                        style={{ maxHeight: reviewViewportMaxHeight }}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
+                      >
+                        {(selectedHistoryRecord.issues ?? []).length > 0 ? (
+                          <View>
+                            <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 }}>
+                              {(selectedHistoryRecord.issues ?? []).map((issue, index) => (
+                                <View
+                                  key={`${issue.id}-${index}`}
+                                  style={{
+                                    width: "48.5%",
+                                    borderRadius: 12,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.border,
+                                    backgroundColor: theme.colors.surfaceGlass,
+                                    padding: 9,
+                                  }}
+                                >
+                                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                    <Ionicons
+                                      name={reviewIssueIcon(issue.kind)}
+                                      size={14}
+                                      color={reviewIssueColor(theme, issue.kind)}
+                                    />
+                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
+                                      {reviewIssueLabel(issue.kind)}
+                                    </Text>
+                                  </View>
+                                  <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                                    P: {issue.prompt || "Untitled"}
+                                  </Text>
+                                  {issue.expected ? (
+                                    <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                      E: {issue.expected}
+                                    </Text>
+                                  ) : null}
+                                  {issue.answer ? (
+                                    <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                      A: {issue.answer}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+                            Question details were not saved for this test attempt.
+                          </Text>
+                        )}
+                      </ScrollView>
+
+                      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
+                        <AppButton
+                          label="Close"
+                          onPress={() => {
+                            setSelectedHistoryRecord(null);
+                          }}
+                        />
+                      </View>
+                    </>
+                  ) : null}
+                </GlassCard>
+              </ScreenReveal>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <FloatingToast {...toastProps} />
     </View>
   );
 }

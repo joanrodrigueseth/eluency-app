@@ -21,6 +21,7 @@ import { useAppTheme } from "../lib/theme";
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Subscription: undefined;
+  Notifications: undefined;
 };
 
 const MONTHLY_PRICE = 14.99;
@@ -76,7 +77,6 @@ export default function SubscriptionScreen() {
   const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
   const [loadingPlan, setLoadingPlan] = useState(true);
-  const [upgrading, setUpgrading] = useState<string | null>(null);
   const [currentTierId, setCurrentTierId] = useState("basic");
   const [error, setError] = useState("");
   // Default to yearly — best deal, most conversions
@@ -112,60 +112,34 @@ export default function SubscriptionScreen() {
     return () => { mounted = false; };
   }, []);
 
-  const handleUpgrade = async (tierId: string) => {
+  const WEB_SUBSCRIPTION_URL = `${apiBaseUrl.replace(/\/$/, "")}/dashboard/settings/subscription`;
+
+  const handleUpgrade = (tierId: string) => {
     setError("");
     if (tierId === currentTierId) return;
 
     if (tierId === "school") {
-      const mailto = "mailto:support@eluency.com?subject=School%20Plan%20Quote";
-      const ok = await Linking.canOpenURL(mailto);
-      if (!ok) {
-        setError("No email app is available on this device.");
+      Linking.openURL("mailto:support@eluency.com?subject=School%20Plan%20Quote").catch(() => {
         Alert.alert("Unavailable", "No email app is available on this device.");
-        return;
-      }
-      await Linking.openURL(mailto);
+      });
       return;
     }
 
-    setUpgrading(tierId);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token;
-      if (!accessToken) throw new Error("Not authenticated.");
+    // Subscriptions are managed via the web dashboard to comply with App Store guidelines.
+    Linking.openURL(WEB_SUBSCRIPTION_URL).catch(() => {
+      Alert.alert("Error", "Could not open the subscription page. Visit eluency.com to manage your plan.");
+    });
+  };
 
-      const base = apiBaseUrl.replace(/\/$/, "");
-      const res = await fetch(`${base}/api/billing/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ tierId, cycle: billingCycle }),
-      });
-
-      const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
-
-      if (!res.ok) {
-        const webUrl = `${base}/dashboard/settings/subscription`;
-        setError(data?.error ?? "In-app checkout unavailable. Open web dashboard?");
-        Alert.alert("Open Web Checkout", data?.error ?? "In-app checkout unavailable. Open web dashboard?", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Open", onPress: () => Linking.openURL(webUrl) },
-        ]);
-        return;
-      }
-
-      if (data?.url) {
-        await Linking.openURL(data.url);
-        return;
-      }
-
-      setError("");
-      Alert.alert("Success", "Plan update session started.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upgrade failed.");
-      Alert.alert("Error", err instanceof Error ? err.message : "Upgrade failed.");
-    } finally {
-      setUpgrading(null);
-    }
+  const handleRestorePurchases = () => {
+    Alert.alert(
+      "Restore Subscription",
+      "Your subscription is tied to your Eluency account. Sign in with the same email you used when you subscribed and your plan will be restored automatically.",
+      [
+        { text: "Manage on Web", onPress: () => Linking.openURL(WEB_SUBSCRIPTION_URL).catch(() => {}) },
+        { text: "OK", style: "cancel" },
+      ]
+    );
   };
 
   return (
@@ -192,9 +166,13 @@ export default function SubscriptionScreen() {
           <Text style={[theme.typography.label, { fontSize: 10 }]}>BILLING</Text>
           <Text style={[theme.typography.title, { fontSize: 18, lineHeight: 22 }]}>Subscription</Text>
         </View>
-        <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
-          <Ionicons name="diamond" size={18} color={theme.colors.primary} />
-        </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 40, width: 40, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -431,7 +409,7 @@ export default function SubscriptionScreen() {
                 <AppButton
                   label={`Start My Free 14-Day Trial →`}
                   onPress={() => handleUpgrade("standard")}
-                  loading={upgrading === "standard"}
+                  loading={false}
                 />
                 <View style={{ alignItems: "center", gap: 4 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -507,7 +485,7 @@ export default function SubscriptionScreen() {
                 <AppButton
                   label="Continue with Basic (Free)"
                   onPress={() => handleUpgrade("basic")}
-                  loading={upgrading === "basic"}
+                  loading={false}
                 />
               )}
             </View>
@@ -536,12 +514,22 @@ export default function SubscriptionScreen() {
               <AppButton
                 label="Contact for a Quote"
                 onPress={() => handleUpgrade("school")}
-                loading={upgrading === "school"}
+                loading={false}
                 variant="violet"
               />
             </View>
           </View>
         </GlassCard>
+
+        <TouchableOpacity
+          onPress={handleRestorePurchases}
+          activeOpacity={0.7}
+          style={{ alignSelf: "center", paddingVertical: 16, paddingHorizontal: 24, marginBottom: 8 }}
+        >
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textDecorationLine: "underline" }]}>
+            Restore Purchases
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Linking,
   ScrollView,
   Text,
   TextInput,
@@ -17,6 +18,7 @@ import AppButton from "../components/AppButton";
 import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import ScreenReveal from "../components/ScreenReveal";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { deleteOwnAccountCascade } from "../lib/api/admin";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -125,10 +127,9 @@ export default function SettingsScreen() {
   const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [studentCount, setStudentCount] = useState(0);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
-  const [toastMessage, setToastMessage] = useState("");
-  const [toastTone, setToastTone] = useState<"success" | "info" | "danger">("success");
   const [tabBarWidth, setTabBarWidth] = useState(0);
   const activeTabX = useRef(new Animated.Value(0)).current;
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
 
   const passwordsMatch =
     passwords.confirmPassword.length > 0 && passwords.confirmPassword === passwords.newPassword;
@@ -167,7 +168,7 @@ export default function SettingsScreen() {
 
           teacher = teacherById;
           if (!teacher && teacherByUserIdError && teacherByIdError) {
-            console.warn("SettingsScreen: unable to load teacher row via user_id or id; using auth fallbacks.");
+            if (__DEV__) console.warn("SettingsScreen: unable to load teacher row via user_id or id; using auth fallbacks.");
           }
         }
 
@@ -214,12 +215,6 @@ export default function SettingsScreen() {
     }
   }, [route.params?.initialTab]);
 
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timeout = setTimeout(() => setToastMessage(""), 2200);
-    return () => clearTimeout(timeout);
-  }, [toastMessage]);
-
   const tabs: { id: SettingsTab; label: string; icon: string; color: string }[] = [
     { id: "profile",       label: "Profile",       icon: "person-outline",        color: "#3B5EDB" },
     { id: "security",      label: "Security",      icon: "shield-outline",        color: "#D4462A" },
@@ -237,11 +232,6 @@ export default function SettingsScreen() {
     }).start();
   }, [activeTab, activeTabX, tabBarWidth]);
 
-  const showToast = (message: string, tone: "success" | "info" | "danger" = "success") => {
-    setToastTone(tone);
-    setToastMessage(message);
-  };
-
   const updateProfile = async () => {
     if (saving) return;
     setSaving(true);
@@ -258,13 +248,15 @@ export default function SettingsScreen() {
           .eq("user_id", user.id);
         if (te) throw te;
       }
-      Alert.alert("Saved", profile.email.trim() !== originalEmail
-        ? "Profile saved. Check your new email address to confirm the change."
-        : "Profile saved.");
+      showToast(
+        profile.email.trim() !== originalEmail
+          ? "Profile saved. Check your new email to confirm the change."
+          : "Profile saved.",
+        "success"
+      );
       setOriginalEmail(profile.email.trim());
-      showToast("Profile saved", "success");
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to update profile.");
+      showToast(err instanceof Error ? err.message : "Failed to update profile.", "danger");
     } finally {
       setSaving(false);
     }
@@ -272,17 +264,16 @@ export default function SettingsScreen() {
 
   const updatePassword = async () => {
     if (saving) return;
-    if (passwords.newPassword.length < 8) { Alert.alert("Password", "Password must be at least 8 characters."); return; }
-    if (passwords.newPassword !== passwords.confirmPassword) { Alert.alert("Password", "Passwords do not match."); return; }
+    if (passwords.newPassword.length < 8) { showToast("Password must be at least 8 characters.", "danger"); return; }
+    if (passwords.newPassword !== passwords.confirmPassword) { showToast("Passwords do not match.", "danger"); return; }
     setSaving(true);
     try {
       const { error } = await supabase.auth.updateUser({ password: passwords.newPassword });
       if (error) throw error;
       setPasswords({ newPassword: "", confirmPassword: "" });
-      Alert.alert("Saved", "Password updated successfully.");
       showToast("Password updated", "success");
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to update password.");
+      showToast(err instanceof Error ? err.message : "Failed to update password.", "danger");
     } finally {
       setSaving(false);
     }
@@ -314,7 +305,7 @@ export default function SettingsScreen() {
               await supabase.auth.signOut();
               navigation.reset({ index: 0, routes: [{ name: "Login" }] });
             } catch (err) {
-              Alert.alert("Error", err instanceof Error ? err.message : "Failed to delete account.");
+              showToast(err instanceof Error ? err.message : "Failed to delete account.", "danger");
             } finally {
               setDeletingAccount(false);
             }
@@ -363,6 +354,13 @@ export default function SettingsScreen() {
           <Text style={theme.typography.label}>Account</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Settings</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -594,6 +592,32 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={16}>
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL("https://www.eluency.com/privacy")}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Ionicons name="shield-outline" size={18} color={theme.colors.textMuted} />
+                      <Text style={[theme.typography.body, { color: theme.colors.text }]}>Privacy Policy</Text>
+                    </View>
+                    <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                  <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 12 }} />
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL("https://www.eluency.com/terms")}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Ionicons name="document-text-outline" size={18} color={theme.colors.textMuted} />
+                      <Text style={[theme.typography.body, { color: theme.colors.text }]}>Terms of Service</Text>
+                    </View>
+                    <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </GlassCard>
+
                 <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20} variant="strong">
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>Delete account and content created. This permanently removes your lessons, tests, students, and account.</Text>
                   <TouchableOpacity
@@ -643,12 +667,7 @@ export default function SettingsScreen() {
           </>
         )}
       </ScrollView>
-      <FloatingToast
-        visible={!!toastMessage}
-        message={toastMessage}
-        tone={toastTone}
-        bottom={Math.max(insets.bottom, 20) + 12}
-      />
+      <FloatingToast {...toastProps} />
     </View>
   );
 }

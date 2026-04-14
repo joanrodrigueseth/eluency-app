@@ -141,6 +141,14 @@ export type VerifyAnswerResult = {
   acceptedAs?: string;
 };
 
+export type StudyRecordIssue = {
+  id: string;
+  prompt: string;
+  expected: string;
+  answer?: string;
+  kind: "correct" | "wrong" | "close" | "skip" | "open_review";
+};
+
 export type StudyRecord = {
   id: string;
   date: string;
@@ -157,6 +165,7 @@ export type StudyRecord = {
   percentage: number;
   passed?: boolean;
   direction: StudyDirection;
+  issues?: StudyRecordIssue[];
 };
 
 export type WordStatsItem = {

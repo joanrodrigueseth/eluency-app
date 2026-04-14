@@ -25,6 +25,7 @@ import AppButton from "../components/AppButton";
 import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import ScreenReveal from "../components/ScreenReveal";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -80,11 +81,10 @@ export default function StudentFormScreen() {
   const [testPickerOpen, setTestPickerOpen] = useState(false);
   const [teacherModalOpen, setTeacherModalOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const [toastTone, setToastTone] = useState<"success" | "info" | "danger">("success");
   const saveScale = useRef(new Animated.Value(1)).current;
   const copyScale = useRef(new Animated.Value(1)).current;
   const copyGlow = useRef(new Animated.Value(0)).current;
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -94,12 +94,6 @@ export default function StudentFormScreen() {
     const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
-
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timeout = setTimeout(() => setToastMessage(""), 2200);
-    return () => clearTimeout(timeout);
-  }, [toastMessage]);
 
   const ROW_HEIGHT = 57; // paddingVertical 12*2 + text ~20 + badges ~13
   const listHeight = keyboardVisible ? ROW_HEIGHT * 6 : ROW_HEIGHT * 10;
@@ -140,11 +134,6 @@ export default function StudentFormScreen() {
     },
     []
   );
-
-  const showToast = useCallback((message: string, tone: "success" | "info" | "danger" = "success") => {
-    setToastTone(tone);
-    setToastMessage(message);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +272,7 @@ export default function StudentFormScreen() {
       ]).start();
       showToast("Access code copied", "success");
     } catch {
-      Alert.alert("Error", "Could not copy.");
+      showToast("Could not copy.", "danger");
     }
   };
 
@@ -301,13 +290,13 @@ export default function StudentFormScreen() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert("Validation", "Name is required.");
+      showToast("Name is required.", "danger");
       return;
     }
     if (!currentUserId) return;
     const finalTeacherId = isAdmin ? teacherId || null : currentUserId;
     if (isAdmin && !isEdit && !finalTeacherId) {
-      Alert.alert("Validation", "Select a teacher.");
+      showToast("Select a teacher.", "danger");
       return;
     }
 
@@ -327,7 +316,7 @@ export default function StudentFormScreen() {
         if (isAdmin) payload.teacher_id = finalTeacherId;
         const { error } = await (supabase.from("students") as any).update(payload).eq("id", studentId);
         if (error) throw error;
-        showToast("Student updated", "success");
+        navigation.navigate("Students", { flashMessage: "Student updated", flashTone: "success" });
       } else {
         const { error } = await (supabase.from("students") as any).insert({
           name: name.trim(),
@@ -339,9 +328,8 @@ export default function StudentFormScreen() {
           progress: {},
         });
         if (error) throw error;
-        showToast("Student added", "success");
+        navigation.navigate("Students", { flashMessage: "Student added", flashTone: "success" });
       }
-      navigation.goBack();
     } catch (e: unknown) {
       const msg =
         e instanceof Error
@@ -351,7 +339,7 @@ export default function StudentFormScreen() {
             : typeof (e as any)?.details === "string"
               ? (e as any).details
               : JSON.stringify(e) ?? "Save failed";
-      Alert.alert("Save Failed", msg);
+      showToast(msg, "danger");
     } finally {
       setSaving(false);
     }
@@ -418,6 +406,13 @@ export default function StudentFormScreen() {
           {isEdit ? "Edit student" : "New student"}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Notifications")}
+            activeOpacity={0.85}
+            style={{ height: 40, width: 40, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
+          >
+            <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={openWeb}
             style={{
@@ -721,12 +716,7 @@ export default function StudentFormScreen() {
           </View>
         </TouchableOpacity>
       </ScrollView>
-      <FloatingToast
-        visible={!!toastMessage}
-        message={toastMessage}
-        tone={toastTone}
-        bottom={Math.max(insets.bottom, 20) + 12}
-      />
+      <FloatingToast {...toastProps} />
 
       {/* ── Lesson picker modal ── */}
       <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}>

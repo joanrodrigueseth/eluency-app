@@ -18,17 +18,20 @@ import {
   View,
 } from "react-native";
 
-if (Platform.OS === "android") UIManager.setLayoutAnimationEnabledExperimental?.(true);
+if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) UIManager.setLayoutAnimationEnabledExperimental?.(true);
 const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
-import { NavigationProp, useNavigation, useFocusEffect } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
 import SkeletonLoader from "../components/SkeletonLoader";
+import type { FloatingToastTone } from "../components/FloatingToast";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { createAdminTest, deleteTestCascade } from "../lib/api/admin";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
@@ -37,9 +40,10 @@ import { normalizePlanUi } from "../lib/teacherRolePlanRules";
 
 export type RootTestsStackParams = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Tests: undefined;
+  Tests: { flashMessage?: string; flashTone?: FloatingToastTone } | undefined;
   TestForm: { testId?: string } | undefined;
   Subscription: undefined;
+  Notifications: undefined;
 };
 
 const VOCAB_TYPES = ["Vocabulary", "False Cognates", "Cognates", "Idioms & Expressions"];
@@ -156,8 +160,16 @@ export default function TestsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootTestsStackParams>>();
+  const route = useRoute<RouteProp<RootTestsStackParams, "Tests">>();
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    if (!route.params?.flashMessage) return;
+    showToast(route.params.flashMessage, route.params.flashTone ?? "success");
+    navigation.setParams({ flashMessage: undefined, flashTone: undefined });
+  }, [navigation, route.params?.flashMessage, route.params?.flashTone, showToast]);
 
   const [loading, setLoading] = useState(true);
   const [tests, setTests] = useState<TestRow[]>([]);
@@ -544,6 +556,13 @@ export default function TestsScreen() {
           <Text style={theme.typography.label}>Library</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Tests</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center", marginRight: canManage ? 8 : 0 }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
         {canManage ? (
           <TouchableOpacity
             onPress={() => navigation.navigate("TestForm")}
@@ -955,6 +974,7 @@ export default function TestsScreen() {
           </ScrollView>
         </View>
       ) : null}
+      <FloatingToast {...toastProps} />
     </View>
   );
 }
@@ -1009,7 +1029,3 @@ function StatCard({
     </View>
   );
 }
-
-
-
-

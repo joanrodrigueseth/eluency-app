@@ -31,8 +31,10 @@ import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { DEFAULT_RULES, ensureQuestionDefaults, ensureTestSettings, uid } from "../lib/testDesignMobile";
 import { normalizePlanUi } from "../lib/teacherRolePlanRules";
+import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import { useFeedbackToast } from "../hooks/useFeedbackToast";
 
 import type { RootTestsStackParams } from "./TestsScreen";
 
@@ -270,6 +272,7 @@ export default function TestFormScreen() {
   const accentPurpleSoft = theme.isDark ? theme.colors.primarySoft : "#F3ECFF";
   const accentPurpleBorder = theme.isDark ? theme.colors.border : "#D5B8FC";
   const insets = useSafeAreaInsets();
+  const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
   const navigation = useNavigation<NavigationProp<RootTestsStackParams>>();
   const route = useRoute<RouteProp<RootTestsStackParams, "TestForm">>();
   const testId = route.params?.testId;
@@ -949,7 +952,7 @@ export default function TestFormScreen() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert("Validation", "Test name is required.");
+      showToast("Test name is required.", "danger");
       return;
     }
     const config_json = buildConfigJson();
@@ -962,7 +965,7 @@ export default function TestFormScreen() {
       return len > 0 && len !== cnt;
     });
     if (fillErr) {
-      Alert.alert("Validation", "A fill-in-the-blank question has wrong answer length. Open the web editor to fix.");
+      showToast("A fill-in-the-blank question has the wrong answer length. Open the web editor to fix it.", "danger");
       return;
     }
 
@@ -989,7 +992,7 @@ export default function TestFormScreen() {
         const { error } = await (supabase.from("tests") as any).update(payload).eq("id", testId);
         if (error) throw error;
         triggerSuccessHaptic();
-        Alert.alert("Saved", "Test updated.");
+        showToast("Test updated.", "success");
       } else {
         const body = {
           name: name.trim(),
@@ -1027,11 +1030,14 @@ export default function TestFormScreen() {
           }
         }
         triggerSuccessHaptic();
-        Alert.alert("Created", "Test saved.");
+        showToast("Test saved.", "success");
       }
-      navigation.goBack();
+      navigation.navigate("Tests", {
+        flashMessage: isEdit ? "Test updated." : "Test saved.",
+        flashTone: "success",
+      });
     } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Save failed");
+      showToast(e instanceof Error ? e.message : "Save failed", "danger");
     } finally {
       setSaving(false);
     }
@@ -1098,6 +1104,9 @@ export default function TestFormScreen() {
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity onPress={() => navigation.navigate("Notifications")} activeOpacity={0.85} style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
+              </TouchableOpacity>
               <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
                 <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
@@ -2095,6 +2104,7 @@ export default function TestFormScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      <FloatingToast {...toastProps} />
     </View>
   );
 }

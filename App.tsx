@@ -42,9 +42,14 @@ export default function App() {
     let mounted = true;
 
     Promise.all([supabase.auth.getSession(), getStoredStudentSessionId()])
-      .then(([{ data }, storedStudentSessionId]) => {
+      .then(([{ data, error }, storedStudentSessionId]) => {
         if (!mounted) return;
-        setHasSession(!!data.session);
+        if (error?.message?.toLowerCase().includes("refresh token")) {
+          supabase.auth.signOut().catch(() => {});
+          setHasSession(false);
+        } else {
+          setHasSession(!!data.session);
+        }
         setStudentSessionId(storedStudentSessionId);
       })
       .finally(() => {

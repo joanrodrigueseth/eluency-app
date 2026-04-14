@@ -22,6 +22,7 @@ import { sendAdminNotifications } from "../lib/sendAdminNotifications";
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   SendNotifications: undefined;
+  Notifications: undefined;
 };
 
 type Audience = "teachers" | "principals" | "both";
@@ -224,7 +225,13 @@ export default function SendNotificationsScreen() {
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Notifications</Text>
         </View>
 
-        <View style={{ width: 44 }} />
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.85}
+          style={{ height: 44, width: 44, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
+        >
+          <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
