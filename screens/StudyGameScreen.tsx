@@ -3,12 +3,12 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState } from "react";
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   AppState,
-  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -22,9 +22,7 @@ import {
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Asset } from "expo-asset";
-import * as IntentLauncher from "expo-intent-launcher";
-import * as Sharing from "expo-sharing";
-import * as WebBrowser from "expo-web-browser";
+import Constants from "expo-constants";
 import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -32,18 +30,20 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Speech from "expo-speech";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import Svg, { Circle, SvgUri } from "react-native-svg";
-import { encode as encodeBase64 } from "base64-arraybuffer";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import FloatingToast from "../components/FloatingToast";
+import LessonPdfViewerModal from "../components/LessonPdfViewerModal";
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
+import RemoteLessonImage from "../components/RemoteLessonImage";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { useAppTheme, type AppTheme } from "../lib/theme";
-import { clearStoredStudentSessionId } from "../lib/studentSession";
+import { cacheBustAssetUrl } from "../lib/imageCacheBust";
+import { clearStoredStudentSessionId, getStoredStudentSessionId } from "../lib/studentSession";
 import {
   getAssignedLessons,
   getAssignedTests,
@@ -91,6 +91,8 @@ type RootStackParamList = {
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
 type RuntimeScreen = "dashboard" | "lesson-detail" | "test-detail" | "session" | "results";
 type SessionIssue = StudyRecordIssue;
+
+const studyApiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
 type StudentEmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -346,12 +348,11 @@ function reviewIssueColor(theme: AppTheme, kind: SessionIssue["kind"]) {
   return theme.colors.danger;
 }
 
-function buildEmbeddedPdfViewerUrl(sourceUrl: string) {
-  return `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(sourceUrl)}`;
-}
-
-function sanitizePdfFileStem(value: string) {
-  return value.replace(/[^a-z0-9-_]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "lesson-pdf";
+function normalizeAbsoluteDocumentUrl(sourceUrl: string) {
+  if (/^https?:\/\//i.test(sourceUrl)) return sourceUrl;
+  const host = studyApiBaseUrl.replace(/\/$/, "");
+  if (sourceUrl.startsWith("/")) return `${host}${sourceUrl}`;
+  return `${host}/${sourceUrl}`;
 }
 
 function ttsLangFromShort(shortCode: string) {
@@ -388,6 +389,25 @@ export default function StudyGameScreen() {
   const sessionId = route.params?.sessionId;
   const tinyLogoUri = useMemo(() => Asset.fromModule(require("../assets/2.svg")).uri, []);
 
+  /** Login persists the canonical session id; route params can lag behind (e.g. Stack initialParams). */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await getStoredStudentSessionId();
+        if (cancelled || !stored) return;
+        if (stored !== sessionId) {
+          navigation.setParams({ sessionId: stored });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigation, sessionId]);
+
   const [loading, setLoading] = useState(true);
   const [runtimeScreen, setRuntimeScreen] = useState<RuntimeScreen>("dashboard");
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
@@ -395,6 +415,9 @@ export default function StudyGameScreen() {
   const [teacherName, setTeacherName] = useState("");
   const [lessonsData, setLessonsData] = useState<LessonGamePayload[]>([]);
   const [testsData, setTestsData] = useState<TestGamePayload[]>([]);
+  /** Bumps on each successful lesson/test catalog load so image URLs change (cache bust + expo-image). */
+  const assetCatalogEpochRef = useRef(0);
+  const [assetRefreshEpoch, setAssetRefreshEpoch] = useState(0);
   const [lessonsWords, setLessonsWords] = useState<GameWord[]>([]);
   const [testsWords, setTestsWords] = useState<GameWord[]>([]);
   const [progress, setProgress] = useState<StudyProgress | null>(null);
@@ -413,7 +436,8 @@ export default function StudyGameScreen() {
   const [mistakeWordIds, setMistakeWordIds] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<{ state: "correct" | "close" | "wrong"; text: string } | null>(null);
   const [ttsLoading, setTtsLoading] = useState(false);
-  const [lessonPdfOpening, setLessonPdfOpening] = useState(false);
+  const [lessonPdfViewerVisible, setLessonPdfViewerVisible] = useState(false);
+  const [lessonPdfViewerUri, setLessonPdfViewerUri] = useState<string | null>(null);
   const [resultRecord, setResultRecord] = useState<{ score: number; total: number; percentage: number; passed: boolean; issues: SessionIssue[] } | null>(null);
   const [selectedHistoryRecord, setSelectedHistoryRecord] = useState<StudyRecord | null>(null);
   const [selectedLessonDetail, setSelectedLessonDetail] = useState<LessonGamePayload | null>(null);
@@ -447,6 +471,15 @@ export default function StudyGameScreen() {
   const audioPlayerRef = useRef<any>(null);
   const audioTempFileRef = useRef<string | null>(null);
   const initialCatalogLoadedRef = useRef(false);
+  /** Clear catalog when session changes so we never flash another student's lessons or stale rows. */
+  useEffect(() => {
+    if (!sessionId) return;
+    initialCatalogLoadedRef.current = false;
+    setLessonsData([]);
+    setTestsData([]);
+    setLessonsWords([]);
+    setTestsWords([]);
+  }, [sessionId]);
   const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
   const correctCountRef = useRef(0);
   const sessionIssuesRef = useRef<SessionIssue[]>([]);
@@ -459,6 +492,13 @@ export default function StudyGameScreen() {
       : Math.max(insets.bottom, 20) + 12;
   const { showToast, toastProps } = useFeedbackToast({ bottom: runtimeToastBottom });
 
+  const bumpAssetCatalogEpoch = useCallback(() => {
+    assetCatalogEpochRef.current += 1;
+    const n = assetCatalogEpochRef.current;
+    setAssetRefreshEpoch(n);
+    return n;
+  }, []);
+
   const refreshCatalog = useCallback(async () => {
     if (!sessionId) return;
     const session = await getStudentSession(sessionId);
@@ -466,10 +506,11 @@ export default function StudyGameScreen() {
       getAssignedLessons(session.student.assigned_lessons ?? []),
       getAssignedTests(session.student.assigned_tests ?? []),
     ]);
+    const epoch = bumpAssetCatalogEpoch();
     setLessonsData(lessons);
     setTestsData(tests);
-    setLessonsWords(normalizeLessonsToWords(lessons));
-    setTestsWords(normalizeTestsToWords(tests));
+    setLessonsWords(normalizeLessonsToWords(lessons, epoch));
+    setTestsWords(normalizeTestsToWords(tests, epoch));
     setStudentName(session.student.name);
     setTeacherName(session.teacher?.name ?? "Teacher");
     setSelectedLessonDetail((prev) => {
@@ -486,7 +527,7 @@ export default function StudyGameScreen() {
       const test = tests.find((t) => t.id === prev.test.id);
       return test ? { type: "test", test } : prev;
     });
-  }, [sessionId]);
+  }, [sessionId, bumpAssetCatalogEpoch]);
 
   refreshCatalogRef.current = refreshCatalog;
 
@@ -695,8 +736,18 @@ export default function StudyGameScreen() {
       }
       map.set(key, prev);
     }
-    return Array.from(map.values());
-  }, [getWordStat, lessonsWords]);
+    // Dashboard edits apply to lessons.title / cover_image_url — not always mirrored on word rows.
+    return Array.from(map.values()).map((row) => {
+      const full = lessonsData.find((l) => l.id === row.id);
+      if (!full) return row;
+      const lessonCover = full.cover_image_url?.trim();
+      return {
+        ...row,
+        name: full.name?.trim() || row.name,
+        cover: lessonCover || row.cover,
+      };
+    });
+  }, [getWordStat, lessonsData, lessonsWords]);
 
   const latestLearningRecord = useMemo(() => {
     const records = [...(progress?.practiceHistory ?? []), ...(progress?.testHistory ?? [])];
@@ -927,74 +978,22 @@ export default function StudyGameScreen() {
     setRuntimeScreen("session");
   }, [lessonsData, savedResume, setCorrectCountValue]);
 
-  const openLessonDocument = useCallback(async () => {
+  const openLessonDocument = useCallback(() => {
     const documentUrl = selectedLessonDetail?.document_url?.trim();
     if (!documentUrl) {
       showToast("No lesson PDF is attached to this lesson yet.", "info");
       return;
     }
-    if (!FileSystem.cacheDirectory) {
-      showToast("Local file storage is unavailable on this device.", "danger");
+    const absoluteDocumentUrl = normalizeAbsoluteDocumentUrl(documentUrl);
+    if (Platform.OS === "web") {
+      Linking.openURL(absoluteDocumentUrl).catch(() => {
+        showToast("Could not open the lesson PDF in the browser.", "danger");
+      });
       return;
     }
-    setLessonPdfOpening(true);
-    try {
-      const response = await fetch(documentUrl);
-      if (!response.ok) {
-        throw new Error("The lesson PDF could not be downloaded.");
-      }
-      const buffer = await response.arrayBuffer();
-      const fileStem = sanitizePdfFileStem(selectedLessonDetail?.document_name || selectedLessonDetail?.name || "lesson-pdf");
-      const localUri = `${FileSystem.cacheDirectory}${fileStem}-${selectedLessonDetail?.id ?? Date.now()}.pdf`;
-      await FileSystem.writeAsStringAsync(localUri, encodeBase64(buffer), { encoding: "base64" as any });
-
-      if (Platform.OS === "android") {
-        const fileSystemWithContentUri = FileSystem as typeof FileSystem & {
-          getContentUriAsync?: (uri: string) => Promise<string>;
-        };
-        if (!fileSystemWithContentUri.getContentUriAsync) {
-          throw new Error("Android PDF opening is unavailable.");
-        }
-        const contentUri = await fileSystemWithContentUri.getContentUriAsync(localUri);
-        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-          data: contentUri,
-          flags: 1,
-          type: "application/pdf",
-        });
-        return;
-      }
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(localUri, {
-          UTI: "com.adobe.pdf",
-          mimeType: "application/pdf",
-          dialogTitle: selectedLessonDetail?.document_name || "Lesson PDF",
-        });
-        return;
-      }
-
-      try {
-        const supported = await Linking.canOpenURL(localUri);
-        if (!supported) {
-          throw new Error("This PDF could not be opened on this device.");
-        }
-        await Linking.openURL(localUri);
-      } catch {
-        try {
-          await WebBrowser.openBrowserAsync(buildEmbeddedPdfViewerUrl(documentUrl), {
-            controlsColor: theme.colors.primary,
-            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-          });
-        } catch {
-          throw new Error("Could not open the lesson PDF right now.");
-        }
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not open the lesson PDF right now.", "danger");
-    } finally {
-      setLessonPdfOpening(false);
-    }
-  }, [selectedLessonDetail?.document_name, selectedLessonDetail?.document_url, selectedLessonDetail?.id, selectedLessonDetail?.name, showToast, theme.colors.primary]);
+    setLessonPdfViewerUri(absoluteDocumentUrl);
+    setLessonPdfViewerVisible(true);
+  }, [selectedLessonDetail?.document_url, showToast]);
 
   const openTestDetailFromTest = useCallback((test: TestGamePayload) => {
     setSelectedLessonDetail(null);
@@ -1630,10 +1629,13 @@ export default function StudyGameScreen() {
         if (!mounted) return;
         setStudentName(session.student.name);
         setTeacherName(session.teacher?.name ?? "Teacher");
+        assetCatalogEpochRef.current += 1;
+        const epoch = assetCatalogEpochRef.current;
+        setAssetRefreshEpoch(epoch);
         setLessonsData(lessons);
         setTestsData(tests);
-        setLessonsWords(normalizeLessonsToWords(lessons));
-        setTestsWords(normalizeTestsToWords(tests));
+        setLessonsWords(normalizeLessonsToWords(lessons, epoch));
+        setTestsWords(normalizeTestsToWords(tests, epoch));
         setProgress(hydrated);
         initialCatalogLoadedRef.current = true;
         const raw = await AsyncStorage.getItem("eluency_lesson_resume").catch(() => null);
@@ -2088,8 +2090,8 @@ export default function StudyGameScreen() {
                       <GlassCard style={{ borderRadius: 16, marginBottom: 10, backgroundColor: ui.card }} padding={12}>
                         <View style={{ flexDirection: "row", alignItems: "center" }}>
                           {lesson.cover ? (
-                            <Image
-                              source={{ uri: lesson.cover }}
+                            <RemoteLessonImage
+                              uri={cacheBustAssetUrl(lesson.cover, fullLesson?.updated_at, assetRefreshEpoch) ?? lesson.cover}
                               style={{ width: 60, height: 60, borderRadius: 12, backgroundColor: ui.borderSoft }}
                               resizeMode="cover"
                             />
@@ -2142,13 +2144,22 @@ export default function StudyGameScreen() {
                   />
                 ) : null}
                 {lessonsData.map((lesson) => (
-                  <GlassCard key={lesson.id} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
+                  <GlassCard
+                    key={`${lesson.id}-${lesson.updated_at ?? ""}-${assetRefreshEpoch}`}
+                    style={{ borderRadius: 16, marginBottom: 10 }}
+                    padding={12}
+                    variant="strong"
+                  >
                     <TouchableOpacity
                       onPress={() => openLessonDetail(lesson)}
                       style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
                     >
                       {lesson.cover_image_url ? (
-                        <Image source={{ uri: lesson.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                        <RemoteLessonImage
+                          uri={cacheBustAssetUrl(lesson.cover_image_url, lesson.updated_at, assetRefreshEpoch) ?? lesson.cover_image_url}
+                          style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }}
+                          resizeMode="cover"
+                        />
                       ) : (
                         <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                           <Text style={{ fontSize: 22 }}>📚</Text>
@@ -2326,7 +2337,11 @@ export default function StudyGameScreen() {
                           style={{ flexDirection: "row", alignItems: "center" }}
                         >
                           {item.cover_image_url ? (
-                            <Image source={{ uri: item.cover_image_url }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                            <RemoteLessonImage
+                              uri={cacheBustAssetUrl(item.cover_image_url, item.updated_at, assetRefreshEpoch) ?? item.cover_image_url}
+                              style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft }}
+                              resizeMode="cover"
+                            />
                           ) : (
                             <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                               <Text style={{ fontSize: 22 }}>📝</Text>
@@ -2570,7 +2585,14 @@ export default function StudyGameScreen() {
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedLessonDetail.cover_image_url ? (
-                  <Image source={{ uri: selectedLessonDetail.cover_image_url }} style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                  <RemoteLessonImage
+                    uri={
+                      cacheBustAssetUrl(selectedLessonDetail.cover_image_url, selectedLessonDetail.updated_at, assetRefreshEpoch) ??
+                      selectedLessonDetail.cover_image_url
+                    }
+                    style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ fontSize: 24 }}>📚</Text>
@@ -2612,12 +2634,11 @@ export default function StudyGameScreen() {
                 </View>
                 <TouchableOpacity
                   onPress={openLessonDocument}
-                  disabled={lessonPdfOpening}
                   activeOpacity={0.85}
                   style={{
                     marginTop: 14,
                     borderRadius: 14,
-                    backgroundColor: lessonPdfOpening ? ui.borderStrong : ui.primary,
+                    backgroundColor: ui.primary,
                     paddingHorizontal: 16,
                     paddingVertical: 13,
                     flexDirection: "row",
@@ -2626,8 +2647,8 @@ export default function StudyGameScreen() {
                     gap: 8,
                   }}
                 >
-                  {lessonPdfOpening ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document-attach-outline" size={18} color="#fff" />}
-                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>{lessonPdfOpening ? "Opening Lesson PDF..." : "View Lesson PDF"}</Text>
+                  <Ionicons name="document-attach-outline" size={18} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>View Lesson PDF</Text>
                 </TouchableOpacity>
               </GlassCard>
             ) : null}
@@ -2757,7 +2778,14 @@ export default function StudyGameScreen() {
                 <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     {(word.image_url || word.img) ? (
-                      <Image source={{ uri: word.image_url || word.img || "" }} style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                      <RemoteLessonImage
+                        uri={
+                          cacheBustAssetUrl(word.image_url || word.img, selectedLessonDetail.updated_at, assetRefreshEpoch) ??
+                          (word.image_url || word.img || "")
+                        }
+                        style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }}
+                        resizeMode="cover"
+                      />
                     ) : (
                       <View style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                         <Text style={{ fontSize: 20 }}>📘</Text>
@@ -2912,9 +2940,23 @@ export default function StudyGameScreen() {
             <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 {selectedTestDetail.type === "test" && selectedTestDetail.test.cover_image_url ? (
-                  <Image source={{ uri: selectedTestDetail.test.cover_image_url }} style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                  <RemoteLessonImage
+                    uri={
+                      cacheBustAssetUrl(selectedTestDetail.test.cover_image_url, selectedTestDetail.test.updated_at, assetRefreshEpoch) ??
+                      selectedTestDetail.test.cover_image_url
+                    }
+                    style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }}
+                    resizeMode="cover"
+                  />
                 ) : selectedTestDetail.type === "lesson" && selectedTestDetail.lesson.cover_image_url ? (
-                  <Image source={{ uri: selectedTestDetail.lesson.cover_image_url }} style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                  <RemoteLessonImage
+                    uri={
+                      cacheBustAssetUrl(selectedTestDetail.lesson.cover_image_url, selectedTestDetail.lesson.updated_at, assetRefreshEpoch) ??
+                      selectedTestDetail.lesson.cover_image_url
+                    }
+                    style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft }}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={{ width: 66, height: 66, borderRadius: 14, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ fontSize: 24 }}>📝</Text>
@@ -2937,7 +2979,7 @@ export default function StudyGameScreen() {
               <TouchableOpacity
                 onPress={() => {
                   if (selectedTestDetail.type === "test") {
-                    const testWords = normalizeTestsToWords([selectedTestDetail.test]).filter((word) => word.sourceType === "test");
+                    const testWords = normalizeTestsToWords([selectedTestDetail.test], assetRefreshEpoch).filter((word) => word.sourceType === "test");
                     startSession("test", "typing", "en-pt", testWords, {
                       id: selectedTestDetail.test.id,
                       name: selectedTestDetail.test.name,
@@ -2972,7 +3014,17 @@ export default function StudyGameScreen() {
               <GlassCard key={`study-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   {(word.image_url || word.img) ? (
-                    <Image source={{ uri: word.image_url || word.img || "" }} style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }} resizeMode="cover" />
+                    <RemoteLessonImage
+                      uri={
+                        cacheBustAssetUrl(
+                          word.image_url || word.img,
+                          selectedTestDetail.type === "test" ? selectedTestDetail.test.updated_at : selectedTestDetail.lesson.updated_at,
+                          assetRefreshEpoch
+                        ) ?? (word.image_url || word.img || "")
+                      }
+                      style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft }}
+                      resizeMode="cover"
+                    />
                   ) : (
                     <View style={{ width: 54, height: 54, borderRadius: 10, backgroundColor: ui.borderSoft, alignItems: "center", justifyContent: "center" }}>
                       <Text style={{ fontSize: 20 }}>📘</Text>
@@ -3121,11 +3173,7 @@ export default function StudyGameScreen() {
               <GlassCard style={{ borderRadius: 22, backgroundColor: ui.card }} padding={14}>
                 {current.imageUrl && !showSessionIllustration ? (
                   <View style={{ alignSelf: "center", marginBottom: 10 }}>
-                    <Image
-                      source={{ uri: current.imageUrl }}
-                      style={{ width: 88, height: 88, borderRadius: 16 }}
-                      resizeMode="cover"
-                    />
+                    <RemoteLessonImage uri={current.imageUrl} style={{ width: 88, height: 88, borderRadius: 16 }} resizeMode="cover" />
                   </View>
                 ) : null}
                 {(sessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
@@ -3142,7 +3190,7 @@ export default function StudyGameScreen() {
                       }}
                     >
                       {current.imageUrl ? (
-                        <Image source={{ uri: current.imageUrl }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                        <RemoteLessonImage uri={current.imageUrl} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                       ) : (
                         <Text style={{ fontSize: sessionMode === "image" || !!current.imageUrl ? 54 : 43 }}>
                           {current.sourceType === "test" ? "📝" : "📚"}
@@ -3947,6 +3995,21 @@ export default function StudyGameScreen() {
           </View>
         </View>
       </Modal>
+      {lessonPdfViewerVisible ? (
+        <LessonPdfViewerModal
+          visible={lessonPdfViewerVisible}
+          uri={lessonPdfViewerUri}
+          title={selectedLessonDetail?.document_name || selectedLessonDetail?.name}
+          primaryColor={theme.colors.primary}
+          backgroundColor={theme.colors.surface}
+          textColor={theme.colors.text}
+          onClose={() => {
+            setLessonPdfViewerVisible(false);
+            setLessonPdfViewerUri(null);
+          }}
+          onLoadError={(msg: string) => showToast(msg, "danger")}
+        />
+      ) : null}
       <FloatingToast {...toastProps} />
     </View>
   );
