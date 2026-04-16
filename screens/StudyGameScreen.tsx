@@ -402,6 +402,7 @@ export default function StudyGameScreen() {
   const QUICK_PLAY_COUNTS = [10, 15, 20, 30, 0] as const; // 0 = All
   const [quickPlayCount, setQuickPlayCount] = useState<number>(15);
   const [quickPlayDirection, setQuickPlayDirection] = useState<StudyDirection>("pt-en");
+  const [quickPlayLanguageKey, setQuickPlayLanguageKey] = useState<string | null>(null);
 
   const [sessionType, setSessionType] = useState<StudySessionType>("practice");
   const [sessionMode, setSessionMode] = useState<StudySessionMode>("typing");
@@ -502,6 +503,25 @@ export default function StudyGameScreen() {
   }, [refreshCatalog, showToast]);
 
   const allWords = useMemo(() => [...lessonsWords, ...testsWords], [lessonsWords, testsWords]);
+
+  // Distinct language groups from lessons, keyed by "pair::language"
+  const quickPlayLanguageGroups = useMemo(() => {
+    const seen = new Map<string, { key: string; label: string; lesson: LessonGamePayload }>();
+    for (const lesson of lessonsData) {
+      const key = `${lesson.language_pair ?? ""}::${lesson.language ?? ""}`;
+      if (!seen.has(key)) seen.set(key, { key, label: lesson.language ?? lesson.language_pair ?? "Unknown", lesson });
+    }
+    return Array.from(seen.values());
+  }, [lessonsData]);
+
+  // Words filtered to the selected language group (or all lessons words if none selected)
+  const quickPlayWords = useMemo(() => {
+    if (!quickPlayLanguageKey || quickPlayLanguageGroups.length < 2) return lessonsWords;
+    return lessonsWords.filter((w) => {
+      const key = `${w.lessonLanguagePair ?? ""}::${w.lessonLanguage ?? ""}`;
+      return key === quickPlayLanguageKey;
+    });
+  }, [quickPlayLanguageKey, quickPlayLanguageGroups.length, lessonsWords]);
   const current = activeWords[idx];
   const isConjugationDrill = current?.practiceKind === "conjugation";
   const isConjugationTable = current?.practiceKind === "conjugation-table";
@@ -2193,11 +2213,41 @@ export default function StudyGameScreen() {
                         </View>
                       </View>
 
+                      {/* Language selector — only shown when 2+ distinct languages */}
+                      {quickPlayLanguageGroups.length >= 2 && (
+                        <>
+                          <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Language</Text>
+                          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                            {quickPlayLanguageGroups.map((group) => {
+                              const active = (quickPlayLanguageKey ?? quickPlayLanguageGroups[0].key) === group.key;
+                              return (
+                                <TouchableOpacity
+                                  key={group.key}
+                                  onPress={() => setQuickPlayLanguageKey(group.key)}
+                                  activeOpacity={0.85}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 16,
+                                    borderRadius: 12,
+                                    borderWidth: 1.5,
+                                    backgroundColor: active ? ui.primary : ui.card,
+                                    borderColor: active ? ui.primary : ui.border,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 13, fontWeight: "800", color: active ? "#fff" : ui.muted }}>{group.label}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </>
+                      )}
+
                       {/* Direction */}
                       <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Direction</Text>
                       <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
                         {(["pt-en", "en-pt"] as StudyDirection[]).map((dir) => {
-                          const fwd = lessonsData[0];
+                          const activeKey = quickPlayLanguageKey ?? quickPlayLanguageGroups[0]?.key;
+                          const fwd = quickPlayLanguageGroups.find((g) => g.key === activeKey)?.lesson ?? lessonsData[0];
                           const label = dir === "pt-en"
                             ? labelDirectionForward(fwd?.language_pair, fwd?.language)
                             : labelDirectionReverse(fwd?.language_pair, fwd?.language);
@@ -2265,9 +2315,10 @@ export default function StudyGameScreen() {
                       <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                         <TouchableOpacity
                           onPress={() => {
+                            const pool = quickPlayWords.length ? quickPlayWords : lessonsWords;
                             const words = quickPlayCount === 0
-                              ? allWords
-                              : shuffle(allWords).slice(0, quickPlayCount);
+                              ? pool
+                              : shuffle(pool).slice(0, quickPlayCount);
                             if (!words.length) { showToast("No words available.", "info"); return; }
                             startSession(item.type, item.mode, quickPlayDirection, words, { id: null, name: "Quick Play" });
                           }}
