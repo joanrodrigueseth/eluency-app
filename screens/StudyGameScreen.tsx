@@ -3768,18 +3768,6 @@ export default function StudyGameScreen() {
                         </View>
                       </View>
 
-                      <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", gap: 8 }}>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{sessionMode.replace("-", " ")}</Text>
-                        </View>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{direction.toUpperCase()}</Text>
-                        </View>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{resultRecord.total}Q</Text>
-                        </View>
-                      </View>
-
                       <ScrollView
                         style={{ maxHeight: reviewViewportMaxHeight }}
                         keyboardShouldPersistTaps="handled"
@@ -3911,18 +3899,6 @@ export default function StudyGameScreen() {
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                             {typeof selectedHistoryRecord.score === "number" ? selectedHistoryRecord.score : (selectedHistoryRecord.score as any)?.correct ?? 0}/{selectedHistoryRecord.totalWords} correct
                           </Text>
-                        </View>
-                      </View>
-
-                      <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", gap: 8 }}>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{selectedHistoryRecord.mode.replace("-", " ")}</Text>
-                        </View>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{selectedHistoryRecord.direction.toUpperCase()}</Text>
-                        </View>
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{selectedHistoryRecord.totalWords}Q</Text>
                         </View>
                       </View>
 

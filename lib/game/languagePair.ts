@@ -15,8 +15,15 @@ const LESSON_LANG_TO_SHORT: Record<string, string> = {
 /** Matches teacher lesson editor LANGUAGE_PAIRS — label A is stored in `pt` (or term_a), label B in `en` (or term_b) for display mapping. */
 const PAIR_META: Record<string, { labelA: string; labelB: string; shortA: string; shortB: string }> = {
   "en-pt": { labelA: "Portuguese", labelB: "English", shortA: "PT", shortB: "EN" },
-  "en-es": { labelA: "English", labelB: "Spanish", shortA: "EN", shortB: "ES" },
-  "en-fr": { labelA: "English", labelB: "French", shortA: "EN", shortB: "FR" },
+  "en-es": { labelA: "Spanish", labelB: "English", shortA: "ES", shortB: "EN" },
+  "en-en": { labelA: "English", labelB: "English", shortA: "EN", shortB: "EN" },
+  "en-fr": { labelA: "French", labelB: "English", shortA: "FR", shortB: "EN" },
+  "en-de": { labelA: "German", labelB: "English", shortA: "DE", shortB: "EN" },
+  "en-it": { labelA: "Italian", labelB: "English", shortA: "IT", shortB: "EN" },
+  "en-ja": { labelA: "Japanese", labelB: "English", shortA: "JA", shortB: "EN" },
+  "en-ko": { labelA: "Korean", labelB: "English", shortA: "KO", shortB: "EN" },
+  "en-zh": { labelA: "Chinese (Mandarin)", labelB: "English", shortA: "ZH", shortB: "EN" },
+  "en-ar": { labelA: "Arabic", labelB: "English", shortA: "AR", shortB: "EN" },
   "pt-es": { labelA: "Portuguese", labelB: "Spanish", shortA: "PT", shortB: "ES" },
 };
 
