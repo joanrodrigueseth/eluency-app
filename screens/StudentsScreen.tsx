@@ -26,6 +26,7 @@ import { NavigationProp, RouteProp, useNavigation, useFocusEffect, useRoute } fr
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import FloatingToast from "../components/FloatingToast";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import type { FloatingToastTone } from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
@@ -33,7 +34,6 @@ import ScreenReveal from "../components/ScreenReveal";
 import SkeletonLoader from "../components/SkeletonLoader";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { getRemoteProgress } from "../lib/api/study";
-import { historyDirectionLabel } from "../lib/game/languagePair";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -797,6 +797,53 @@ export default function StudentsScreen() {
       }
 
       setActivities(sessionActivities.slice(0, 100));
+
+      // Background-enrich all student activities with full session data so
+      // scores/percentages are visible without requiring a tap.
+      const studentsWithCodes = loadedStudents.filter((s) => s.code);
+      if (studentsWithCodes.length > 0) {
+        (async () => {
+          for (const student of studentsWithCodes) {
+            try {
+              let sessionId = activitySessionIdCacheRef.current.get(student.id);
+              if (!sessionId) {
+                const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ accessCode: student.code.trim().toUpperCase() }),
+                });
+                let result: VerifyAccessCodeResponse | null = null;
+                try { result = (await response.json()) as VerifyAccessCodeResponse; } catch { result = null; }
+                sessionId = result?.session?.id?.trim() || "";
+                if (!response.ok || !sessionId) continue;
+                activitySessionIdCacheRef.current.set(student.id, sessionId);
+              }
+              const progress = await getRemoteProgress(sessionId);
+              if (!progress) continue;
+              const detailedRows = buildActivitiesFromProgress(student.id, student.name, progress);
+              activityProgressCacheRef.current.set(student.id, detailedRows);
+              setActivities((prev) =>
+                prev.map((activity) => {
+                  if (activity.metadata?.student_id !== student.id) return activity;
+                  const match = findMatchingDetailedActivity(detailedRows, activity);
+                  if (!match) return activity;
+                  return {
+                    ...activity,
+                    metadata: {
+                      ...(activity.metadata ?? {}),
+                      ...(match.metadata ?? {}),
+                      student_id: activity.metadata?.student_id ?? match.metadata?.student_id,
+                      student_name: activity.metadata?.student_name ?? match.metadata?.student_name,
+                    },
+                  };
+                })
+              );
+            } catch {
+              // Best-effort — skip students whose progress can't be enriched.
+            }
+          }
+        })();
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load students";
       Alert.alert("Error", msg);
@@ -1069,6 +1116,7 @@ export default function StudentsScreen() {
           <Text style={theme.typography.label}>Directory</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Students</Text>
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}
@@ -1433,7 +1481,7 @@ export default function StudentsScreen() {
                           <View style={{
                             borderRadius: 999, borderWidth: 1,
                             borderColor: "rgba(14,165,233,0.35)",
-                            backgroundColor: "rgba(14,165,233,0.10)",
+                            backgroundColor: "#FFFFFF",
                             paddingHorizontal: 8, paddingVertical: 4,
                             flexDirection: "row", alignItems: "center", gap: 4,
                           }}>
@@ -1446,7 +1494,7 @@ export default function StudentsScreen() {
                           <View style={{
                             borderRadius: 999, borderWidth: 1,
                             borderColor: "rgba(139,92,246,0.35)",
-                            backgroundColor: "rgba(139,92,246,0.10)",
+                            backgroundColor: "#FFFFFF",
                             paddingHorizontal: 8, paddingVertical: 4,
                             flexDirection: "row", alignItems: "center", gap: 4,
                           }}>
@@ -1535,7 +1583,7 @@ export default function StudentsScreen() {
           <View style={{ flexDirection: "row", paddingHorizontal: 16, paddingVertical: 9, backgroundColor: theme.isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
             <Text style={{ flex: 2, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Student</Text>
             <Text style={{ flex: 2, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lesson / Test</Text>
-            <Text style={{ flex: 1, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Result</Text>
+            <Text style={{ flex: 1, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "left" }}>Result</Text>
           </View>
 
           {/* Rows */}
@@ -1591,11 +1639,6 @@ export default function StudentsScreen() {
                 >
                   {/* Student name */}
                   <View style={{ flex: 2, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: theme.colors.successSoft, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.success }}>
-                      <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.success }}>
-                        {studentName.trim().charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }} numberOfLines={1}>{studentName}</Text>
                       <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 1 }}>{formatShortDate(activity.created_at)}</Text>
@@ -1618,27 +1661,30 @@ export default function StudentsScreen() {
                   </View>
 
                   {/* Result badge */}
-                  <View style={{ flex: 1, alignItems: "center", gap: 4 }}>
-                    <View style={{ width: "100%", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                  <View style={{ flex: 1, alignItems: "flex-start", gap: 4 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "flex-start", alignItems: "center", gap: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Ionicons name="checkmark-circle" size={13} color={theme.colors.success} />
                         <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.success }}>{correctCount}</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Ionicons name="remove-circle" size={13} color="#D97706" />
                         <Text style={{ fontSize: 12, fontWeight: "800", color: "#D97706" }}>{closeCount}</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                         <Ionicons name="close-circle" size={13} color={theme.colors.danger} />
                         <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.danger }}>{wrongCount}</Text>
                       </View>
                     </View>
-                    {percentage !== null && (
-                      <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor, textAlign: "center" }}>{percentage}%</Text>
-                    )}
-                    {score !== null && total !== null && (
-                      <Text style={{ fontSize: 9, fontWeight: "700", color: resultColor, textAlign: "center" }}>{score}/{total}</Text>
-                    )}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }}>
+                        {percentage !== null ? `${percentage}%` : "—"}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted }}>|</Text>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: resultColor }}>
+                        {score !== null && total !== null ? `${score}/${total}` : "—"}
+                      </Text>
+                    </View>
                     {isResolvingDetails ? (
                       <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>Loading…</Text>
                     ) : (
@@ -1686,7 +1732,6 @@ export default function StudentsScreen() {
                 <GlassCard style={{ borderRadius: 24, overflow: "hidden", maxHeight: "100%" }} padding={0} variant="strong">
               {selectedActivity && (() => {
                 const meta = selectedActivity.metadata ?? {};
-                const studentName = typeof meta.student_name === "string" ? meta.student_name : "Student";
                 const contentName =
                   typeof meta.lesson_name === "string" ? meta.lesson_name :
                   typeof meta.test_name === "string" ? meta.test_name :
@@ -1697,11 +1742,6 @@ export default function StudentsScreen() {
                 const total = typeof meta.total === "number" ? meta.total : null;
                 const issues: ActivityIssue[] = Array.isArray(meta.issues) ? meta.issues : [];
                 const outcomeCounts = getActivityOutcomeCounts(meta);
-                const mode = typeof meta.mode === "string" ? meta.mode : null;
-                const directionLabel =
-                  meta.direction === "pt-en" || meta.direction === "en-pt"
-                    ? historyDirectionLabel(meta.direction, meta.language_pair, meta.lesson_language)
-                    : null;
 
                 const resultColor = percentage !== null
                   ? (percentage >= 80 ? theme.colors.success : percentage >= 50 ? "#D97706" : theme.colors.danger)
@@ -1732,30 +1772,6 @@ export default function StudentsScreen() {
                       ) : null}
                     </View>
 
-                    {/* Tags row */}
-                    <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {mode ? (
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{mode.replace("-", " ")}</Text>
-                        </View>
-                      ) : null}
-                      {directionLabel ? (
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{directionLabel}</Text>
-                        </View>
-                      ) : null}
-                      {total !== null ? (
-                        <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{total}Q</Text>
-                        </View>
-                      ) : null}
-                      <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ fontSize: 10, fontWeight: "900", color: theme.colors.text }}>{studentName}</Text>
-                      </View>
-                      <View style={{ borderRadius: 999, borderWidth: 1, borderColor: isTest ? "rgba(139,92,246,0.35)" : "rgba(14,165,233,0.35)", backgroundColor: isTest ? "rgba(139,92,246,0.08)" : "rgba(14,165,233,0.08)", paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ fontSize: 10, fontWeight: "900", color: isTest ? "#7C3AED" : "#0284C7" }}>{isTest ? "Test" : "Lesson"}</Text>
-                      </View>
-                    </View>
 
                     <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                       <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.success, backgroundColor: theme.colors.successSoft, paddingVertical: 10, alignItems: "center" }}>
@@ -1782,37 +1798,36 @@ export default function StudentsScreen() {
                       {issues.length > 0 ? (
                         <View>
                           <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
-                          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 }}>
+                          <View style={{ gap: 8 }}>
                             {issues.map((issue, i) => {
                               const iconColor = activityIssueColor(theme.colors, issue.kind);
                               return (
                                 <View
                                   key={issue.id ?? i}
                                   style={{
-                                    width: "48.5%",
                                     borderRadius: 12,
                                     borderWidth: 1,
                                     borderColor: theme.colors.border,
                                     backgroundColor: theme.colors.surfaceGlass,
-                                    padding: 9,
+                                    padding: 12,
                                   }}
                                 >
                                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                                     <Ionicons name={activityIssueIcon(issue.kind)} size={14} color={iconColor} />
-                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
                                       {activityIssueLabel(issue.kind)}
                                     </Text>
                                   </View>
-                                  <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                                  <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
                                     P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
                                   </Text>
                                   {typeof issue.expected === "string" && issue.expected ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       E: {issue.expected}
                                     </Text>
                                   ) : null}
                                   {typeof issue.answer === "string" && issue.answer ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       A: {issue.answer}
                                     </Text>
                                   ) : null}

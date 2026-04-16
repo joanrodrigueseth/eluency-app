@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole } from "../lib/teacherRolePlanRules";
@@ -1363,6 +1364,7 @@ export default function LessonPacksScreen() {
           <Text style={theme.typography.label}>Library</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Vocabulary Browser</Text>
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

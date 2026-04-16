@@ -1729,7 +1729,7 @@ export default function StudyGameScreen() {
   }
 
   const dailyCompleted = progress.dailyChallenge.date === new Date().toISOString().slice(0, 10) && progress.dailyChallenge.completed;
-  const uiIsDark = progress.preferences.darkMode ?? theme.isDark;
+  const uiIsDark = theme.isDark;
   const ui = uiIsDark
     ? {
         bg: theme.colors.background,
@@ -2417,26 +2417,28 @@ export default function StudyGameScreen() {
                 <GlassCard style={{ borderRadius: 16, marginBottom: 12 }} padding={14} variant="strong">
                   <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Preferences</Text>
                   <TouchableOpacity
-                    onPress={() =>
+                    onPress={() => {
+                      const nextDarkMode = !theme.isDark;
+                      theme.setMode(nextDarkMode ? "dark" : "light");
                       applyProgress({
                         ...progress,
-                        preferences: { ...progress.preferences, darkMode: !progress.preferences.darkMode },
-                      })
-                    }
+                        preferences: { ...progress.preferences, darkMode: nextDarkMode },
+                      });
+                    }}
                     style={{ borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10, paddingBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                   >
                     <View>
                       <Text style={{ fontWeight: "600", color: ui.text }}>Dark Mode</Text>
-                      <Text style={{ color: ui.muted, fontSize: 12, marginTop: 3 }}>Use dark color palette</Text>
+                      <Text style={{ color: ui.muted, fontSize: 12, marginTop: 3 }}>Use dark color palette across the app</Text>
                     </View>
-                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: progress.preferences.darkMode ? ui.primary : ui.border, justifyContent: "center", paddingHorizontal: 3 }}>
+                    <View style={{ width: 52, height: 30, borderRadius: 15, backgroundColor: theme.isDark ? ui.primary : ui.border, justifyContent: "center", paddingHorizontal: 3 }}>
                       <View
                         style={{
                           width: 24,
                           height: 24,
                           borderRadius: 12,
                           backgroundColor: "#fff",
-                          alignSelf: progress.preferences.darkMode ? "flex-end" : "flex-start",
+                          alignSelf: theme.isDark ? "flex-end" : "flex-start",
                         }}
                       />
                     </View>
@@ -3543,11 +3545,11 @@ export default function StudyGameScreen() {
         };
 
         const tabs = [
-          { id: "home", icon: "home-outline", label: "Home" },
-          { id: "lessons", icon: "book-outline", label: "Lessons" },
+          { id: "home", icon: "home-outline", activeIcon: "home", label: "Home" },
+          { id: "lessons", icon: "book-outline", activeIcon: "book", label: "Lessons" },
           { id: "__play__", icon: "play", label: "" },
-          { id: "tests", icon: "clipboard-outline", label: "Tests" },
-          { id: "settings", icon: "settings-outline", label: "Settings" },
+          { id: "tests", icon: "clipboard-outline", activeIcon: "clipboard", label: "Tests" },
+          { id: "settings", icon: "settings-outline", activeIcon: "settings", label: "Settings" },
         ];
 
         return (
@@ -3566,16 +3568,16 @@ export default function StudyGameScreen() {
               borderWidth: 1,
               borderColor: ui.border,
               flexDirection: "row",
-              alignItems: "flex-end",
+              alignItems: "center",
               justifyContent: "space-around",
-              paddingTop: 20,
-              paddingBottom: 7,
-              paddingHorizontal: 12,
+              paddingTop: 8,
+              paddingBottom: 8,
+              paddingHorizontal: 10,
               shadowColor: "#000",
-              shadowOpacity: uiIsDark ? 0.24 : 0.12,
-              shadowRadius: 18,
-              shadowOffset: { width: 0, height: 8 },
-              elevation: 10,
+              shadowOpacity: uiIsDark ? 0.18 : 0.1,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 8,
             }}
           >
               {tabs.map((tab) => {
@@ -3586,23 +3588,23 @@ export default function StudyGameScreen() {
                       onPress={() => handleTabPress("practice")}
                       activeOpacity={0.85}
                       style={{
-                        width: 72,
-                        height: 64,
-                        borderRadius: 25,
+                        width: 64,
+                        height: 58,
+                        borderRadius: 22,
                         backgroundColor: ui.primary,
                         alignItems: "center",
                         justifyContent: "center",
-                        marginBottom: 12,
+                        marginBottom: 10,
                         shadowColor: ui.primary,
-                        shadowOpacity: 0.38,
-                        shadowRadius: 14,
-                        shadowOffset: { width: 0, height: 6 },
-                        elevation: 10,
-                        borderWidth: 4,
+                        shadowOpacity: 0.28,
+                        shadowRadius: 12,
+                        shadowOffset: { width: 0, height: 5 },
+                        elevation: 8,
+                        borderWidth: 3,
                         borderColor: uiIsDark ? theme.colors.background : theme.colors.surface,
                       }}
                     >
-                      <Ionicons name="play" size={37} color="#fff" style={{ marginLeft: 2 }} />
+                      <Ionicons name="play" size={31} color="#fff" style={{ marginLeft: 2 }} />
                     </TouchableOpacity>
                   );
                 }
@@ -3616,37 +3618,39 @@ export default function StudyGameScreen() {
                     style={{
                       alignItems: "center",
                       justifyContent: "center",
-                      minWidth: 68,
-                      paddingTop: 0,
-                      paddingBottom: 4,
-                      paddingHorizontal: 8,
-                      borderRadius: 16,
-                      backgroundColor: active ? ui.primarySoft : "transparent",
-                      borderWidth: active ? 1 : 0,
-                      borderColor: active ? `${ui.primary}30` : "transparent",
+                      minWidth: 72,
+                      paddingTop: 2,
+                      paddingBottom: 2,
+                      paddingHorizontal: 6,
+                      borderRadius: 18,
+                      backgroundColor: "transparent",
                     }}
                   >
                     <View
                       style={{
-                        width: 46,
-                        height: 30,
+                        width: 44,
+                        height: 34,
                         borderRadius: 14,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: "transparent",
-                        borderWidth: 0,
-                        borderColor: "transparent",
+                        backgroundColor: active ? ui.primarySoft : "transparent",
+                        borderWidth: active ? 1 : 0,
+                        borderColor: active ? `${ui.primary}22` : "transparent",
                       }}
                     >
-                      <Ionicons name={tab.icon as any} size={25} color={active ? ui.primary : ui.muted} />
+                      <Ionicons
+                        name={(active ? tab.activeIcon : tab.icon) as any}
+                        size={24}
+                        color={active ? ui.primary : ui.muted}
+                      />
                     </View>
                     <Text
                       style={{
-                        fontSize: 11.5,
-                        marginTop: 2,
+                        fontSize: 10.5,
+                        marginTop: 5,
                         color: active ? ui.primary : ui.muted,
-                        fontWeight: active ? "800" : "500",
-                        letterSpacing: 0.2,
+                        fontWeight: active ? "800" : "600",
+                        letterSpacing: 0.1,
                       }}
                     >
                       {tab.label}
@@ -3735,17 +3739,16 @@ export default function StudyGameScreen() {
                         {resultRecord.issues.length > 0 ? (
                           <View>
                             <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 }}>
+                            <View style={{ gap: 8 }}>
                               {resultRecord.issues.map((issue, index) => (
                                 <View
                                   key={`${issue.id}-${index}`}
                                   style={{
-                                    width: "48.5%",
                                     borderRadius: 12,
                                     borderWidth: 1,
                                     borderColor: theme.colors.border,
                                     backgroundColor: theme.colors.surfaceGlass,
-                                    padding: 9,
+                                    padding: 12,
                                   }}
                                 >
                                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -3754,20 +3757,20 @@ export default function StudyGameScreen() {
                                       size={14}
                                       color={reviewIssueColor(theme, issue.kind)}
                                     />
-                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
                                       {reviewIssueLabel(issue.kind)}
                                     </Text>
                                   </View>
-                                  <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                                  <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
                                     P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
                                   </Text>
                                   {typeof issue.expected === "string" && issue.expected ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       E: {issue.expected}
                                     </Text>
                                   ) : null}
                                   {typeof issue.answer === "string" && issue.answer ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       A: {issue.answer}
                                     </Text>
                                   ) : null}
@@ -3882,17 +3885,16 @@ export default function StudyGameScreen() {
                         {(selectedHistoryRecord.issues ?? []).length > 0 ? (
                           <View>
                             <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 }}>
+                            <View style={{ gap: 8 }}>
                               {(selectedHistoryRecord.issues ?? []).map((issue, index) => (
                                 <View
                                   key={`${issue.id}-${index}`}
                                   style={{
-                                    width: "48.5%",
                                     borderRadius: 12,
                                     borderWidth: 1,
                                     borderColor: theme.colors.border,
                                     backgroundColor: theme.colors.surfaceGlass,
-                                    padding: 9,
+                                    padding: 12,
                                   }}
                                 >
                                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -3901,20 +3903,20 @@ export default function StudyGameScreen() {
                                       size={14}
                                       color={reviewIssueColor(theme, issue.kind)}
                                     />
-                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
                                       {reviewIssueLabel(issue.kind)}
                                     </Text>
                                   </View>
-                                  <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
+                                  <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
                                     P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
                                   </Text>
                                   {typeof issue.expected === "string" && issue.expected ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       E: {issue.expected}
                                     </Text>
                                   ) : null}
                                   {typeof issue.answer === "string" && issue.answer ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
+                                    <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
                                       A: {issue.answer}
                                     </Text>
                                   ) : null}
@@ -3949,4 +3951,3 @@ export default function StudyGameScreen() {
     </View>
   );
 }
-

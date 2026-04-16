@@ -19,6 +19,7 @@ import Constants from "expo-constants";
 
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
@@ -443,6 +444,7 @@ export default function ChatsScreen() {
             style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
           />
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

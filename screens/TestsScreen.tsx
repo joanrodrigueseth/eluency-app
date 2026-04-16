@@ -25,6 +25,7 @@ import { NavigationProp, RouteProp, useNavigation, useFocusEffect, useRoute } fr
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import FloatingToast from "../components/FloatingToast";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
@@ -555,6 +556,7 @@ export default function TestsScreen() {
           <Text style={theme.typography.label}>Library</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Tests</Text>
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

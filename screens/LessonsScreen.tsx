@@ -39,6 +39,7 @@ import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges"
 import { useAppTheme } from "../lib/theme";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import SkeletonLoader from "../components/SkeletonLoader";
 
 export type RootLessonsStackParams = {
@@ -1079,6 +1080,7 @@ export default function LessonsScreen() {
           </View>
         </View>
 
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

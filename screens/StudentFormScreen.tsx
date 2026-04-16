@@ -30,6 +30,7 @@ import AppButton from "../components/AppButton";
 import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import ScreenReveal from "../components/ScreenReveal";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
@@ -411,6 +412,7 @@ export default function StudentFormScreen() {
           {isEdit ? "Edit student" : "New student"}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ThemeToggleButton />
           <TouchableOpacity
             onPress={() => navigation.navigate("Notifications")}
             activeOpacity={0.85}

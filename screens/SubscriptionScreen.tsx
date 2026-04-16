@@ -17,6 +17,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -169,6 +170,7 @@ export default function SubscriptionScreen() {
           <Text style={[theme.typography.label, { fontSize: 10 }]}>BILLING</Text>
           <Text style={[theme.typography.title, { fontSize: 18, lineHeight: 22 }]}>Subscription</Text>
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

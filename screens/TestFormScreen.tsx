@@ -39,6 +39,7 @@ import { normalizePlanUi } from "../lib/teacherRolePlanRules";
 import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 
 import type { RootTestsStackParams } from "./TestsScreen";
@@ -1109,6 +1110,7 @@ export default function TestFormScreen() {
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <ThemeToggleButton />
               <TouchableOpacity onPress={() => navigation.navigate("Notifications")} activeOpacity={0.85} style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
                 <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
               </TouchableOpacity>

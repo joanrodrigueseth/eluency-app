@@ -15,6 +15,7 @@ import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -248,6 +249,7 @@ export default function NotificationsScreen() {
           <Text style={theme.typography.label}>Teacher</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Notifications</Text>
         </View>
+        <ThemeToggleButton />
         {unreadCount > 0 ? (
           <View
             style={{

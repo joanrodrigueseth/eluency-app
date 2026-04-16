@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import GlassCard from "../components/GlassCard";
 import AppButton from "../components/AppButton";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { sendAdminNotifications } from "../lib/sendAdminNotifications";
@@ -228,6 +229,7 @@ export default function SendNotificationsScreen() {
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Notifications</Text>
         </View>
 
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}

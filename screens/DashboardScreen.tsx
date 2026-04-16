@@ -22,15 +22,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
+import ThemeToggleButton from "../components/ThemeToggleButton";
+import { getRemoteProgress } from "../lib/api/study";
 import { triggerLightImpact } from "../lib/haptics";
 import { getLanguageBadgeColors, normalizeLanguageBadge } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
+import type { StudyRecordIssue } from "../types/study-game";
  
 type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
+  Notifications: undefined;
   Chats: undefined;
   SendNotifications: undefined;
   Teachers: undefined;
@@ -39,7 +43,7 @@ type RootStackParamList = {
   LessonPacks: undefined;
   Lessons: undefined;
   LessonForm: { lessonId?: string } | undefined;
-  Students: undefined;
+  Students: { openStudentId?: string } | undefined;
   StudentForm: { studentId?: string } | undefined;
   Tests: undefined;
   TestForm: { testId?: string } | undefined;
@@ -81,7 +85,22 @@ type TeacherCapacityItem = {
   percentage: number;
 };
 
-type ActivityTab = "lessons" | "tests";
+type ActivityTab = "lessons" | "tests" | "student_activity";
+
+type StudentActivity = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  contentName: string;
+  isTest: boolean;
+  percentage: number | null;
+  score: number | null;
+  total: number | null;
+  issues?: ActivityIssue[];
+  created_at: string;
+};
+
+type ActivityIssue = StudyRecordIssue;
  
 type StudentSessionResponse = {
   student: {
@@ -95,6 +114,13 @@ type StudentSessionResponse = {
   expires_at: string;
   error?: string;
 };
+
+type VerifyAccessCodeResponse = {
+  error?: string;
+  session?: {
+    id?: string;
+  };
+};
  
 function formatDateTime(dateIso?: string | null) {
   if (!dateIso) return "";
@@ -106,7 +132,237 @@ function formatDateTime(dateIso?: string | null) {
     day: "numeric",
   });
 }
+
+function getStudentActivityTotal(rec: any, rawScore: any, rawAnswers: any[]) {
+  if (typeof rec?.totalWords === "number") return rec.totalWords;
+  if (typeof rec?.total_words === "number") return rec.total_words;
+  if (typeof rec?.total === "number") return rec.total;
+  if (typeof rawScore?.totalWords === "number") return rawScore.totalWords;
+  if (typeof rawScore?.total_words === "number") return rawScore.total_words;
+  if (typeof rawScore?.total === "number") return rawScore.total;
+  if (rawAnswers.length > 0) return rawAnswers.length;
+
+  const scoreParts = [rawScore?.correct, rawScore?.close, rawScore?.wrong].filter((value) => typeof value === "number") as number[];
+  if (scoreParts.length > 0) return scoreParts.reduce((sum, value) => sum + value, 0);
+
+  return null;
+}
+
+function normalizeStudentActivityProgressPayload(payload: any): { practiceHistory: any[]; testHistory: any[] } {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const nested = source.progress && typeof source.progress === "object" ? source.progress : {};
+  const practiceHistory = Array.isArray(source.practiceHistory)
+    ? source.practiceHistory
+    : Array.isArray(source.practice_history)
+    ? source.practice_history
+    : Array.isArray(nested.practiceHistory)
+    ? nested.practiceHistory
+    : Array.isArray(nested.practice_history)
+    ? nested.practice_history
+    : [];
+  const testHistory = Array.isArray(source.testHistory)
+    ? source.testHistory
+    : Array.isArray(source.test_history)
+    ? source.test_history
+    : Array.isArray(nested.testHistory)
+    ? nested.testHistory
+    : Array.isArray(nested.test_history)
+    ? nested.test_history
+    : [];
+
+  return { practiceHistory, testHistory };
+}
+
+function normalizeStudentActivityMatchText(value: string | undefined | null) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isGenericStudentActivityContentName(value: string | undefined | null) {
+  const normalized = normalizeStudentActivityMatchText(value);
+  return normalized.length === 0 || normalized === "test" || normalized === "lesson" || normalized === "a test" || normalized === "a lesson";
+}
+
+function activityIssueLabel(kind: ActivityIssue["kind"]) {
+  if (kind === "correct") return "Correct";
+  if (kind === "open_review") return "Review";
+  if (kind === "skip") return "Skipped";
+  if (kind === "close") return "Close";
+  return "Wrong";
+}
+
+function activityIssueIcon(kind: ActivityIssue["kind"]) {
+  if (kind === "correct") return "checkmark-circle" as const;
+  if (kind === "open_review") return "document-text-outline" as const;
+  if (kind === "close") return "alert-circle-outline" as const;
+  return "close-circle" as const;
+}
+
+function activityIssueColor(colors: ReturnType<typeof useAppTheme>["colors"], kind: ActivityIssue["kind"]) {
+  if (kind === "correct") return colors.success;
+  if (kind === "open_review") return colors.primary;
+  if (kind === "close") return "#D4943C";
+  return colors.danger;
+}
+
+function normalizeIssues(rawIssues: any[], rawAnswers: any[]): ActivityIssue[] {
+  if (rawIssues.length > 0 && typeof rawIssues[0]?.kind === "string") {
+    return rawIssues.map((issue: any, index: number) => ({
+      id: typeof issue.id === "string" ? issue.id : String(index),
+      prompt: issue.prompt ?? "",
+      expected: issue.expected ?? "",
+      answer: typeof issue.answer === "string" ? issue.answer : undefined,
+      kind: issue.kind as ActivityIssue["kind"],
+    }));
+  }
+
+  if (rawAnswers.length > 0) {
+    const kindMap: Record<string, ActivityIssue["kind"]> = {
+      correct: "correct",
+      close: "close",
+      submitted: "open_review",
+      wrong: "wrong",
+    };
+
+    return rawAnswers.map((answer: any, index: number) => {
+      const word = answer.word && typeof answer.word === "object" ? answer.word : {};
+      const rawPrompt = word.pt ?? word.en ?? word.sp ?? word.se ?? answer.prompt;
+      const rawExpected = answer.correctAnswer ?? answer.expected;
+      const rawUserAnswer = answer.userAnswer ?? answer.answer;
+
+      return {
+        id: String(index),
+        prompt: typeof rawPrompt === "string" ? rawPrompt : "",
+        expected: typeof rawExpected === "string" ? rawExpected : "",
+        answer: typeof rawUserAnswer === "string" ? rawUserAnswer : undefined,
+        kind: kindMap[answer.result] ?? (answer.kind as ActivityIssue["kind"]) ?? "wrong",
+      };
+    });
+  }
+
+  return [];
+}
+
+function getStudentActivityOutcomeCounts(activity: StudentActivity) {
+  const issues = Array.isArray(activity.issues) ? activity.issues : [];
+  if (issues.length > 0) {
+    return {
+      correct: issues.filter((issue) => issue.kind === "correct" || issue.kind === "open_review").length,
+      close: issues.filter((issue) => issue.kind === "close").length,
+      wrong: issues.filter((issue) => issue.kind === "wrong" || issue.kind === "skip").length,
+    };
+  }
+
+  const correct = typeof activity.score === "number" ? activity.score : 0;
+  const total = typeof activity.total === "number" ? activity.total : null;
+  const close = 0;
+  const wrong = total !== null ? Math.max(total - correct - close, 0) : 0;
+  return { correct, close, wrong };
+}
+
+function findMatchingStudentActivity(candidates: StudentActivity[], target: StudentActivity): StudentActivity | null {
+  const targetName = normalizeStudentActivityMatchText(target.contentName);
+  const targetCreatedAt = new Date(target.created_at).getTime();
+
+  const ranked = candidates
+    .filter((candidate) => candidate.studentId === target.studentId && candidate.isTest === target.isTest)
+    .map((candidate) => {
+      const candidateName = normalizeStudentActivityMatchText(candidate.contentName);
+      const candidateCreatedAt = new Date(candidate.created_at).getTime();
+      return {
+        candidate,
+        sameName: targetName.length > 0 && candidateName === targetName,
+        dateDelta:
+          Number.isFinite(targetCreatedAt) && Number.isFinite(candidateCreatedAt)
+            ? Math.abs(candidateCreatedAt - targetCreatedAt)
+            : Number.MAX_SAFE_INTEGER,
+      };
+    })
+    .sort((a, b) => {
+      if (a.sameName !== b.sameName) return a.sameName ? -1 : 1;
+      return a.dateDelta - b.dateDelta;
+    });
+
+  return ranked[0]?.candidate ?? null;
+}
+
+function getStudentActivityResultLabel(item: StudentActivity) {
+  const parts: string[] = [];
+
+  if (item.percentage !== null) parts.push(`${item.percentage}%`);
+
+  if (item.score !== null && item.total !== null) {
+    parts.push(`${item.score}/${item.total}`);
+  } else if (item.score !== null) {
+    parts.push(`${item.score} correct`);
+  }
+
+  return parts.join(" • ") || "Result pending";
+}
  
+const reviewViewportMaxHeight = 488;
+
+function buildStudentActivitiesFromProgress(studentId: string, studentName: string, progress: any): StudentActivity[] {
+  if (!progress || typeof progress !== "object") return [];
+
+  const normalized = normalizeStudentActivityProgressPayload(progress);
+  const items: StudentActivity[] = [];
+
+  const push = (records: any[], isTest: boolean) => {
+    for (const rec of records ?? []) {
+      const contentName =
+        typeof rec.lessonName === "string" ? rec.lessonName :
+        typeof rec.testName === "string" ? rec.testName :
+        typeof rec.lessonTitle === "string" ? rec.lessonTitle :
+        typeof rec.testTitle === "string" ? rec.testTitle :
+        typeof rec.lesson_title === "string" ? rec.lesson_title :
+        typeof rec.test_title === "string" ? rec.test_title :
+        typeof rec.title === "string" ? rec.title :
+        typeof rec.name === "string" ? rec.name :
+        typeof rec.lesson?.name === "string" ? rec.lesson.name :
+        typeof rec.lesson?.title === "string" ? rec.lesson.title :
+        typeof rec.test?.name === "string" ? rec.test.name :
+        typeof rec.test?.title === "string" ? rec.test.title : null;
+      const rawScore = rec.score;
+      const rawAnswers: any[] = Array.isArray(rawScore?.answers) ? rawScore.answers : [];
+      const rawIssues: any[] = Array.isArray(rec.issues) ? rec.issues : [];
+      const issues = normalizeIssues(rawIssues, rawAnswers);
+      const correctCount = typeof rawScore === "number"
+        ? rawScore
+        : typeof rawScore?.correct === "number"
+        ? rawScore.correct
+        : rawAnswers.filter((answer: any) => answer.result === "correct").length;
+      const totalWords = getStudentActivityTotal(rec, rawScore, rawAnswers);
+      const pct: number | null =
+        typeof rec.percentage === "number" ? rec.percentage :
+        typeof rec.score_percentage === "number" ? rec.score_percentage :
+        typeof rawScore?.percentage === "number" ? rawScore.percentage :
+        totalWords != null && totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : null;
+      const createdAt =
+        typeof rec.date === "string" ? rec.date :
+        typeof rec.timestamp === "number" ? new Date(rec.timestamp).toISOString() :
+        typeof rec.timestamp === "string" ? rec.timestamp : new Date().toISOString();
+
+      items.push({
+        id: `${studentId}-${createdAt}-${isTest ? "t" : "l"}`,
+        studentId,
+        studentName,
+        contentName: contentName ?? (isTest ? "Test" : "Lesson"),
+        isTest,
+        percentage: pct,
+        score: correctCount >= 0 && totalWords != null ? correctCount : correctCount > 0 ? correctCount : null,
+        total: totalWords,
+        issues,
+        created_at: createdAt,
+      });
+    }
+  };
+
+  push(normalized.practiceHistory, false);
+  push(normalized.testHistory, true);
+
+  return items;
+}
+
 function pickProgressColor(theme: ReturnType<typeof useAppTheme>, percentage: number) {
   if (percentage >= 90) return theme.colors.danger;
   if (percentage >= 70) return theme.colors.primary;
@@ -350,7 +606,7 @@ export default function DashboardScreen() {
  
   const sessionId = route.params?.sessionId;
   const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
- 
+
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -380,7 +636,10 @@ export default function DashboardScreen() {
   const [adminRevenueMonthly, setAdminRevenueMonthly] = useState(0);
   const [recentLessons, setRecentLessons] = useState<RecentLesson[]>([]);
   const [recentTests, setRecentTests] = useState<RecentTest[]>([]);
-  const [activityTab, setActivityTab] = useState<ActivityTab>("lessons");
+  const [recentStudentActivity, setRecentStudentActivity] = useState<StudentActivity[]>([]);
+  const [activityTab, setActivityTab] = useState<ActivityTab>("student_activity");
+  const [selectedStudentActivity, setSelectedStudentActivity] = useState<StudentActivity | null>(null);
+  const [studentActivityDetailLoadingId, setStudentActivityDetailLoadingId] = useState<string | null>(null);
   const [teacherCapacity, setTeacherCapacity] = useState<TeacherCapacityItem[]>([]);
  
   const [studentName, setStudentName] = useState<string>("");
@@ -388,6 +647,9 @@ export default function DashboardScreen() {
   const [assignedLessonsIds, setAssignedLessonsIds] = useState<string[]>([]);
   const [assignedTestsIds, setAssignedTestsIds] = useState<string[]>([]);
   const [studentExpiresAt, setStudentExpiresAt] = useState<string>("");
+
+  const studentAccessCodeMapRef = useRef(new Map<string, string>());
+  const isCompactPhone = drawerWidth < 420;
  
   const isStudentMode = !!sessionId;
   const currentUserName = isStudentMode ? studentName || "Student" : teacherName || "Teacher";
@@ -431,6 +693,10 @@ export default function DashboardScreen() {
     }
     if (label === "/dashboard/chats") {
       navigation.navigate("Chats");
+      return;
+    }
+    if (label === "/dashboard/inbox" || label === "Notifications") {
+      navigation.navigate("Notifications");
       return;
     }
     if (label === "/dashboard/notifications") {
@@ -487,7 +753,69 @@ export default function DashboardScreen() {
  
     Alert.alert("Coming soon", `Mobile action not implemented yet: ${label}`);
   };
- 
+
+  const openStudentActivity = async (activity: StudentActivity) => {
+    const existingIssues = Array.isArray(activity.issues) ? activity.issues : [];
+    if (existingIssues.length > 0) {
+      setSelectedStudentActivity(activity);
+      return;
+    }
+
+    const accessCode = studentAccessCodeMapRef.current.get(activity.studentId)?.trim();
+    if (!accessCode) {
+      setSelectedStudentActivity(activity);
+      return;
+    }
+
+    setStudentActivityDetailLoadingId(activity.id);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessCode: accessCode.toUpperCase() }),
+      });
+
+      let result: VerifyAccessCodeResponse | null = null;
+      try {
+        result = (await response.json()) as VerifyAccessCodeResponse;
+      } catch {
+        result = null;
+      }
+
+      const sessionIdFromCode = result?.session?.id?.trim() || "";
+      if (!response.ok || !sessionIdFromCode) {
+        setSelectedStudentActivity(activity);
+        return;
+      }
+
+      const progress = await getRemoteProgress(sessionIdFromCode);
+      const detailedRows = buildStudentActivitiesFromProgress(activity.studentId, activity.studentName, progress);
+      const match = findMatchingStudentActivity(detailedRows, activity);
+
+      if (match) {
+        const mergedActivity: StudentActivity = {
+          ...activity,
+          contentName: isGenericStudentActivityContentName(activity.contentName) ? match.contentName : activity.contentName || match.contentName,
+          percentage: activity.percentage ?? match.percentage,
+          score: activity.score ?? match.score,
+          total: activity.total ?? match.total,
+          issues: Array.isArray(activity.issues) && activity.issues.length > 0 ? activity.issues : match.issues,
+          created_at: activity.created_at || match.created_at,
+        };
+
+        setRecentStudentActivity((prev) => prev.map((item) => (item.id === activity.id ? mergedActivity : item)));
+        setSelectedStudentActivity(mergedActivity);
+        return;
+      }
+    } catch {
+      // Fall back to the summary row if detailed progress is unavailable.
+    } finally {
+      setStudentActivityDetailLoadingId((current) => (current === activity.id ? null : current));
+    }
+
+    setSelectedStudentActivity(activity);
+  };
+
   const menuSections = useMemo(() => {
     const workspace = [
       { label: "Dashboard", href: "/dashboard", icon: "shield" as const },
@@ -506,6 +834,7 @@ export default function DashboardScreen() {
       : [];
  
     const account = [
+      { label: "Notifications", href: "/dashboard/inbox", icon: "notifications" as const },
       { label: "Settings", href: "/dashboard/settings", icon: "settings" as const },
       { label: "Subscription", href: "/dashboard/settings/subscription", icon: "wallet" as const },
     ];
@@ -693,6 +1022,208 @@ export default function DashboardScreen() {
           setRecentLessons((rawLessons?.data ?? []) as RecentLesson[]);
           setRecentTests((rawTests?.data ?? []) as RecentTest[]);
           setTeacherCapacity([]);
+
+          // Load condensed student activity for the third tab
+          try {
+            const { data: studentRows } = await (supabase.from("students") as any)
+              .select("id, name, code")
+              .eq("teacher_id", user.id);
+            const myStudents: { id: string; name: string; code: string }[] = studentRows ?? [];
+            if (myStudents.length > 0) {
+              studentAccessCodeMapRef.current = new Map(myStudents.map((student) => [student.id, student.code ?? ""]));
+              const ids = myStudents.map((s) => s.id);
+              const nameMap = new Map(myStudents.map((s) => [s.id, s.name]));
+
+              // Helper: parse a single progress row into StudentActivity[]
+              const parseProgressRow = (studentId: string, practiceH: any[], testH: any[]): StudentActivity[] => {
+                const out: StudentActivity[] = [];
+                const name = nameMap.get(studentId) ?? "Student";
+                const push = (records: any[], isTest: boolean) => {
+                  for (const rec of records ?? []) {
+                    const contentName =
+                      typeof rec.lessonName === "string" ? rec.lessonName :
+                      typeof rec.testName === "string" ? rec.testName :
+                      typeof rec.lessonTitle === "string" ? rec.lessonTitle :
+                      typeof rec.testTitle === "string" ? rec.testTitle :
+                      typeof rec.lesson_title === "string" ? rec.lesson_title :
+                      typeof rec.test_title === "string" ? rec.test_title :
+                      typeof rec.title === "string" ? rec.title :
+                      typeof rec.name === "string" ? rec.name :
+                      typeof rec.lesson?.name === "string" ? rec.lesson.name :
+                      typeof rec.lesson?.title === "string" ? rec.lesson.title :
+                      typeof rec.test?.name === "string" ? rec.test.name :
+                      typeof rec.test?.title === "string" ? rec.test.title : null;
+                    const rawScore = rec.score;
+                    const rawAnswers: any[] = Array.isArray(rawScore?.answers) ? rawScore.answers : [];
+                    const rawIssues: any[] = Array.isArray(rec.issues) ? rec.issues : [];
+                    const issues = normalizeIssues(rawIssues, rawAnswers);
+                    const correctCount = typeof rawScore === "number" ? rawScore :
+                      typeof rawScore?.correct === "number" ? rawScore.correct :
+                      rawAnswers.filter((a: any) => a.result === "correct").length;
+                    const totalWords = getStudentActivityTotal(rec, rawScore, rawAnswers);
+                    const pct: number | null =
+                      typeof rec.percentage === "number" ? rec.percentage :
+                      typeof rec.score_percentage === "number" ? rec.score_percentage :
+                      typeof rawScore?.percentage === "number" ? rawScore.percentage :
+                      totalWords != null && totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : null;
+                    const createdAt = typeof rec.date === "string" ? rec.date :
+                      typeof rec.timestamp === "number" ? new Date(rec.timestamp).toISOString() :
+                      typeof rec.timestamp === "string" ? rec.timestamp : new Date().toISOString();
+                    out.push({
+                      id: `${studentId}-${createdAt}-${isTest ? "t" : "l"}`,
+                      studentId,
+                      studentName: name,
+                      contentName: contentName ?? (isTest ? "Test" : "Lesson"),
+                      isTest,
+                      percentage: pct,
+                      score: correctCount >= 0 && totalWords != null ? correctCount : correctCount > 0 ? correctCount : null,
+                      total: totalWords,
+                      issues,
+                      created_at: createdAt,
+                    });
+                  }
+                };
+                push(practiceH, false);
+                push(testH, true);
+                return out;
+              };
+
+              let activities: StudentActivity[] = [];
+              const progressRowsByStudent = new Map<string, { practiceHistory: any[]; testHistory: any[] }>();
+
+              // 1. Try direct student_game_progress table
+              const { data: progressRows, error: progressError } = await (supabase.from("student_game_progress") as any)
+                .select("student_id, practice_history, test_history")
+                .in("student_id", ids);
+
+              if (!progressError && Array.isArray(progressRows)) {
+                for (const row of progressRows) {
+                  const sid = typeof row?.student_id === "string" ? row.student_id : null;
+                  if (!sid) continue;
+                  progressRowsByStudent.set(sid, normalizeStudentActivityProgressPayload(row));
+                }
+              }
+
+              // 2. Fill in any missing students via API
+              const missingStudentIds = ids.filter((sid) => !progressRowsByStudent.has(sid));
+              if (missingStudentIds.length > 0) {
+                const { data: { session: authSession } } = await supabase.auth.getSession();
+                const token = authSession?.access_token ?? "";
+                const apiResults = await Promise.all(
+                  missingStudentIds.map(async (sid) => {
+                    try {
+                      const res = await fetch(`${apiBaseUrl}/api/teacher/students/${encodeURIComponent(sid)}/progress`, {
+                        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                      });
+                      if (!res.ok) return null;
+                      const json = await res.json();
+                      return { sid, payload: normalizeStudentActivityProgressPayload(json) };
+                    } catch {
+                      return null;
+                    }
+                  })
+                );
+
+                for (const row of apiResults) {
+                  if (!row) continue;
+                  progressRowsByStudent.set(row.sid, row.payload);
+                }
+              }
+
+              for (const [studentId, progress] of progressRowsByStudent.entries()) {
+                activities.push(...parseProgressRow(studentId, progress.practiceHistory, progress.testHistory));
+              }
+
+              // 3. Last resort: teacher_notifications
+              if (activities.length === 0) {
+                const { data: notifs } = await (supabase.from("teacher_notifications") as any)
+                  .select("id, type, title, metadata, created_at")
+                  .in("type", ["lesson_completed", "test_completed"])
+                  .order("created_at", { ascending: false })
+                  .limit(30);
+                for (const n of notifs ?? []) {
+                  const meta = n.metadata && typeof n.metadata === "object" ? n.metadata : {};
+                  const sid = typeof meta.student_id === "string" ? meta.student_id : null;
+                  if (sid && !ids.includes(sid)) continue;
+                  const isTest = n.type === "test_completed";
+                  const contentName = typeof meta.lesson_name === "string" ? meta.lesson_name :
+                    typeof meta.test_name === "string" ? meta.test_name : (isTest ? "Test" : "Lesson");
+                  activities.push({
+                    id: n.id,
+                    studentId: sid ?? "",
+                    studentName: typeof meta.student_name === "string" ? meta.student_name : nameMap.get(sid ?? "") ?? "Student",
+                    contentName,
+                    isTest,
+                    percentage:
+                      typeof meta.percentage === "number" ? meta.percentage :
+                      typeof meta.score_percentage === "number" ? meta.score_percentage : null,
+                    score:
+                      typeof meta.score === "number" ? meta.score :
+                      typeof meta.correct === "number" ? meta.correct : null,
+                    total:
+                      typeof meta.total === "number" ? meta.total :
+                      typeof meta.total_words === "number" ? meta.total_words :
+                      typeof meta.question_count === "number" ? meta.question_count : null,
+                    created_at: n.created_at,
+                  });
+                }
+              }
+
+              activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+              if (isMounted) setRecentStudentActivity(activities.slice(0, 15));
+
+              const studentsWithCodes = myStudents.filter((student) => student.code);
+              if (studentsWithCodes.length > 0) {
+                void (async () => {
+                  for (const student of studentsWithCodes) {
+                    try {
+                      const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ accessCode: student.code.trim().toUpperCase() }),
+                      });
+                      let result: VerifyAccessCodeResponse | null = null;
+                      try {
+                        result = (await response.json()) as VerifyAccessCodeResponse;
+                      } catch {
+                        result = null;
+                      }
+
+                      const sessionId = result?.session?.id?.trim() || "";
+                      if (!response.ok || !sessionId) continue;
+
+                      const progress = await getRemoteProgress(sessionId);
+                      const normalized = normalizeStudentActivityProgressPayload(progress);
+                      const detailedRows = parseProgressRow(student.id, normalized.practiceHistory, normalized.testHistory);
+                      if (detailedRows.length === 0 || !isMounted) continue;
+
+                      setRecentStudentActivity((prev) =>
+                        prev.map((activity) => {
+                          if (activity.studentId !== student.id) return activity;
+                          const match = findMatchingStudentActivity(detailedRows, activity);
+                          if (!match) return activity;
+
+                          return {
+                            ...activity,
+                            contentName: isGenericStudentActivityContentName(activity.contentName) ? match.contentName : activity.contentName || match.contentName,
+                            percentage: activity.percentage ?? match.percentage,
+                            score: activity.score ?? match.score,
+                            total: activity.total ?? match.total,
+                            issues: Array.isArray(activity.issues) && activity.issues.length > 0 ? activity.issues : match.issues,
+                            created_at: activity.created_at || match.created_at,
+                          };
+                        })
+                      );
+                    } catch {
+                      // best-effort enrichment
+                    }
+                  }
+                })();
+              }
+            }
+          } catch {
+            // best-effort
+          }
         }
       } catch (err) {
         if (!isMounted) return;
@@ -790,6 +1321,7 @@ export default function DashboardScreen() {
       flame: "flame" as const,
       star: "star" as const,
       settings: "settings" as const,
+      notifications: "notifications-outline" as const,
     }),
     []
   );
@@ -938,7 +1470,7 @@ export default function DashboardScreen() {
         style={{
           borderRadius: 12,
           padding: 6,
-          backgroundColor: tint,
+          backgroundColor: theme.isDark ? iconBg + "33" : tint,
           borderWidth: 1,
           borderColor: theme.colors.border,
           shadowColor: "#000",
@@ -949,7 +1481,7 @@ export default function DashboardScreen() {
         }}
       >
         <View style={{ position: "absolute", top: 5, right: 5 }}>
-          <View style={{ width: 14, height: 14, borderRadius: 5, backgroundColor: "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
+          <View style={{ width: 14, height: 14, borderRadius: 5, backgroundColor: theme.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="chevron-forward" size={8} color={theme.colors.textMuted} />
           </View>
         </View>
@@ -997,14 +1529,21 @@ export default function DashboardScreen() {
     const topLabel = createMatch ? "Create" : label;
     const bottomLabel = createMatch ? createMatch[1] : "";
 
-    const colors =
-      icon === "book"
-        ? { bg: "#EEF5FF", iconWrap: "#DDEBFF", icon: "#2D74BF" }
+    const colors = theme.isDark
+      ? icon === "book"
+        ? { bg: "rgba(55,119,201,0.20)", iconWrap: "rgba(55,119,201,0.35)", icon: "#60A5FA" }
         : icon === "clipboard"
-          ? { bg: "#F5EEFF", iconWrap: "#E8D7FF", icon: "#8B4EE2" }
-          : icon === "school"
-            ? { bg: "#EEF9F2", iconWrap: "#D6F0E0", icon: "#3A9E6A" }
-            : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
+        ? { bg: "rgba(144,80,231,0.20)", iconWrap: "rgba(144,80,231,0.35)", icon: "#C084FC" }
+        : icon === "school"
+        ? { bg: "rgba(62,163,112,0.20)", iconWrap: "rgba(62,163,112,0.35)", icon: "#34D399" }
+        : { bg: "rgba(227,169,31,0.20)", iconWrap: "rgba(227,169,31,0.35)", icon: "#FCD34D" }
+      : icon === "book"
+      ? { bg: "#EEF5FF", iconWrap: "#DDEBFF", icon: "#2D74BF" }
+      : icon === "clipboard"
+      ? { bg: "#F5EEFF", iconWrap: "#E8D7FF", icon: "#8B4EE2" }
+      : icon === "school"
+      ? { bg: "#EEF9F2", iconWrap: "#D6F0E0", icon: "#3A9E6A" }
+      : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
 
     return (
       <View style={{ width: twoPerRow ? "31.5%" : "31.5%", marginBottom: 8 }}>
@@ -1017,6 +1556,8 @@ export default function DashboardScreen() {
             backgroundColor: colors.bg,
             borderWidth: 1,
             borderColor: theme.colors.border,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
           <View
@@ -1031,12 +1572,12 @@ export default function DashboardScreen() {
           >
             <Ionicons name={ICONS[icon]} size={14} color={colors.icon} />
           </View>
-          <View style={{ marginTop: 8 }}>
-            <Text style={[theme.typography.bodyStrong, { fontSize: 11, lineHeight: 13, textTransform: "uppercase", color: theme.colors.textMuted }]} numberOfLines={1}>
+          <View style={{ marginTop: 8, alignItems: "center" }}>
+            <Text style={[theme.typography.bodyStrong, { fontSize: 11, lineHeight: 13, textTransform: "uppercase", color: theme.colors.textMuted, textAlign: "center" }]} numberOfLines={1}>
               {topLabel}
             </Text>
             {bottomLabel ? (
-              <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, lineHeight: 15, color: theme.colors.text }]} numberOfLines={1}>
+              <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, lineHeight: 15, color: theme.colors.text, textAlign: "center" }]} numberOfLines={1}>
                 {bottomLabel}
               </Text>
             ) : null}
@@ -1127,55 +1668,48 @@ export default function DashboardScreen() {
         flexDirection: "row",
       }}
     >
-      <TouchableOpacity
-        onPress={() => setActivityTab("lessons")}
-        activeOpacity={0.9}
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingVertical: 8,
-          borderRadius: 9,
-          backgroundColor: activityTab === "lessons" ? theme.colors.surface : "transparent",
-        }}
-      >
-        <Text
-          style={[
-            theme.typography.caption,
-            {
-              fontWeight: "800",
-              color: activityTab === "lessons" ? theme.colors.text : theme.colors.textMuted,
-            },
-          ]}
-        >
-          Recent Lessons
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={() => setActivityTab("tests")}
-        activeOpacity={0.9}
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingVertical: 8,
-          borderRadius: 9,
-          backgroundColor: activityTab === "tests" ? theme.colors.surface : "transparent",
-        }}
-      >
-        <Text
-          style={[
-            theme.typography.caption,
-            {
-              fontWeight: "800",
-              color: activityTab === "tests" ? theme.colors.text : theme.colors.textMuted,
-            },
-          ]}
-        >
-          Recent Tests
-        </Text>
-      </TouchableOpacity>
+      {(["student_activity", "lessons", "tests"] as ActivityTab[]).map((tab) => {
+        const label = tab === "lessons" ? "Lessons" : tab === "tests" ? "Tests" : isCompactPhone ? "Student" : "Student Activity";
+        const active = activityTab === tab;
+        const colors =
+          tab === "lessons"
+            ? { bg: "#EAF6FF", border: "#A9D8F7", text: "#0284C7" }
+            : tab === "tests"
+            ? { bg: "#F5F0FF", border: "#C4B0F8", text: "#7C3AED" }
+            : { bg: "#EBF8F0", border: "#A8DFC0", text: "#2F855A" };
+        return (
+          <TouchableOpacity
+            key={tab}
+            onPress={() => setActivityTab(tab)}
+            activeOpacity={0.9}
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 8,
+              borderRadius: 9,
+              borderWidth: 1,
+              borderColor: active ? colors.border : "transparent",
+              backgroundColor: active ? colors.bg : "transparent",
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[
+                theme.typography.caption,
+                {
+                  fontWeight: "800",
+                  fontSize: isCompactPhone ? 11 : undefined,
+                  color: active ? colors.text : theme.colors.textMuted,
+                },
+              ]}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
  
@@ -1318,6 +1852,387 @@ export default function DashboardScreen() {
     );
   };
  
+  const RecentStudentActivityCard = ({ items }: { items: StudentActivity[] }) => {
+    const visibleItems = items.slice(0, 5);
+    return (
+      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+        <ActivityTabs />
+        {visibleItems.length > 0 ? (
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
+              <View
+                style={{
+                  minWidth: 740,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  overflow: "hidden",
+                  backgroundColor: theme.colors.surfaceAlt,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    backgroundColor: theme.colors.surfaceGlass,
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.colors.border,
+                  }}
+                >
+                  <Text style={[theme.typography.caption, { width: 140, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Student</Text>
+                  <Text style={[theme.typography.caption, { width: 220, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Lesson/Test Name</Text>
+                  <Text style={[theme.typography.caption, { width: 110, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Type</Text>
+                  <Text style={[theme.typography.caption, { width: 130, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Date Completed</Text>
+                  <Text style={[theme.typography.caption, { width: 120, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Results</Text>
+                  <View style={{ width: 24 }} />
+                </View>
+            {visibleItems.map((item, index) => {
+              const resultColor = item.percentage !== null
+                ? (item.percentage >= 80 ? theme.colors.success : item.percentage >= 50 ? "#D97706" : theme.colors.danger)
+                : theme.colors.textMuted;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.75}
+                  onPress={() => navigation.navigate("Students", { openStudentId: item.studentId })}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    marginTop: index === 0 ? 0 : 6,
+                    gap: 8,
+                  }}
+                >
+                  <View style={{ width: 140, paddingRight: 12 }}>
+                    <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>{item.studentName}</Text>
+                  </View>
+                  <View style={{ width: 220, paddingRight: 12 }}>
+                    <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={2}>{item.contentName}</Text>
+                  </View>
+                  <View style={{ width: 110, paddingRight: 12 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }}>
+                      {item.percentage !== null ? `${item.percentage}%` : "—"}
+                    </Text>
+                    <Text style={{ fontSize: 10, fontWeight: "700", color: resultColor, marginTop: 1 }}>
+                      {item.score !== null && item.total !== null ? `${item.score}/${item.total}` : "—"}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }}>{formatDateTime(item.created_at)}</Text>
+                  <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+              </View>
+            </ScrollView>
+            <View style={{ alignItems: "flex-end", marginTop: 14 }}>
+              <TouchableOpacity onPress={() => navigation.navigate("Students")} activeOpacity={0.8}>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "800" }]}>View all</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <View style={{ borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No student activity yet</Text>
+          </View>
+        )}
+      </GlassCard>
+    );
+  };
+
+  const StudentActivityTableCard = ({ items }: { items: StudentActivity[] }) => {
+    const visibleItems = items.slice(0, 5);
+
+    return (
+      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+        <ActivityTabs />
+
+        {visibleItems.length > 0 ? (
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
+              <View
+                style={{
+                  minWidth: 740,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  overflow: "hidden",
+                  backgroundColor: theme.colors.surfaceAlt,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    backgroundColor: theme.colors.surfaceGlass,
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.colors.border,
+                  }}
+                >
+                  <Text style={[theme.typography.caption, { width: 140, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Student</Text>
+                  <Text style={[theme.typography.caption, { width: 220, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Lesson/Test Name</Text>
+                  <Text style={[theme.typography.caption, { width: 110, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Type</Text>
+                  <Text style={[theme.typography.caption, { width: 130, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Date Completed</Text>
+                  <Text style={[theme.typography.caption, { width: 120, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Results</Text>
+                  <View style={{ width: 24 }} />
+                </View>
+
+                {visibleItems.map((item, index) => {
+                  const resultColor = item.percentage !== null
+                    ? (item.percentage >= 80 ? theme.colors.success : item.percentage >= 50 ? "#D97706" : theme.colors.danger)
+                    : theme.colors.textMuted;
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.75}
+                      onPress={() => navigation.navigate("Students", { openStudentId: item.studentId })}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        borderBottomWidth: index === visibleItems.length - 1 ? 0 : 1,
+                        borderBottomColor: theme.colors.border,
+                      }}
+                    >
+                      <View style={{ width: 140, paddingRight: 12 }}>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>{item.studentName}</Text>
+                      </View>
+
+                      <View style={{ width: 220, paddingRight: 12 }}>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={2}>{item.contentName}</Text>
+                      </View>
+
+                      <View style={{ width: 110, paddingRight: 12 }}>
+                        <View
+                          style={{
+                            alignSelf: "flex-start",
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
+                            backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                          }}
+                        >
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
+                            {item.isTest ? "Test" : "Lesson"}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={{ width: 130, paddingRight: 12 }}>
+                        <Text style={{ fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{formatDateTime(item.created_at)}</Text>
+                      </View>
+
+                      <View style={{ width: 120, paddingRight: 12 }}>
+                        <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }} numberOfLines={1}>
+                          {item.percentage !== null ? `${item.percentage}%` : "—"}
+                        </Text>
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted, marginTop: 1 }} numberOfLines={1}>
+                          {item.score !== null && item.total !== null ? `${item.score}/${item.total}` : "No score"}
+                        </Text>
+                      </View>
+
+                      <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={{ alignItems: "flex-end", marginTop: 14 }}>
+              <TouchableOpacity onPress={() => navigation.navigate("Students")} activeOpacity={0.8}>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "800" }]}>View all</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <View style={{ borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No student activity yet</Text>
+          </View>
+        )}
+      </GlassCard>
+    );
+  };
+
+  const StudentActivityPillCard = ({ items }: { items: StudentActivity[] }) => {
+    const visibleItems = items.slice(0, 5);
+
+    return (
+      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+        <ActivityTabs />
+
+        {visibleItems.length > 0 ? (
+          <>
+            {visibleItems.map((item, index) => {
+              const resultColor = item.percentage !== null
+                ? (item.percentage >= 80 ? theme.colors.success : item.percentage >= 50 ? "#D97706" : theme.colors.danger)
+                : theme.colors.textMuted;
+              const resultLabel = getStudentActivityResultLabel(item);
+              const isResolvingDetails = studentActivityDetailLoadingId === item.id;
+
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.75}
+                  onPress={() => { openStudentActivity(item).catch(() => {}); }}
+                  disabled={isResolvingDetails}
+                  style={{
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    marginTop: index === 0 ? 0 : 8,
+                    opacity: isResolvingDetails ? 0.7 : 1,
+                  }}
+                >
+                  {isCompactPhone ? (
+                    <>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View
+                          style={{
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
+                            backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
+                            {item.isTest ? "Test" : "Lesson"}
+                          </Text>
+                        </View>
+
+                        <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
+                          {item.studentName}
+                        </Text>
+
+                        {isResolvingDetails ? (
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>Loading...</Text>
+                        ) : (
+                          <View style={{ width: 20, height: 20, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <Text style={{ flex: 1, fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>
+                          {item.contentName}
+                        </Text>
+
+                        <View
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: resultColor,
+                            backgroundColor: theme.colors.surfaceGlass,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: resultColor }} numberOfLines={1}>
+                            {resultLabel}
+                          </Text>
+                        </View>
+
+                        <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }} numberOfLines={1}>
+                          {formatDateTime(item.created_at)}
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View
+                        style={{
+                          paddingHorizontal: 9,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
+                          backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
+                          {item.isTest ? "Test" : "Lesson"}
+                        </Text>
+                      </View>
+
+                      <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
+                        {`${item.studentName} | ${item.contentName}`}
+                      </Text>
+
+                      <View
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: resultColor,
+                          backgroundColor: theme.colors.surfaceGlass,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: resultColor }} numberOfLines={1}>
+                          {resultLabel}
+                        </Text>
+                      </View>
+
+                      <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }} numberOfLines={1}>
+                        {formatDateTime(item.created_at)}
+                      </Text>
+
+                      {isResolvingDetails ? (
+                        <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>Loading...</Text>
+                      ) : (
+                        <View style={{ width: 20, height: 20, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <Ionicons name="chevron-forward" size={10} color={theme.colors.textMuted} />
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+
+            <View style={{ alignItems: "flex-end", marginTop: 14 }}>
+              <TouchableOpacity onPress={() => navigation.navigate("Students")} activeOpacity={0.8}>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "800" }]}>View all</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <View style={{ borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No student activity yet</Text>
+          </View>
+        )}
+      </GlassCard>
+    );
+  };
+
   const AssignmentCard = ({
     eyebrow,
     title,
@@ -1440,7 +2355,7 @@ export default function DashboardScreen() {
       </View>
     );
   };
- 
+
   const teacherDashboard = (
     <>
       <AnimatedSection delay={0}>
@@ -1580,8 +2495,10 @@ export default function DashboardScreen() {
           <AnimatedSection delay={280}>
             {activityTab === "lessons" ? (
               <RecentLessonsCard items={recentLessons} />
-            ) : (
+            ) : activityTab === "tests" ? (
               <RecentTestsCard items={recentTests} />
+            ) : (
+              <StudentActivityPillCard items={recentStudentActivity} />
             )}
           </AnimatedSection>
         </>
@@ -1659,7 +2576,156 @@ export default function DashboardScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <DashboardBackground theme={theme} />
- 
+
+      <Modal
+        visible={!!selectedStudentActivity}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedStudentActivity(null)}
+      >
+        <View style={{ flex: 1 }}>
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              paddingTop: Math.max(insets.top, 18),
+              paddingBottom: Math.max(insets.bottom, 18),
+              paddingHorizontal: 16,
+            }}
+          >
+            <Pressable
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: theme.isDark ? "rgba(0,0,0,0.55)" : "rgba(10,14,20,0.32)",
+              }}
+              onPress={() => setSelectedStudentActivity(null)}
+            />
+
+            <View>
+              <GlassCard style={{ borderRadius: 24, overflow: "hidden", maxHeight: "100%" }} padding={0} variant="strong">
+                {selectedStudentActivity && (() => {
+                  const activity = selectedStudentActivity;
+                  const issues: ActivityIssue[] = Array.isArray(activity.issues) ? activity.issues : [];
+                  const outcomeCounts = getStudentActivityOutcomeCounts(activity);
+                  const resultColor = activity.percentage !== null
+                    ? (activity.percentage >= 80 ? theme.colors.success : activity.percentage >= 50 ? "#D97706" : theme.colors.danger)
+                    : theme.colors.text;
+
+                  return (
+                    <>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                          <Text style={[theme.typography.title, { fontSize: 18 }]}>{activity.isTest ? "Test review" : "Lesson review"}</Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                            {activity.studentName} | {activity.contentName}
+                          </Text>
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                            {activity.created_at ? new Date(activity.created_at).toLocaleDateString() : "Past attempt"}
+                          </Text>
+                        </View>
+                        {activity.percentage !== null ? (
+                          <View style={{ alignItems: "flex-end" }}>
+                            <Text style={[theme.typography.title, { fontSize: 24, color: resultColor }]}>{activity.percentage}%</Text>
+                            {activity.score !== null && activity.total !== null ? (
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                                {activity.score}/{activity.total} correct
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+
+                      <View style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+                        <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.success, backgroundColor: theme.colors.successSoft, paddingVertical: 10, alignItems: "center" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.success }}>RIGHT</Text>
+                          <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.success, marginTop: 2 }}>{outcomeCounts.correct}</Text>
+                        </View>
+                        <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: "#F3C679", backgroundColor: "#FFF5DA", paddingVertical: 10, alignItems: "center" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: "#D97706" }}>CLOSE</Text>
+                          <Text style={{ fontSize: 18, fontWeight: "900", color: "#D97706", marginTop: 2 }}>{outcomeCounts.close}</Text>
+                        </View>
+                        <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", paddingVertical: 10, alignItems: "center" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.danger }}>WRONG</Text>
+                          <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.danger, marginTop: 2 }}>{outcomeCounts.wrong}</Text>
+                        </View>
+                      </View>
+
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
+                        style={{ maxHeight: reviewViewportMaxHeight }}
+                        contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
+                      >
+                        {issues.length > 0 ? (
+                          <View>
+                            <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
+                            <View style={{ gap: 8 }}>
+                              {issues.map((issue, index) => {
+                                const iconColor = activityIssueColor(theme.colors, issue.kind);
+                                return (
+                                  <View
+                                    key={issue.id ?? index}
+                                    style={{
+                                      borderRadius: 12,
+                                      borderWidth: 1,
+                                      borderColor: theme.colors.border,
+                                      backgroundColor: theme.colors.surfaceGlass,
+                                      padding: 12,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                      <Ionicons name={activityIssueIcon(issue.kind)} size={14} color={iconColor} />
+                                      <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
+                                        {activityIssueLabel(issue.kind)}
+                                      </Text>
+                                    </View>
+                                    <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
+                                      P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
+                                    </Text>
+                                    {typeof issue.expected === "string" && issue.expected ? (
+                                      <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
+                                        E: {issue.expected}
+                                      </Text>
+                                    ) : null}
+                                    {typeof issue.answer === "string" && issue.answer ? (
+                                      <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
+                                        A: {issue.answer}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                            Question details were not saved for this session.
+                          </Text>
+                        )}
+                      </ScrollView>
+
+                      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
+                        <TouchableOpacity
+                          onPress={() => setSelectedStudentActivity(null)}
+                          style={{ borderRadius: 14, backgroundColor: theme.colors.success, paddingVertical: 13, alignItems: "center" }}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: "800", color: "#fff" }}>Close</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  );
+                })()}
+              </GlassCard>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal transparent visible={drawerVisible} animationType="none" onRequestClose={closeMenu}>
         <View style={{ flex: 1 }}>
           <Animated.View
@@ -1878,6 +2944,7 @@ export default function DashboardScreen() {
             </View>
           </View>
  
+          <ThemeToggleButton />
           <AnimatedPressable
             onPress={() => navigation.navigate("Settings")}
             style={{

@@ -23,7 +23,7 @@ import LessonsScreen from "./screens/LessonsScreen";
 import LessonFormScreen from "./screens/LessonFormScreen";
 import StudyGameScreen from "./screens/StudyGameScreen";
 import { getStoredStudentSessionId } from "./lib/studentSession";
-import { useAppTheme } from "./lib/theme";
+import { ThemeProvider, useAppTheme } from "./lib/theme";
 import { supabase } from "./lib/supabase";
 import { ensureLocalNotificationsReady } from "./lib/mobileNotifications";
 import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from "./lib/notificationWatchers";
@@ -33,6 +33,14 @@ const Stack = createNativeStackNavigator();
 const navigationRef = createNavigationContainerRef<any>();
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppShell />
+    </ThemeProvider>
+  );
+}
+
+function AppShell() {
   const theme = useAppTheme();
   const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
   const [authBootstrapped, setAuthBootstrapped] = useState(false);

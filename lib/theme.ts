@@ -1,3 +1,12 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Platform, TextStyle, useColorScheme, ViewStyle } from "react-native";
 
 type AppColors = {
@@ -22,8 +31,11 @@ type AppColors = {
   shadow: string;
 };
 
+export type ThemeMode = "light" | "dark" | "system";
+
 export type AppTheme = {
   isDark: boolean;
+  mode: ThemeMode;
   colors: AppColors;
   typography: {
     display: TextStyle;
@@ -34,7 +46,21 @@ export type AppTheme = {
     caption: TextStyle;
   };
   cardShadow: ViewStyle;
+  setMode: (mode: ThemeMode) => void;
+  toggleDarkMode: () => void;
 };
+
+type ThemeContextValue = {
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+};
+
+const THEME_MODE_STORAGE_KEY = "eluency-theme-mode";
+
+const ThemeContext = createContext<ThemeContextValue>({
+  mode: "system",
+  setMode: () => {},
+});
 
 const sharedFontFamily = Platform.select({
   ios: "System",
@@ -42,16 +68,12 @@ const sharedFontFamily = Platform.select({
   default: "System",
 });
 
-// Brand palette
 const LINEN_BG = "#F7F2EA";
 const LINEN_SURFACE = "#FCFAF6";
 const LINEN_ALT = "#FFFFFF";
 
 const AZULEJO_BLUE = "#2E7ABF";
 const AZULEJO_BLUE_SOFT = "#EAF3FB";
-const AZULEJO_BLUE_SOFT_STRONG = "#D8EAF8";
-const AZULEJO_BLUE_BORDER = "#B7D0E8";
-
 const GOLD = "#F3C64D";
 const GOLD_SOFT = "#FFF5DA";
 
@@ -113,13 +135,58 @@ const darkColors: AppColors = {
   shadow: "rgba(0,0,0,0.42)",
 };
 
+function isThemeMode(value: string | null): value is ThemeMode {
+  return value === "light" || value === "dark" || value === "system";
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [mode, setModeState] = useState<ThemeMode>("system");
+
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(THEME_MODE_STORAGE_KEY)
+      .then((stored) => {
+        if (!mounted || !isThemeMode(stored)) return;
+        setModeState(stored);
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const setMode = useCallback((nextMode: ThemeMode) => {
+    setModeState(nextMode);
+    AsyncStorage.setItem(THEME_MODE_STORAGE_KEY, nextMode).catch(() => {});
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      mode,
+      setMode,
+    }),
+    [mode, setMode]
+  );
+
+  return React.createElement(ThemeContext.Provider, { value }, children);
+}
+
 export function useAppTheme(): AppTheme {
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { mode, setMode } = useContext(ThemeContext);
+  const isDark = mode === "system" ? colorScheme === "dark" : mode === "dark";
   const colors = isDark ? darkColors : lightColors;
+
+  const toggleDarkMode = useCallback(() => {
+    setMode(isDark ? "light" : "dark");
+  }, [isDark, setMode]);
 
   return {
     isDark,
+    mode,
+    setMode,
+    toggleDarkMode,
     colors,
     typography: {
       display: {

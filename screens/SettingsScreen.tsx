@@ -19,6 +19,7 @@ import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navig
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import ThemeToggleButton from "../components/ThemeToggleButton";
 import FloatingToast from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import ScreenReveal from "../components/ScreenReveal";
@@ -155,7 +156,7 @@ export default function SettingsScreen() {
         if (!mounted || !user) return;
 
         let displayName = (user.user_metadata?.name as string) || "";
-        const teacherSelect = "name, role, plan, student_limit, lesson_limit, test_limit, preset_limit, default_language_pair";
+        const teacherSelect = "name, role, plan, student_limit, lesson_limit, test_limit";
         const { data: teacherByUserId, error: teacherByUserIdError } = await (supabase.from("teachers") as any)
           .select(teacherSelect)
           .eq("user_id", user.id)
@@ -171,8 +172,11 @@ export default function SettingsScreen() {
             .maybeSingle();
 
           teacher = teacherById;
-          if (!teacher && teacherByUserIdError && teacherByIdError) {
-            if (__DEV__) console.warn("SettingsScreen: unable to load teacher row via user_id or id; using auth fallbacks.");
+          if (!teacher && (teacherByUserIdError || teacherByIdError)) {
+            if (__DEV__) console.warn("SettingsScreen: unable to load teacher row via user_id or id; using auth fallbacks.", {
+              teacherByUserIdError,
+              teacherByIdError,
+            });
           }
         }
 
@@ -190,7 +194,7 @@ export default function SettingsScreen() {
             student_limit: teacher.student_limit ?? null,
             lesson_limit: teacher.lesson_limit ?? null,
             test_limit: teacher.test_limit ?? null,
-            preset_limit: teacher.preset_limit ?? null,
+            preset_limit: null,
           });
         } else {
           // Final fallback to auth metadata when teacher row is not available.
@@ -328,6 +332,17 @@ export default function SettingsScreen() {
     effectiveStudentLimit === 999 || effectiveStudentLimit === -1
       ? `${studentCount} / Unlimited`
       : `${studentCount} / ${effectiveStudentLimit != null ? String(effectiveStudentLimit) : "-"}`;
+  const heroPlanSurface = theme.isDark ? "rgba(17,24,39,0.86)" : planColor.bg;
+  const heroPlanBorder = theme.isDark ? "rgba(255,255,255,0.08)" : planColor.border;
+  const heroPlanAccentBg = theme.isDark ? planColor.text + "1A" : planColor.text + "18";
+  const heroPlanHeadingColor = theme.isDark ? theme.colors.textMuted : planColor.text;
+  const heroPlanTitleColor = theme.isDark ? theme.colors.text : planColor.text;
+  const heroPlanBodyColor = theme.isDark ? theme.colors.textMuted : planColor.text;
+  const heroPlanChipBg = theme.isDark ? "rgba(255,255,255,0.05)" : "#FFFFFF80";
+  const heroPlanChipBorder = theme.isDark ? "rgba(255,255,255,0.08)" : planColor.border;
+  const heroPlanButtonBg = theme.isDark ? "rgba(30,41,59,0.92)" : "#FFFFFFB8";
+  const heroPlanButtonBorder = theme.isDark ? "rgba(255,255,255,0.10)" : planColor.text + "22";
+  const heroPlanButtonText = theme.isDark ? theme.colors.text : planColor.text;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -358,6 +373,7 @@ export default function SettingsScreen() {
           <Text style={theme.typography.label}>Account</Text>
           <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Settings</Text>
         </View>
+        <ThemeToggleButton />
         <TouchableOpacity
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.85}
@@ -383,14 +399,14 @@ export default function SettingsScreen() {
             {/* Profile hero */}
             <ScreenReveal key={`hero-${activeTab}`} delay={20}>
             <GlassCard style={{ borderRadius: 20, marginBottom: 16 }} padding={20} variant="hero">
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
                 <View style={{
-                  width: 60, height: 60, borderRadius: 20,
+                  width: 52, height: 52, borderRadius: 18,
                   backgroundColor: theme.colors.primary,
                   alignItems: "center", justifyContent: "center",
                   shadowColor: theme.colors.primary, shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
                 }}>
-                  <Text style={{ color: "#fff", fontSize: 22, fontWeight: "800" }}>{initials}</Text>
+                  <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800" }}>{initials}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[theme.typography.bodyStrong, { fontSize: 17 }]}>{profile.name || "—"}</Text>
@@ -400,6 +416,86 @@ export default function SettingsScreen() {
                       <Text style={{ fontSize: 11, fontWeight: "700", color: planColor.text }}>{planInfo?.plan ?? "Basic"}</Text>
                     </View>
                   </View>
+                </View>
+              </View>
+              <View
+                style={{
+                  marginTop: 14,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: heroPlanBorder,
+                  backgroundColor: heroPlanSurface,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  gap: 10,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 11,
+                      backgroundColor: heroPlanAccentBg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons name="diamond-outline" size={17} color={planColor.text} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[theme.typography.caption, { color: heroPlanHeadingColor, fontWeight: "700" }]}>YOUR PLAN</Text>
+                    <Text style={[theme.typography.bodyStrong, { color: heroPlanTitleColor, fontSize: 16, marginTop: 2 }]} numberOfLines={1}>
+                      {planInfo?.plan ?? "Basic"}
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: heroPlanBodyColor, marginTop: 2 }]} numberOfLines={1}>
+                      Manage students, limits, and billing in one place.
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: heroPlanChipBorder,
+                      backgroundColor: heroPlanChipBg,
+                      flex: 1,
+                    }}
+                  >
+                    <Ionicons name="school-outline" size={14} color={planColor.text} />
+                    <Text style={[theme.typography.caption, { color: heroPlanHeadingColor, fontWeight: "700" }]}>Students</Text>
+                    <Text style={[theme.typography.caption, { color: heroPlanHeadingColor }]}>{`|`}</Text>
+                    <Text style={[theme.typography.caption, { color: heroPlanTitleColor, fontWeight: "700", flex: 1 }]} numberOfLines={1}>
+                      {studentUsageLabel}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate("Subscription")}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      paddingHorizontal: 11,
+                      paddingVertical: 8,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: heroPlanButtonBorder,
+                      backgroundColor: heroPlanButtonBg,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Text style={[theme.typography.caption, { color: heroPlanButtonText, fontWeight: "700" }]}>{planCtaLabel}</Text>
+                    <Feather name="arrow-right" size={12} color={planColor.text} />
+                  </TouchableOpacity>
                 </View>
               </View>
             </GlassCard>
@@ -508,34 +604,6 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="strong">
-                  <SectionTitle icon="diamond-outline" label="Your plan" color="#9050E7" />
-
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: 14, borderRadius: 14, backgroundColor: planColor.bg, borderWidth: 1, borderColor: planColor.border }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "600", marginBottom: 2 }]}>CURRENT PLAN</Text>
-                      <Text style={[theme.typography.bodyStrong, { color: planColor.text, fontSize: 18 }]}>{planInfo?.plan ?? "Basic"}</Text>
-                      <TouchableOpacity
-                        onPress={() => navigation.navigate("Subscription")}
-                        activeOpacity={0.85}
-                        style={{ marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: planColor.text + "20", borderWidth: 1, borderColor: planColor.text + "33" }}
-                      >
-                        <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "700" }]}>{planCtaLabel}</Text>
-                        <Feather name="arrow-right" size={13} color={planColor.text} />
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={{ alignItems: "flex-end", marginHorizontal: 10 }}>
-                      <Text style={[theme.typography.caption, { color: planColor.text, fontWeight: "700", marginBottom: 2 }]}>STUDENTS MAX</Text>
-                      <Text style={[theme.typography.bodyStrong, { color: planColor.text, fontSize: 14 }]}>{studentUsageLabel}</Text>
-                    </View>
-
-                    <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: planColor.text + "20", alignItems: "center", justifyContent: "center", marginLeft: 2 }}>
-                      <Ionicons name="diamond" size={20} color={planColor.text} />
-                    </View>
-                  </View>
-
-                </GlassCard>
               </>
               </ScreenReveal>
             )}
@@ -661,7 +729,7 @@ export default function SettingsScreen() {
                   <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="notifications-outline" size={28} color="#3EA370" />
                   </View>
-                  <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>Coming soon</Text>
+                  <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>Notifications</Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center", maxWidth: 240 }]}>
                     Notification preferences will be available in a future update.
                   </Text>

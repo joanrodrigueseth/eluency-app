@@ -10,7 +10,7 @@ export function triggerLightImpact() {
   const now = Date.now();
   if (now - lastLightImpactAt < LIGHT_IMPACT_DEDUPE_MS) return;
   lastLightImpactAt = now;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 }
 
 export function triggerSuccessHaptic() {
