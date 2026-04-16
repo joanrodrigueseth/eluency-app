@@ -16,6 +16,7 @@ import { Alert,
   Text,
   TextInput,
   UIManager,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
@@ -61,6 +62,7 @@ type LessonFlashParams = {
 };
 
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 type RowType = "vocab" | "conjugation" | "preposition";
@@ -126,12 +128,7 @@ const ROW_TYPE_TAB_LABEL: Record<RowType, string> = {
   conjugation: "Conjugation",
   preposition: "Preposition",
 };
-const LANGUAGE_PAIRS = [
-  { code: "en-pt", labelA: "Portuguese", labelB: "English" },
-  { code: "en-es", labelA: "English", labelB: "Spanish" },
-  { code: "en-fr", labelA: "English", labelB: "French" },
-  { code: "pt-es", labelA: "Portuguese", labelB: "Spanish" },
-] as const;
+const LANGUAGE_PAIR_FALLBACK = "en-pt";
 const AI_ELIGIBLE_PLANS = ["basic", "standard", "school", "internal"];
 const TENSE_OPTIONS = ["", "Present", "Past", "Future", "Present Perfect", "Past Perfect", "Future Perfect", "Conditional", "Subjunctive", "Imperative", "Infinitive", "Gerund", "Participle"] as const;
 const GRAMMAR_OPTIONS = ["", "Noun", "Verb", "Adjective", "Adverb", "Preposition", "Pronoun", "Conjunction", "Phrase", "Idiom", "Expression", "Other"] as const;
@@ -140,15 +137,21 @@ const GRAMMAR_OPTIONS = ["", "Noun", "Verb", "Adjective", "Adverb", "Preposition
 const LANGUAGE_DEFAULT_PAIR: Record<string, string> = {
   "Portuguese (BR)": "en-pt",
   "Spanish": "en-es",
+  "English": "en-en",
   "French": "en-fr",
-  "German": "en-pt",
-  "Italian": "en-pt",
-  "English": "en-pt",
-  "Japanese": "en-pt",
-  "Korean": "en-pt",
-  "Chinese (Mandarin)": "en-pt",
-  "Arabic": "en-pt",
+  "German": "en-de",
+  "Italian": "en-it",
+  "Japanese": "en-ja",
+  "Korean": "en-ko",
+  "Chinese (Mandarin)": "en-zh",
+  "Arabic": "en-ar",
 };
+
+function pairForLessonLanguage(language: string | null | undefined, fallback = LANGUAGE_PAIR_FALLBACK) {
+  const value = typeof language === "string" ? language.trim() : "";
+  if (!value || value === CHOOSE_LANGUAGE_PLACEHOLDER || value === "(Choose Language)") return fallback;
+  return LANGUAGE_DEFAULT_PAIR[value] ?? fallback;
+}
 
 const PT_DE_TEMPLATE: PrepositionTemplate = {
   id: "pt-de",
@@ -595,6 +598,7 @@ function FormSectionHeader({
 export default function LessonFormScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
   const navigation = useNavigation<LessonFormNavigationProp>();
   const route = useRoute<RouteProp<RootLessonsStackParams, "LessonForm">>();
@@ -615,14 +619,14 @@ export default function LessonFormScreen() {
   const [language, setLanguage] = useState<string>(CHOOSE_LANGUAGE_PLACEHOLDER);
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
-  const [languagePair, setLanguagePair] = useState<string>("en-pt");
+  const [languagePair, setLanguagePair] = useState<string>(LANGUAGE_PAIR_FALLBACK);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [coverPreviewUri, setCoverPreviewUri] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
   const [docUrl, setDocUrl] = useState("");
   const [docName, setDocName] = useState("");
   const [teacherId, setTeacherId] = useState("");
-  const [words, setWords] = useState<WordRow[]>([makeWord("en-pt", "Portuguese (BR)", "vocab")]);
+  const [words, setWords] = useState<WordRow[]>([makeWord(LANGUAGE_PAIR_FALLBACK, "Portuguese (BR)", "vocab")]);
   const [aiSubject, setAiSubject] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [extractLoading, setExtractLoading] = useState(false);
@@ -638,7 +642,6 @@ export default function LessonFormScreen() {
   const [languageOpen, setLanguageOpen] = useState(false);
   const [lessonCategoryOpen, setLessonCategoryOpen] = useState(false);
 
-  const pairMeta = useMemo(() => LANGUAGE_PAIRS.find((p) => p.code === languagePair) ?? LANGUAGE_PAIRS[0], [languagePair]);
   /** Unset / placeholder → same defaults as web lesson editor (PT conjugation templates, prepositions). */
   const effectiveLessonLanguage = useMemo(() => {
     if (!language || language === CHOOSE_LANGUAGE_PLACEHOLDER || language === "(Choose Language)") {
@@ -655,8 +658,12 @@ export default function LessonFormScreen() {
     [language]
   );
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes(planRaw.toLowerCase()), [isAdmin, planRaw]);
-  const labelA = pairMeta.labelA;
-  const labelB = pairMeta.labelB;
+  const compactHeader = width < 440;
+  const labelA =
+    !language || language === CHOOSE_LANGUAGE_PLACEHOLDER || language === "(Choose Language)"
+      ? "Language A"
+      : effectiveLessonLanguage;
+  const labelB = "English";
   const vocabCount = useMemo(() => words.length, [words]);
   const specialRowCount = useMemo(() => words.filter((w) => w.rowType !== "vocab").length, [words]);
   const conjugationRowCount = useMemo(() => words.filter((w) => w.rowType === "conjugation").length, [words]);
@@ -728,20 +735,24 @@ export default function LessonFormScreen() {
     setCategory(inferredInstructionalCategory);
     setLessonCategory(storedLessonCategory);
     setLanguageLevel(data.language_level ?? "");
-    setLanguage(
-      data.language ?? (cfg as { instructional_language?: string }).instructional_language ?? "Portuguese (BR)"
+    const savedLanguage =
+      data.language ?? (cfg as { instructional_language?: string }).instructional_language ?? "Portuguese (BR)";
+    const savedPair = pairForLessonLanguage(
+      savedLanguage,
+      typeof (cfg as any).language_pair === "string" ? (cfg as any).language_pair : LANGUAGE_PAIR_FALLBACK
     );
+    setLanguage(savedLanguage);
     setCoverImageUrl(data.cover_image_url ?? "");
     setCoverPreviewUri(data.cover_image_url ?? "");
     setTeacherId(data.created_by ?? "");
 
-    setLanguagePair((cfg as any).language_pair ?? "en-pt");
+    setLanguagePair(savedPair);
     setDocUrl((cfg as any).document_url ?? "");
     setDocName((cfg as any).document_name ?? "");
     const rawWords = Array.isArray((cfg as any).words) ? (cfg as any).words : [];
     const mapped: WordRow[] = rawWords.map((w: any) => {
       const rt: RowType = w.rowType === "conjugation" ? "conjugation" : w.rowType === "preposition" ? "preposition" : "vocab";
-      const base = makeWord((cfg as any).language_pair ?? "en-pt", data.language ?? "Portuguese (BR)", rt);
+      const base = makeWord(savedPair, savedLanguage, rt);
       return {
         ...base,
         key: uid(),
@@ -769,7 +780,7 @@ export default function LessonFormScreen() {
         prepositions: Array.isArray(w.prepositions) ? w.prepositions.map((p: any) => ({ left: String(p.left ?? ""), right: String(p.right ?? ""), answer: String(p.answer ?? ""), note: String(p.note ?? "") })) : base.prepositions,
       };
     });
-    setWords(mapped.length ? mapped : [makeWord((cfg as any).language_pair ?? "en-pt", data.language ?? "Portuguese (BR)", "vocab")]);
+    setWords(mapped.length ? mapped : [makeWord(savedPair, savedLanguage, "vocab")]);
 
     if (!storedLessonCategory) {
       const { data: links, error: linksError } = await (supabase.from("lesson_pack_lessons") as any)
@@ -914,17 +925,53 @@ export default function LessonFormScreen() {
     backgroundColor: theme.colors.surfaceAlt,
   };
 
-  const authedJsonFetch = async (path: string, body: unknown) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) throw new Error("Not authenticated");
-    const res = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
+  const getAccessToken = async () => {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (session?.access_token) return session.access_token;
+
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError) throw refreshError;
+    if (!refreshed.session?.access_token) throw new Error("Not authenticated");
+    return refreshed.session.access_token;
+  };
+
+  const postAuthed = async (path: string, token: string, init: { body?: any; headers?: Record<string, string> }) =>
+    fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(supabaseAnonKey ? { apikey: supabaseAnonKey } : {}),
+        ...(init.headers ?? {}),
+      },
+      body: init.body,
+    });
+
+  const authedJsonFetch = async (path: string, body: unknown) => {
+    let token = await getAccessToken();
+    let res = await postAuthed(path, token, {
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+
+    if (res.status === 401) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      token = refreshed.session?.access_token || token;
+      res = await postAuthed(path, token, {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+
     const json = (await res.json().catch(() => ({}))) as Record<string, any>;
-    if (!res.ok) throw new Error(String(json?.error ?? "Request failed"));
+    if (!res.ok) {
+      const detail = String(json?.error ?? json?.message ?? "").trim();
+      throw new Error(detail ? `${detail} (${res.status})` : `Request failed (${res.status})`);
+    }
     return json;
   };
 
@@ -992,16 +1039,22 @@ export default function LessonFormScreen() {
     const file = result.assets[0];
     setExtractLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Not authenticated");
+      let token = await getAccessToken();
       const form = new FormData();
       form.append("file", { uri: file.uri, name: file.name || "vocab-file", type: file.mimeType || "application/octet-stream" } as any);
       form.append("language_pair", languagePair);
-      const base = apiBaseUrl.replace(/\/$/, "");
-      const res = await fetch(`${base}/api/ai/lessons/extract-vocabulary-from-file`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+      let res = await postAuthed("/api/ai/lessons/extract-vocabulary-from-file", token, { body: form });
+      if (res.status === 401) {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw refreshError;
+        token = refreshed.session?.access_token || token;
+        res = await postAuthed("/api/ai/lessons/extract-vocabulary-from-file", token, { body: form });
+      }
       const json = (await res.json().catch(() => ({}))) as Record<string, any>;
-      if (!res.ok) throw new Error(String(json?.error ?? "Extraction failed"));
+      if (!res.ok) {
+        const detail = String(json?.error ?? json?.message ?? "").trim();
+        throw new Error(detail ? `${detail} (${res.status})` : `Extraction failed (${res.status})`);
+      }
       const extracted = Array.isArray(json.words) ? json.words : [];
       if (!extracted.length) return Alert.alert("AI", "No vocabulary found in this file.");
       setWords((prev) =>
@@ -1064,7 +1117,8 @@ export default function LessonFormScreen() {
       setWords((prev) => [...prev, ...rows]);
       if (!title.trim()) setTitle(subject);
     } catch (e) {
-      Alert.alert("AI Error", e instanceof Error ? e.message : "Could not generate");
+      const msg = e instanceof Error ? e.message : "Could not generate";
+      Alert.alert("AI Error", `${msg}\n\nIf this stays at 401 after re-login, the website AI route is rejecting mobile auth and needs a backend fix.`);
     } finally {
       setAiLoading(false);
     }
@@ -1112,6 +1166,12 @@ export default function LessonFormScreen() {
           se: row.contextB,
           pt_alt: row.altA.split(",").map((s) => s.trim()).filter(Boolean),
           en_alt: row.altB.split(",").map((s) => s.trim()).filter(Boolean),
+          term_a: row.termA,
+          term_b: row.termB,
+          context_a: row.contextA,
+          context_b: row.contextB,
+          alt_a: row.altA.split(",").map((s) => s.trim()).filter(Boolean),
+          alt_b: row.altB.split(",").map((s) => s.trim()).filter(Boolean),
         },
       });
       const w = json.word ?? {};
@@ -1153,6 +1213,12 @@ export default function LessonFormScreen() {
         se: w.rowType === "vocab" ? (w.contextB.trim() || undefined) : undefined,
         pt_alt: w.rowType === "vocab" ? w.altA.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         en_alt: w.rowType === "vocab" ? w.altB.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        term_a: w.rowType === "vocab" ? w.termA.trim() : undefined,
+        term_b: w.rowType === "vocab" ? w.termB.trim() : undefined,
+        context_a: w.rowType === "vocab" ? (w.contextA.trim() || undefined) : undefined,
+        context_b: w.rowType === "vocab" ? (w.contextB.trim() || undefined) : undefined,
+        alt_a: w.rowType === "vocab" ? w.altA.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        alt_b: w.rowType === "vocab" ? w.altB.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         image_url: w.image_url.trim() || undefined,
         tense: w.tense.trim() || undefined,
         grammar: w.grammar.trim() || undefined,
@@ -1167,7 +1233,7 @@ export default function LessonFormScreen() {
       .filter((w) => {
         if (w.rowType === "conjugation") return !!(w.infinitive || w.conjugations?.length);
         if (w.rowType === "preposition") return !!(w.prepositionTitle || w.prepositions?.length);
-        return !!(w.pt || w.en || w.sp || w.se);
+        return !!(w.pt || w.en || w.sp || w.se || w.term_a || w.term_b || w.context_a || w.context_b);
       });
     const content_json = {
       language_pair: languagePair,
@@ -1294,10 +1360,10 @@ export default function LessonFormScreen() {
             <Text style={[theme.typography.body, { marginBottom: 16, color: theme.colors.textMuted }]}>
               Switching to <Text style={{ fontWeight: "800", color: theme.colors.text }}>{pendingLanguage}</Text> may affect conjugation and preposition rows.
             </Text>
-            <TouchableOpacity onPress={() => { const np = LANGUAGE_DEFAULT_PAIR[pendingLanguage] ?? "en-pt"; setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => prev.map((w) => w.rowType === "conjugation" ? { ...w, conjugations: conjugationsFor(pendingLanguage) } : w)); setPendingLanguage(null); }} style={{ borderRadius: 12, backgroundColor: theme.colors.primary, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
+            <TouchableOpacity onPress={() => { const np = pairForLessonLanguage(pendingLanguage, languagePair); setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => prev.map((w) => w.rowType === "conjugation" ? { ...w, conjugations: conjugationsFor(pendingLanguage) } : w)); setPendingLanguage(null); }} style={{ borderRadius: 12, backgroundColor: theme.colors.primary, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
               <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 15 }}>Keep existing rows</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => { const np = LANGUAGE_DEFAULT_PAIR[pendingLanguage] ?? "en-pt"; setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => { const kept = prev.filter((w) => w.rowType === "vocab"); return kept.length > 0 ? kept : [makeWord(np, pendingLanguage, "vocab")]; }); setPendingLanguage(null); }} style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
+            <TouchableOpacity onPress={() => { const np = pairForLessonLanguage(pendingLanguage, languagePair); setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => { const kept = prev.filter((w) => w.rowType === "vocab"); return kept.length > 0 ? kept : [makeWord(np, pendingLanguage, "vocab")]; }); setPendingLanguage(null); }} style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
               <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 15 }}>Clear language-specific rows</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setPendingLanguage(null)} style={{ alignItems: "center", paddingVertical: 10 }}>
@@ -1309,22 +1375,25 @@ export default function LessonFormScreen() {
 
       <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
         <GlassCard style={{ borderRadius: 26 }} padding={14} variant="strong">
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
-            </TouchableOpacity>
-            <View style={{ flex: 1, marginHorizontal: 14 }}>
-              <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Lesson editor" : "Lesson studio"}</Text>
-              <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit lesson" : "New lesson"}</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <ThemeToggleButton />
-              <TouchableOpacity onPress={() => navigation.navigate("Notifications")} activeOpacity={0.85} style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
+          <View style={{ flexDirection: compactHeader ? "column" : "row", alignItems: compactHeader ? "stretch" : "center", gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: compactHeader ? 0 : 1 }}>
+              <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.85} style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="chevron-back" size={22} color={theme.colors.textMuted} />
               </TouchableOpacity>
-              <TouchableOpacity onPress={openWeb} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
+              <View style={{ flex: 1, marginHorizontal: 14 }}>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} style={[theme.typography.label, { color: theme.colors.primary, fontSize: 11, lineHeight: 13 }]}>
+                  {isEdit ? "Lesson editor" : "Lesson studio"}
+                </Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>
+                  {isEdit ? "Edit lesson" : "New lesson"}
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: compactHeader ? "flex-end" : "flex-start" }}>
+              <ThemeToggleButton compact />
+              <TouchableOpacity onPress={openWeb} style={{ paddingHorizontal: 11, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 5 }}>
+                <Ionicons name="open-outline" size={13} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "800" }}>Web</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
@@ -1392,7 +1461,7 @@ export default function LessonFormScreen() {
                       const hasContent = words.some((w) => w.termA.trim() || w.termB.trim() || w.infinitive?.trim());
                       const hasSpecial = words.some((w) => w.rowType === "conjugation" || w.rowType === "preposition");
                       if (hasContent && hasSpecial) { setPendingLanguage(value); } else {
-                        const np = LANGUAGE_DEFAULT_PAIR[value] ?? "en-pt";
+                        const np = pairForLessonLanguage(value, languagePair);
                         setLanguage(value); setLanguagePair(np);
                         setWords((prev) => prev.map((w) => { if (w.rowType === "conjugation") return { ...w, conjugations: conjugationsFor(value) }; if (w.rowType === "preposition" && !LANGUAGE_CONFIG[value]?.rowTypes.includes("preposition")) return makeWord(np, value, "vocab"); return w; }));
                       }
@@ -1441,7 +1510,7 @@ export default function LessonFormScreen() {
 
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary Builder</Text>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Lesson Builder</Text>
                   <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 16 }}>
                     Vocabulary rows, verb conjugations, and preposition drills — same structure as the web dashboard.
                   </Text>
