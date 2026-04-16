@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   Alert,
   Animated,
   Dimensions,
   Easing,
   Modal,
-  Pressable,
   ScrollView,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
@@ -1943,3 +1946,4 @@ export default function DashboardScreen() {
     </View>
   );
 }
+

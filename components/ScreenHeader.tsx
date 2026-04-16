@@ -1,5 +1,9 @@
-import { ReactNode } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
+import {
+  ReactNode } from "react";
+import { Text,
+  View,
+} from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -96,3 +100,4 @@ export function useScreenHeaderHeight() {
   const insets = useSafeAreaInsets();
   return Math.max(insets.top, 8) + 62;
 }
+

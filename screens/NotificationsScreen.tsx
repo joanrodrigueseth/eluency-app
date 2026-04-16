@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   ScrollView,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -420,3 +423,4 @@ export default function NotificationsScreen() {
     </View>
   );
 }
+

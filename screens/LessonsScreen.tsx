@@ -14,14 +14,13 @@ import {
   Linking,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   UIManager,
   View,
 } from "react-native";
+import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 
 if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) UIManager.setLayoutAnimationEnabledExperimental?.(true);
 const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -2781,3 +2780,4 @@ export default function LessonsScreen() {
     </View>
   );
 }
+

@@ -1,4 +1,10 @@
-import { Image, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  Image,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { TouchableOpacity } from "../../lib/hapticPressables";
 import type { GameWord, StudySessionMode } from "../../types/study-game";
 import { useAppTheme } from "../../lib/theme";
 
@@ -86,4 +92,5 @@ export function StudyQuestionCard({
     </View>
   );
 }
+
 

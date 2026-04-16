@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -8,14 +13,13 @@ import {
   Linking,
   Modal,
   Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Asset } from "expo-asset";
 import * as IntentLauncher from "expo-intent-launcher";
@@ -872,10 +876,10 @@ export default function StudyGameScreen() {
       await fetch(edgeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
-        body: JSON.stringify({ sessionId, type }),
+        body: JSON.stringify({ sessionId, type, contentName: sessionContext.name || null }),
       }).catch(() => {});
     },
-    [sessionId]
+    [sessionId, sessionContext.name]
   );
 
   const openLessonDetail = useCallback((lesson: LessonGamePayload) => {
@@ -3755,14 +3759,14 @@ export default function StudyGameScreen() {
                                     </Text>
                                   </View>
                                   <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
-                                    P: {issue.prompt || "Untitled"}
+                                    P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
                                   </Text>
-                                  {issue.expected ? (
+                                  {typeof issue.expected === "string" && issue.expected ? (
                                     <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
                                       E: {issue.expected}
                                     </Text>
                                   ) : null}
-                                  {issue.answer ? (
+                                  {typeof issue.answer === "string" && issue.answer ? (
                                     <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
                                       A: {issue.answer}
                                     </Text>
@@ -3851,7 +3855,7 @@ export default function StudyGameScreen() {
                         <View style={{ alignItems: "flex-end" }}>
                           <Text style={[theme.typography.title, { fontSize: 24 }]}>{selectedHistoryRecord.percentage}%</Text>
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
-                            {selectedHistoryRecord.score}/{selectedHistoryRecord.totalWords} correct
+                            {typeof selectedHistoryRecord.score === "number" ? selectedHistoryRecord.score : (selectedHistoryRecord.score as any)?.correct ?? 0}/{selectedHistoryRecord.totalWords} correct
                           </Text>
                         </View>
                       </View>
@@ -3902,14 +3906,14 @@ export default function StudyGameScreen() {
                                     </Text>
                                   </View>
                                   <Text style={[theme.typography.body, { marginTop: 4, fontSize: 12 }]} numberOfLines={2}>
-                                    P: {issue.prompt || "Untitled"}
+                                    P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
                                   </Text>
-                                  {issue.expected ? (
+                                  {typeof issue.expected === "string" && issue.expected ? (
                                     <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]} numberOfLines={1}>
                                       E: {issue.expected}
                                     </Text>
                                   ) : null}
-                                  {issue.answer ? (
+                                  {typeof issue.answer === "string" && issue.answer ? (
                                     <Text style={[theme.typography.caption, { marginTop: 1, color: theme.colors.textMuted }]} numberOfLines={1}>
                                       A: {issue.answer}
                                     </Text>
@@ -3945,3 +3949,4 @@ export default function StudyGameScreen() {
     </View>
   );
 }
+

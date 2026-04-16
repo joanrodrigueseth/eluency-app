@@ -1,5 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Easing, Image, Keyboard, LayoutAnimation, Linking, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
+import { Alert,
+  Animated,
+  Easing,
+  Image,
+  Keyboard,
+  LayoutAnimation,
+  Linking,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  UIManager,
+  View,
+} from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 
 if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -1760,4 +1779,5 @@ export default function LessonFormScreen() {
     </View>
   );
 }
+
 

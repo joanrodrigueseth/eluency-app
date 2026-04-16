@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState } from "react";
 import {
   Alert,
   Linking,
   ScrollView,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import Constants from "expo-constants";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -534,3 +537,4 @@ export default function SubscriptionScreen() {
     </View>
   );
 }
+

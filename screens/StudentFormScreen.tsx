@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,10 +16,10 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   UIManager,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
@@ -918,3 +923,4 @@ export default function StudentFormScreen() {
     </View>
   );
 }
+

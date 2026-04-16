@@ -1,5 +1,9 @@
-import { ReactNode, useMemo, useState } from "react";
 import {
+  ReactNode,
+  useMemo,
+  useState } from "react";
+import {
+  ActivityIndicator,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -7,15 +11,16 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AppButton from "../components/AppButton";
 import { clearStoredStudentSessionId, setStoredStudentSessionId } from "../lib/studentSession";
+import { signInWithSupabaseOAuth } from "../lib/oauth";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 
@@ -183,6 +188,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [teacherError, setTeacherError] = useState("");
   const [teacherLoading, setTeacherLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
 
   const isCodeComplete = useMemo(() => gameCode.trim().length === 6, [gameCode]);
 
@@ -277,6 +283,34 @@ export default function LoginScreen() {
       setTeacherError(message);
     } finally {
       setTeacherLoading(false);
+    }
+  };
+
+  const handleOAuthLogin = async (provider: "google" | "apple") => {
+    if (provider === "apple" && Platform.OS !== "ios") {
+      setTeacherError("Sign in with Apple is only available on iOS.");
+      return;
+    }
+
+    setTeacherError("");
+    setOauthLoading(provider);
+
+    try {
+      await signInWithSupabaseOAuth(provider);
+      await clearStoredStudentSessionId();
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Dashboard" }],
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to sign in with this provider.";
+      setTeacherError(message);
+    } finally {
+      setOauthLoading(null);
     }
   };
 
@@ -408,6 +442,64 @@ export default function LoginScreen() {
                   onPress={handleTeacherLogin}
                   loading={teacherLoading}
                 />
+
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+                  <Text style={[theme.typography.caption, { color: theme.colors.textSoft }]}>or</Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => handleOAuthLogin("google")}
+                  activeOpacity={0.85}
+                  disabled={!!oauthLoading}
+                  style={{
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    opacity: oauthLoading ? 0.7 : 1,
+                  }}
+                >
+                  {oauthLoading === "google" ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons name="logo-google" size={18} color={theme.colors.primary} />
+                  )}
+                  <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Gmail</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => handleOAuthLogin("apple")}
+                  activeOpacity={0.85}
+                  disabled={!!oauthLoading}
+                  style={{
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    opacity: oauthLoading ? 0.7 : 1,
+                  }}
+                >
+                  {oauthLoading === "apple" ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons name="logo-apple" size={18} color={theme.colors.text} />
+                  )}
+                  <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Apple</Text>
+                </TouchableOpacity>
               </View>
 
               <View

@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -6,9 +9,9 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -871,5 +874,6 @@ export default function ChatsScreen() {
     </View>
   );
 }
+
 
 

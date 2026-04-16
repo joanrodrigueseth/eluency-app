@@ -1,5 +1,9 @@
-import { useMemo, useState, useRef } from "react";
 import {
+  useMemo,
+  useState,
+  useRef } from "react";
+import {
+  ActivityIndicator,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -8,12 +12,12 @@ import {
   ScrollView,
   Switch,
   Text,
-  TouchableOpacity,
   View,
   Modal,
   FlatList,
   TextInput,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +27,7 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import AppButton from "../components/AppButton";
 import AppTextField from "../components/AppTextField";
 import GlassCard from "../components/GlassCard";
+import { signInWithSupabaseOAuth } from "../lib/oauth";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 
@@ -810,6 +815,7 @@ export default function RegisterScreen() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
   const [showSchoolModal, setShowSchoolModal] = useState(false);
 
   // Step 1 — account
@@ -942,6 +948,25 @@ export default function RegisterScreen() {
 
   const goToDashboard = () => {
     navigation.reset({ index: 0, routes: [{ name: "Dashboard" }] });
+  };
+
+  const handleOAuthRegister = async (provider: "google" | "apple") => {
+    if (provider === "apple" && Platform.OS !== "ios") {
+      setError("Sign in with Apple is only available on iOS.");
+      return;
+    }
+
+    setError("");
+    setOauthLoading(provider);
+
+    try {
+      await signInWithSupabaseOAuth(provider);
+      goToDashboard();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unable to sign in with this provider.");
+    } finally {
+      setOauthLoading(null);
+    }
   };
 
   const STEP_TITLES = ["", "Create your account", "Tell us about you", "Choose your plan"];
@@ -1157,6 +1182,64 @@ export default function RegisterScreen() {
             />
             {error ? <ErrorBanner message={error} theme={theme} /> : null}
             <AppButton label="Continue" onPress={advanceStep1} />
+
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+              <Text style={[theme.typography.caption, { color: theme.colors.textSoft }]}>or</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
+            </View>
+
+            <TouchableOpacity
+              onPress={() => handleOAuthRegister("google")}
+              activeOpacity={0.85}
+              disabled={!!oauthLoading}
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surfaceAlt,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                opacity: oauthLoading ? 0.7 : 1,
+              }}
+            >
+              {oauthLoading === "google" ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Ionicons name="logo-google" size={18} color={theme.colors.primary} />
+              )}
+              <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Gmail</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => handleOAuthRegister("apple")}
+              activeOpacity={0.85}
+              disabled={!!oauthLoading}
+              style={{
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surfaceAlt,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                opacity: oauthLoading ? 0.7 : 1,
+              }}
+            >
+              {oauthLoading === "apple" ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Ionicons name="logo-apple" size={18} color={theme.colors.text} />
+              )}
+              <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Apple</Text>
+            </TouchableOpacity>
           </>
         )}
 
@@ -1454,3 +1537,4 @@ export default function RegisterScreen() {
     </KeyboardAvoidingView>
   );
 }
+

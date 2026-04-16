@@ -1,4 +1,9 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,9 +14,9 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
@@ -2722,4 +2727,5 @@ function NewPackModal({
     </Modal>
   );
 }
+
 

@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -6,9 +10,9 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
@@ -1677,4 +1681,5 @@ export default function TeachersScreen() {
     </View>
   );
 }
+
 

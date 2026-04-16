@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -7,9 +11,9 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -671,3 +675,4 @@ export default function SettingsScreen() {
     </View>
   );
 }
+

@@ -49,9 +49,12 @@ export async function startTeacherNotificationsWatcher() {
     seenIds.add(row.id);
     newestSeen = row.created_at > newestSeen ? row.created_at : newestSeen;
     await AsyncStorage.setItem(TEACHER_LAST_SEEN_KEY, newestSeen);
+    const meta = row.metadata ?? {};
     await showLocalNotification(row.title, row.body || undefined, {
       notificationId: row.id,
       type: row.type,
+      student_id: typeof meta.student_id === "string" ? meta.student_id : null,
+      student_name: typeof meta.student_name === "string" ? meta.student_name : null,
     });
   };
 

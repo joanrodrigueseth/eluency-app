@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { useEffect, useRef, useState } from "react";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -30,6 +30,7 @@ import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from
 import Constants from "expo-constants";
 
 const Stack = createNativeStackNavigator();
+const navigationRef = createNavigationContainerRef<any>();
 
 export default function App() {
   const theme = useAppTheme();
@@ -86,6 +87,37 @@ export default function App() {
     };
   }, [hasSession]);
 
+  // Handle notification taps — navigate teacher to Students screen
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+
+    const setup = async () => {
+      try {
+        const Notifications = await import("expo-notifications");
+
+        const handleResponse = (response: any) => {
+          const data = response?.notification?.request?.content?.data ?? {};
+          const studentId = typeof data.student_id === "string" ? data.student_id : null;
+          if (!studentId) return;
+          if (navigationRef.isReady()) {
+            navigationRef.navigate("Students", { openStudentId: studentId });
+          }
+        };
+
+        // Cold-start: app opened via notification tap
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (last) handleResponse(last);
+
+        sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+      } catch {
+        // expo-notifications unavailable in Expo Go / web
+      }
+    };
+
+    setup().catch(() => {});
+    return () => { sub?.remove(); };
+  }, []);
+
   useEffect(() => {
     if (!authBootstrapped) return;
 
@@ -135,7 +167,7 @@ export default function App() {
           backgroundColor={theme.colors.background}
         />
         {authBootstrapped ? (
-          <NavigationContainer>
+          <NavigationContainer ref={navigationRef}>
             <Stack.Navigator
               initialRouteName={hasSession ? "Dashboard" : studentSessionId ? "StudyGame" : "Register"}
               screenOptions={{

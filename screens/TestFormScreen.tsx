@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   Alert,
   Animated,
@@ -10,9 +15,9 @@ import {
   ScrollView,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
@@ -2108,3 +2113,4 @@ export default function TestFormScreen() {
     </View>
   );
 }
+

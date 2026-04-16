@@ -1,4 +1,9 @@
-import { ScrollView, Text, TouchableOpacity, View } from "react-native";
+import {
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { TouchableOpacity } from "../../lib/hapticPressables";
 import type { StudySessionMode, StudySessionType } from "../../types/study-game";
 import { useAppTheme } from "../../lib/theme";
 
@@ -72,4 +77,5 @@ export function SessionModePicker({
     </View>
   );
 }
+
 
