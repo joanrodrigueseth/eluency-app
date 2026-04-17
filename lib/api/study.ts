@@ -15,12 +15,16 @@ const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https
 function fetchNoStore(pathAndQuery: string): Promise<Response> {
   const sep = pathAndQuery.includes("?") ? "&" : "?";
   const url = `${apiBaseUrl}${pathAndQuery}${sep}_=${Date.now()}`;
+  const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   return fetch(url, {
     headers: {
       "Cache-Control": "no-cache, no-store",
       Pragma: "no-cache",
+      // Some Android HTTP stacks still cache GETs; vary headers so each request is unique.
+      "X-Request-Nonce": nonce,
     },
-  });
+    cache: "no-store",
+  } as RequestInit);
 }
 
 async function parseJsonSafe<T>(res: Response): Promise<T | null> {

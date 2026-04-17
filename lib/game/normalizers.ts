@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 
+import { cacheBustAssetUrl } from "../imageCacheBust";
 import type { GameWord, LessonGamePayload, StudySessionMode, TestGamePayload } from "../../types/study-game";
 
 const API_BASE = (Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com").replace(/\/$/, "");
@@ -40,7 +41,16 @@ function gameWordImageUrl(raw?: string | null): string | undefined {
   return absolutePublicAssetUrl(u);
 }
 
-export function normalizeLessonsToWords(lessons: LessonGamePayload[]): GameWord[] {
+function lessonImageUrl(raw: string | undefined | null, lesson: LessonGamePayload, assetRefreshEpoch: number): string | undefined {
+  return cacheBustAssetUrl(gameWordImageUrl(raw), lesson.updated_at ?? null, assetRefreshEpoch);
+}
+
+function testImageUrl(raw: string | undefined | null, test: TestGamePayload, assetRefreshEpoch: number): string | undefined {
+  return cacheBustAssetUrl(gameWordImageUrl(raw), test.updated_at ?? null, assetRefreshEpoch);
+}
+
+/** `assetRefreshEpoch` bumps on each catalog reload so image URLs change even when the server omits `updated_at`. */
+export function normalizeLessonsToWords(lessons: LessonGamePayload[], assetRefreshEpoch = 0): GameWord[] {
   const out: GameWord[] = [];
   const pair = (l: LessonGamePayload) => (typeof l.language_pair === "string" && l.language_pair.trim() ? l.language_pair.trim() : "en-pt");
 
@@ -146,7 +156,7 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[]): GameWord[
         en: termB,
         sp,
         se,
-        imageUrl: gameWordImageUrl((w.image_url as string | undefined) ?? (w.img as string | undefined)),
+        imageUrl: lessonImageUrl((w.image_url as string | undefined) ?? (w.img as string | undefined), lesson, assetRefreshEpoch),
         audioUrl: (w.audio_url as string | null | undefined) ?? null,
         promptFormat:
           w.audio_url != null && String(w.audio_url).trim()
@@ -162,7 +172,7 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[]): GameWord[
   return out;
 }
 
-export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
+export function normalizeTestsToWords(tests: TestGamePayload[], assetRefreshEpoch = 0): GameWord[] {
   const out: GameWord[] = [];
   for (const test of tests) {
     for (let i = 0; i < (test.words ?? []).length; i += 1) {
@@ -178,7 +188,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
         pt,
         en,
         pt_alt: Array.isArray(q.pt_alt) ? q.pt_alt : [],
-        imageUrl: gameWordImageUrl(q.image_url ?? q.img),
+        imageUrl: testImageUrl(q.image_url ?? q.img, test, assetRefreshEpoch),
         audioUrl: q.audio_url ?? null,
         promptFormat: q.prompt_format ?? "text",
         answerFormat: q.answer_format ?? (q.require_specific_answer === false ? "open" : "specific"),
@@ -200,7 +210,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[]): GameWord[] {
         en,
         sp: rv.sp ?? pt,
         se: rv.se ?? en,
-        imageUrl: gameWordImageUrl(rv.image_url ?? rv.img),
+        imageUrl: testImageUrl(rv.image_url ?? rv.img, test, assetRefreshEpoch),
         audioUrl: rv.audio_url ?? null,
         promptFormat: rv.audio_url ? "audio" : toImageUrl(rv.img) ? "image" : "text",
         answerFormat: "open",
