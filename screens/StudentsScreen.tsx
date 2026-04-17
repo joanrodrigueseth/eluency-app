@@ -1581,9 +1581,9 @@ export default function StudentsScreen() {
 
           {/* Column headers */}
           <View style={{ flexDirection: "row", paddingHorizontal: 16, paddingVertical: 9, backgroundColor: theme.isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-            <Text style={{ flex: 2, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Student</Text>
-            <Text style={{ flex: 2, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lesson / Test</Text>
-            <Text style={{ flex: 1, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "left" }}>Result</Text>
+            <Text style={{ flex: 1.4, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Student</Text>
+            <Text style={{ flex: 1.5, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Lesson / Test</Text>
+            <Text style={{ flex: 1.45, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Result</Text>
           </View>
 
           {/* Rows */}
@@ -1638,16 +1638,16 @@ export default function StudentsScreen() {
                   }}
                 >
                   {/* Student name */}
-                  <View style={{ flex: 2, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }} numberOfLines={1}>{studentName}</Text>
-                      <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 1 }}>{formatShortDate(activity.created_at)}</Text>
+                  <View style={{ flex: 1.4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.text, textAlign: "center" }} numberOfLines={1}>{studentName}</Text>
+                      <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 1, textAlign: "center" }}>{formatShortDate(activity.created_at)}</Text>
                     </View>
                   </View>
 
                   {/* Lesson / Test name */}
-                  <View style={{ flex: 2, paddingRight: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <View style={{ flex: 1.5, paddingRight: 8, alignItems: "center" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
                       <Ionicons
                         name={isTest ? "clipboard-outline" : "book-outline"}
                         size={10}
@@ -1657,26 +1657,26 @@ export default function StudentsScreen() {
                         {isTest ? "Test" : "Lesson"}
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 12, color: theme.colors.text, marginTop: 2 }} numberOfLines={2}>{contentName}</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.text, marginTop: 2, textAlign: "center" }} numberOfLines={2}>{contentName}</Text>
                   </View>
 
                   {/* Result badge */}
-                  <View style={{ flex: 1, alignItems: "flex-start", gap: 4 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "flex-start", alignItems: "center", gap: 6 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="checkmark-circle" size={13} color={theme.colors.success} />
-                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.success }}>{correctCount}</Text>
+                  <View style={{ flex: 1.45, alignItems: "center", gap: 4 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 4 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                        <Ionicons name="checkmark-circle" size={12} color={theme.colors.success} />
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.success }}>{correctCount}</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="remove-circle" size={13} color="#D97706" />
-                        <Text style={{ fontSize: 12, fontWeight: "800", color: "#D97706" }}>{closeCount}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                        <Ionicons name="remove-circle" size={12} color="#D97706" />
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: "#D97706" }}>{closeCount}</Text>
                       </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="close-circle" size={13} color={theme.colors.danger} />
-                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.danger }}>{wrongCount}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                        <Ionicons name="close-circle" size={12} color={theme.colors.danger} />
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.danger }}>{wrongCount}</Text>
                       </View>
                     </View>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
                       <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }}>
                         {percentage !== null ? `${percentage}%` : "—"}
                       </Text>
@@ -1687,9 +1687,7 @@ export default function StudentsScreen() {
                     </View>
                     {isResolvingDetails ? (
                       <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>Loading…</Text>
-                    ) : (
-                      <Ionicons name="chevron-forward" size={12} color={theme.colors.textMuted} />
-                    )}
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );

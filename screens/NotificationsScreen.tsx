@@ -1,7 +1,8 @@
 import {
   useEffect,
   useMemo,
-  useState } from "react";
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +15,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import AppButton from "../components/AppButton";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
@@ -28,7 +28,7 @@ type RootStackParamList = {
 };
 
 type NotificationType = "lesson_completed" | "test_completed" | "admin_announcement";
-type FilterType = "all" | "unread" | "activity" | "announcements";
+type TabType = "student" | "system";
 
 type NotificationRow = {
   id: string;
@@ -67,31 +67,28 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const [activeTab, setActiveTab] = useState<TabType>("student");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
 
-  const unreadCount = notifications.filter((notification) => !notification.read_at).length;
+  const studentNotifications = useMemo(
+    () => notifications.filter((n) => n.type === "lesson_completed" || n.type === "test_completed"),
+    [notifications]
+  );
+  const systemNotifications = useMemo(
+    () => notifications.filter((n) => n.type === "admin_announcement"),
+    [notifications]
+  );
 
-  const filteredNotifications = useMemo(() => {
-    if (activeFilter === "unread") return notifications.filter((notification) => !notification.read_at);
-    if (activeFilter === "activity") {
-      return notifications.filter(
-        (notification) =>
-          notification.type === "lesson_completed" || notification.type === "test_completed"
-      );
-    }
-    if (activeFilter === "announcements") {
-      return notifications.filter((notification) => notification.type === "admin_announcement");
-    }
-    return notifications;
-  }, [activeFilter, notifications]);
+  const tabNotifications = activeTab === "student" ? studentNotifications : systemNotifications;
 
-  const filters: { id: FilterType; label: string }[] = [
-    { id: "all", label: `All (${notifications.length})` },
-    { id: "unread", label: `Unread (${unreadCount})` },
-    { id: "activity", label: "Activity" },
-    { id: "announcements", label: "Announcements" },
-  ];
+  const studentUnread = studentNotifications.filter((n) => !n.read_at).length;
+  const systemUnread = systemNotifications.filter((n) => !n.read_at).length;
+  const tabUnread = activeTab === "student" ? studentUnread : systemUnread;
+  const totalUnread = notifications.filter((n) => !n.read_at).length;
+
+  const allTabSelected = tabNotifications.length > 0 && tabNotifications.every((n) => selectedIds.has(n.id));
 
   const loadNotifications = async () => {
     setLoading(true);
@@ -100,11 +97,10 @@ export default function NotificationsScreen() {
         .select("id, type, title, body, metadata, read_at, created_at")
         .order("created_at", { ascending: false })
         .limit(100);
-
       if (error) throw error;
       setNotifications((data ?? []) as NotificationRow[]);
-    } catch (error) {
-      Alert.alert("Error", error instanceof Error ? error.message : "Failed to load notifications.");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to load notifications.");
     } finally {
       setLoading(false);
     }
@@ -114,6 +110,28 @@ export default function NotificationsScreen() {
     loadNotifications();
   }, []);
 
+  const toggleSelectMode = () => {
+    setSelectMode((prev) => !prev);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allTabSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(tabNotifications.map((n) => n.id)));
+    }
+  };
+
   const markRead = async (id: string) => {
     try {
       const now = new Date().toISOString();
@@ -122,16 +140,15 @@ export default function NotificationsScreen() {
         .eq("id", id);
       if (error) throw error;
       setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read_at: now } : item)));
-    } catch (error) {
-      Alert.alert("Error", error instanceof Error ? error.message : "Failed to mark notification as read.");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to mark as read.");
     }
   };
 
   const markAllRead = async () => {
-    if (working || unreadCount === 0) return;
-    const unreadIds = notifications.filter((notification) => !notification.read_at).map((notification) => notification.id);
+    if (working || tabUnread === 0) return;
+    const unreadIds = tabNotifications.filter((n) => !n.read_at).map((n) => n.id);
     if (unreadIds.length === 0) return;
-
     setWorking(true);
     try {
       const now = new Date().toISOString();
@@ -140,8 +157,8 @@ export default function NotificationsScreen() {
         .in("id", unreadIds);
       if (error) throw error;
       setNotifications((prev) => prev.map((item) => ({ ...item, read_at: item.read_at ?? now })));
-    } catch (error) {
-      Alert.alert("Error", error instanceof Error ? error.message : "Failed to mark all notifications as read.");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to mark all as read.");
     } finally {
       setWorking(false);
     }
@@ -153,65 +170,58 @@ export default function NotificationsScreen() {
       const { error } = await (supabase.from("teacher_notifications") as any).delete().eq("id", id);
       if (error) throw error;
       setNotifications((prev) => prev.filter((item) => item.id !== id));
-    } catch (error) {
-      Alert.alert("Error", error instanceof Error ? error.message : "Failed to delete notification.");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to delete notification.");
     } finally {
       setDeletingId(null);
     }
   };
 
-  const clearAll = () => {
-    if (working || notifications.length === 0) return;
-
-    Alert.alert("Clear notifications", "Delete all notifications? This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete all",
-        style: "destructive",
-        onPress: async () => {
-          setWorking(true);
-          try {
-            const ids = notifications.map((notification) => notification.id);
-            const { error } = await (supabase.from("teacher_notifications") as any)
-              .delete()
-              .in("id", ids);
-            if (error) throw error;
-            setNotifications([]);
-          } catch (error) {
-            Alert.alert("Error", error instanceof Error ? error.message : "Failed to clear notifications.");
-          } finally {
-            setWorking(false);
-          }
+  const deleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    Alert.alert(
+      "Delete selected",
+      `Delete ${selectedIds.size} notification${selectedIds.size > 1 ? "s" : ""}? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setWorking(true);
+            try {
+              const ids = Array.from(selectedIds);
+              const { error } = await (supabase.from("teacher_notifications") as any).delete().in("id", ids);
+              if (error) throw error;
+              setNotifications((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+              setSelectedIds(new Set());
+              setSelectMode(false);
+            } catch (e) {
+              Alert.alert("Error", e instanceof Error ? e.message : "Failed to delete.");
+            } finally {
+              setWorking(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const reviewNotification = async (notification: NotificationRow) => {
-    if (!notification.read_at) {
-      await markRead(notification.id);
-    }
-
+    if (!notification.read_at) await markRead(notification.id);
     const lessonId = typeof notification.metadata?.lesson_id === "string" ? notification.metadata.lesson_id : null;
     const testId = typeof notification.metadata?.test_id === "string" ? notification.metadata.test_id : null;
     const studentId = typeof notification.metadata?.student_id === "string" ? notification.metadata.student_id : null;
-
-    if (lessonId) {
-      navigation.navigate("LessonForm", { lessonId });
-      return;
-    }
-    if (testId) {
-      navigation.navigate("TestForm", { testId });
-      return;
-    }
-    if (studentId) {
-      navigation.navigate("StudentForm", { studentId });
-      return;
-    }
+    if (lessonId) { navigation.navigate("LessonForm", { lessonId }); return; }
+    if (testId) { navigation.navigate("TestForm", { testId }); return; }
+    if (studentId) { navigation.navigate("StudentForm", { studentId }); return; }
   };
+
+  const HEADER_HEIGHT = Math.max(insets.top, 8) + 58;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      {/* ── Header ── */}
       <View
         style={{
           position: "absolute",
@@ -233,8 +243,8 @@ export default function NotificationsScreen() {
           onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Dashboard"))}
           activeOpacity={0.85}
           style={{
-            height: 44,
-            width: 44,
+            height: 40,
+            width: 40,
             borderRadius: 12,
             borderWidth: 1,
             borderColor: theme.colors.border,
@@ -245,184 +255,387 @@ export default function NotificationsScreen() {
         >
           <Ionicons name="chevron-back" size={20} color={theme.colors.textMuted} />
         </TouchableOpacity>
+
         <View style={{ flex: 1, paddingHorizontal: 12 }}>
-          <Text style={theme.typography.label}>Teacher</Text>
-          <Text style={[theme.typography.title, { marginTop: 2, fontSize: 18, lineHeight: 22 }]}>Notifications</Text>
+          <Text style={[theme.typography.label, { fontSize: 11 }]}>Teacher</Text>
+          <Text style={[theme.typography.title, { marginTop: 1, fontSize: 17, lineHeight: 21 }]}>Notifications</Text>
         </View>
+
         <ThemeToggleButton />
-        {unreadCount > 0 ? (
+
+        {totalUnread > 0 ? (
           <View
             style={{
-              minWidth: 26,
-              height: 26,
-              borderRadius: 13,
-              paddingHorizontal: 8,
+              minWidth: 24,
+              height: 24,
+              borderRadius: 12,
+              paddingHorizontal: 7,
               backgroundColor: "#E85D4A",
               alignItems: "center",
               justifyContent: "center",
+              marginLeft: 8,
             }}
           >
-            <Text style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "800" }}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+            <Text style={{ color: "#FFFFFF", fontSize: 11, fontWeight: "800" }}>
+              {totalUnread > 99 ? "99+" : totalUnread}
+            </Text>
           </View>
         ) : (
-          <View style={{ width: 26 }} />
+          <View style={{ width: 24, marginLeft: 8 }} />
         )}
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 8) + 68, paddingHorizontal: 20, paddingBottom: 30 }}
+        contentContainerStyle={{
+          paddingTop: HEADER_HEIGHT + 12,
+          paddingHorizontal: 16,
+          paddingBottom: 40,
+        }}
       >
-        <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]}>Inbox</Text>
-            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{notifications.length} total</Text>
-          </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {filters.map((filter) => {
-              const active = activeFilter === filter.id;
-              return (
-                <TouchableOpacity
-                  key={filter.id}
-                  onPress={() => setActiveFilter(filter.id)}
-                  activeOpacity={0.85}
+        {/* ── Tabs ── */}
+        <View
+          style={{
+            flexDirection: "row",
+            backgroundColor: theme.colors.surface,
+            borderRadius: 14,
+            padding: 4,
+            marginBottom: 14,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+          }}
+        >
+          {(
+            [
+              { id: "student" as TabType, label: "Student Activity", unread: studentUnread, count: studentNotifications.length },
+              { id: "system" as TabType, label: "System", unread: systemUnread, count: systemNotifications.length },
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => {
+                  setActiveTab(tab.id);
+                  setSelectMode(false);
+                  setSelectedIds(new Set());
+                }}
+                activeOpacity={0.85}
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 9,
+                  borderRadius: 11,
+                  backgroundColor: active ? theme.colors.primary : "transparent",
+                }}
+              >
+                <Text
                   style={{
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: active ? theme.colors.primarySoft : theme.colors.surface,
-                    paddingHorizontal: 12,
-                    paddingVertical: 7,
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: active ? "#FFFFFF" : theme.colors.textMuted,
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: active ? theme.colors.primary : theme.colors.textMuted }}>
-                    {filter.label}
+                  {tab.label}
+                </Text>
+                {tab.unread > 0 ? (
+                  <View
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      paddingHorizontal: 5,
+                      backgroundColor: active ? "rgba(255,255,255,0.3)" : "#E85D4A",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: "#FFFFFF" }}>
+                      {tab.unread > 99 ? "99+" : tab.unread}
+                    </Text>
+                  </View>
+                ) : tab.count > 0 ? (
+                  <View
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      paddingHorizontal: 5,
+                      backgroundColor: active ? "rgba(255,255,255,0.2)" : theme.colors.surfaceAlt,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: "700",
+                        color: active ? "#FFFFFF" : theme.colors.textMuted,
+                      }}
+                    >
+                      {tab.count}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* ── Toolbar ── */}
+        {!loading && tabNotifications.length > 0 ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+              paddingHorizontal: 2,
+            }}
+          >
+            {selectMode ? (
+              <>
+                <TouchableOpacity onPress={toggleSelectAll} activeOpacity={0.8} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 5,
+                      borderWidth: 2,
+                      borderColor: allTabSelected ? theme.colors.primary : theme.colors.border,
+                      backgroundColor: allTabSelected ? theme.colors.primary : "transparent",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {allTabSelected ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.text }}>Select all</Text>
+                </TouchableOpacity>
+
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                  {selectedIds.size > 0 ? (
+                    <TouchableOpacity
+                      onPress={deleteSelected}
+                      activeOpacity={0.8}
+                      disabled={working}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 5,
+                        backgroundColor: "#FFF0EE",
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        borderRadius: 9,
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={15} color="#D4462A" />
+                      <Text style={{ fontSize: 13, fontWeight: "700", color: "#D4462A" }}>
+                        Delete ({selectedIds.size})
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity onPress={toggleSelectMode} activeOpacity={0.8}>
+                    <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textMuted }}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={markAllRead}
+                  activeOpacity={0.8}
+                  disabled={working || tabUnread === 0}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 5, opacity: tabUnread === 0 ? 0.4 : 1 }}
+                >
+                  <Ionicons name="checkmark-done-outline" size={16} color={theme.colors.primary} />
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.primary }}>
+                    {working ? "Working…" : "Mark all read"}
                   </Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-        </GlassCard>
 
-        <View style={{ gap: 10 }}>
+                <TouchableOpacity onPress={toggleSelectMode} activeOpacity={0.8}>
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.colors.textMuted }}>Select</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {/* ── Notification list ── */}
+        <View style={{ gap: 8 }}>
           {loading ? (
-            <GlassCard style={{ borderRadius: 18 }}>
+            <GlassCard style={{ borderRadius: 16 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <ActivityIndicator size="small" color={theme.colors.primary} />
                 <Text style={theme.typography.body}>Loading notifications…</Text>
               </View>
             </GlassCard>
-          ) : filteredNotifications.length === 0 ? (
-            <GlassCard style={{ borderRadius: 18 }}>
-              <View style={{ alignItems: "center", gap: 8, paddingVertical: 8 }}>
-                <Ionicons name="notifications-off-outline" size={30} color={theme.colors.textMuted} />
+          ) : tabNotifications.length === 0 ? (
+            <GlassCard style={{ borderRadius: 16 }}>
+              <View style={{ alignItems: "center", gap: 8, paddingVertical: 12 }}>
+                <Ionicons name="notifications-off-outline" size={32} color={theme.colors.textMuted} />
                 <Text style={[theme.typography.bodyStrong, { fontSize: 15 }]}>
-                  {activeFilter === "unread" ? "All caught up" : "No notifications found"}
+                  {activeTab === "student" ? "No student activity yet" : "No system notifications"}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center" }]}>
-                  New activity and announcements will appear here.
+                  {activeTab === "student"
+                    ? "Completed lessons and tests will appear here."
+                    : "Admin announcements will appear here."}
                 </Text>
               </View>
             </GlassCard>
           ) : (
-            filteredNotifications.map((notification) => {
+            tabNotifications.map((notification) => {
               const meta = pickNotificationIcon(notification.type);
+              const isSelected = selectedIds.has(notification.id);
               const hasReviewTarget =
                 typeof notification.metadata?.lesson_id === "string" ||
                 typeof notification.metadata?.test_id === "string" ||
                 typeof notification.metadata?.student_id === "string";
 
               return (
-                <GlassCard key={notification.id} style={{ borderRadius: 18 }} padding={16}>
-                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 12,
-                        backgroundColor: meta.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Ionicons name={meta.name as any} size={20} color={meta.color} />
-                    </View>
-
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 15, fontWeight: notification.read_at ? "700" : "800" }]}>
-                          {notification.title}
-                        </Text>
-                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{formatTimeAgo(notification.created_at)}</Text>
-                      </View>
-
-                      {notification.body ? (
-                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4, lineHeight: 18 }]}>
-                          {notification.body}
-                        </Text>
-                      ) : null}
-
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+                <TouchableOpacity
+                  key={notification.id}
+                  activeOpacity={selectMode ? 0.85 : 1}
+                  onPress={selectMode ? () => toggleSelect(notification.id) : undefined}
+                >
+                  <GlassCard
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: isSelected ? 1.5 : 1,
+                      borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                    }}
+                    padding={14}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      {/* Checkbox in select mode */}
+                      {selectMode ? (
                         <View
                           style={{
-                            borderRadius: 999,
-                            paddingHorizontal: 8,
-                            paddingVertical: 3,
-                            backgroundColor: theme.colors.surfaceAlt,
+                            width: 22,
+                            height: 22,
+                            borderRadius: 6,
+                            borderWidth: 2,
+                            borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: isSelected ? theme.colors.primary : "transparent",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
                         >
-                          <Text style={{ fontSize: 10, fontWeight: "800", color: meta.color }}>{meta.label.toUpperCase()}</Text>
+                          {isSelected ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
                         </View>
-                        {!notification.read_at ? (
-                          <View style={{ width: 7, height: 7, borderRadius: 99, backgroundColor: theme.colors.primary }} />
-                        ) : null}
+                      ) : null}
+
+                      {/* Icon */}
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 13,
+                          backgroundColor: meta.bg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Ionicons name={meta.name as any} size={20} color={meta.color} />
                       </View>
 
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 }}>
-                        {hasReviewTarget ? (
-                          <TouchableOpacity onPress={() => reviewNotification(notification)} activeOpacity={0.8}>
-                            <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.primary }}>Review</Text>
-                          </TouchableOpacity>
+                      {/* Content */}
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={[
+                                theme.typography.bodyStrong,
+                                { fontSize: 14, fontWeight: notification.read_at ? "600" : "800", lineHeight: 20 },
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {notification.title}
+                            </Text>
+                            {notification.body ? (
+                              <Text
+                                style={[
+                                  theme.typography.caption,
+                                  { color: theme.colors.textMuted, marginTop: 3, lineHeight: 17 },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {notification.body}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {/* Time + pill stacked on right */}
+                          <View style={{ alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
+                            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, fontSize: 11 }]}>
+                              {formatTimeAgo(notification.created_at)}
+                            </Text>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 4,
+                                borderRadius: 999,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                backgroundColor: meta.bg,
+                              }}
+                            >
+                              <Ionicons name={meta.name as any} size={10} color={meta.color} />
+                              <Text style={{ fontSize: 10, fontWeight: "800", color: meta.color }}>
+                                {meta.label.toUpperCase()}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* Unread dot + actions */}
+                        {!selectMode ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 }}>
+                            {!notification.read_at ? (
+                              <View style={{ width: 7, height: 7, borderRadius: 99, backgroundColor: theme.colors.primary }} />
+                            ) : null}
+                            {hasReviewTarget ? (
+                              <TouchableOpacity onPress={() => reviewNotification(notification)} activeOpacity={0.8}>
+                                <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.primary }}>Review</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {!notification.read_at ? (
+                              <TouchableOpacity onPress={() => markRead(notification.id)} activeOpacity={0.8}>
+                                <Text style={{ fontSize: 12, fontWeight: "600", color: theme.colors.textMuted }}>
+                                  Mark read
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            <TouchableOpacity
+                              onPress={() => deleteNotification(notification.id)}
+                              activeOpacity={0.8}
+                              disabled={deletingId === notification.id}
+                              style={{ marginLeft: "auto" }}
+                            >
+                              <Ionicons
+                                name={deletingId === notification.id ? "hourglass-outline" : "trash-outline"}
+                                size={15}
+                                color={deletingId === notification.id ? theme.colors.textMuted : "#C94B35"}
+                              />
+                            </TouchableOpacity>
+                          </View>
                         ) : null}
-                        {!notification.read_at ? (
-                          <TouchableOpacity onPress={() => markRead(notification.id)} activeOpacity={0.8}>
-                            <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.textMuted }}>Mark as read</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                        <TouchableOpacity onPress={() => deleteNotification(notification.id)} activeOpacity={0.8} disabled={deletingId === notification.id}>
-                          <Text style={{ fontSize: 12, fontWeight: "700", color: "#D4462A" }}>
-                            {deletingId === notification.id ? "Deleting..." : "Delete"}
-                          </Text>
-                        </TouchableOpacity>
                       </View>
                     </View>
-                  </View>
-                </GlassCard>
+                  </GlassCard>
+                </TouchableOpacity>
               );
             })
           )}
         </View>
-
-        {!loading && notifications.length > 0 ? (
-          <View style={{ marginTop: 14, gap: 10 }}>
-            <AppButton
-              label={working ? "Working..." : "Mark all as read"}
-              onPress={markAllRead}
-              disabled={working || unreadCount === 0}
-              variant="secondary"
-              icon={<Ionicons name="checkmark-done-outline" size={18} color={theme.colors.text} />}
-            />
-            <AppButton
-              label={working ? "Working..." : "Clear all notifications"}
-              onPress={clearAll}
-              disabled={working}
-              variant="secondary"
-              icon={<Ionicons name="trash-outline" size={18} color={theme.colors.text} />}
-            />
-          </View>
-        ) : null}
       </ScrollView>
     </View>
   );
 }
-

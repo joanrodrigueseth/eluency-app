@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -16,7 +17,7 @@ import {
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
-import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
  
 import AppButton from "../components/AppButton";
@@ -619,6 +620,21 @@ export default function DashboardScreen() {
   const headerOpacity = useRef(new Animated.Value(1)).current;
   const headerTranslateY = useRef(new Animated.Value(0)).current;
  
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (supabase.from("teacher_notifications") as any)
+        .select("id", { count: "exact", head: true })
+        .is("read_at", null)
+        .then(({ count }: { count: number | null }) => {
+          if (active) setUnreadNotifCount(count ?? 0);
+        });
+      return () => { active = false; };
+    }, [])
+  );
+
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPrincipal, setIsPrincipal] = useState(false);
@@ -652,8 +668,8 @@ export default function DashboardScreen() {
   const isCompactPhone = drawerWidth < 420;
  
   const isStudentMode = !!sessionId;
-  const currentUserName = isStudentMode ? studentName || "Student" : teacherName || "Teacher";
-  const currentUserInitial = currentUserName.trim().charAt(0).toUpperCase() || "U";
+
+
  
   const PLAN_PRICE_MONTHLY = useMemo(
     () => ({
@@ -1856,7 +1872,7 @@ export default function DashboardScreen() {
     const visibleItems = items.slice(0, 5);
     return (
       <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+        <SectionHeader eyebrow="Activity" title="Student Activity" subtitle="Recent lesson and test completions across your students." />
         <ActivityTabs />
         {visibleItems.length > 0 ? (
           <>
@@ -1954,7 +1970,7 @@ export default function DashboardScreen() {
 
     return (
       <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+        <SectionHeader eyebrow="Activity" title="Student Activity" subtitle="Recent lesson and test completions across your students." />
         <ActivityTabs />
 
         {visibleItems.length > 0 ? (
@@ -1981,9 +1997,9 @@ export default function DashboardScreen() {
                     borderBottomColor: theme.colors.border,
                   }}
                 >
-                  <Text style={[theme.typography.caption, { width: 140, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Student</Text>
+                  <Text style={[theme.typography.caption, { width: 190, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Student</Text>
                   <Text style={[theme.typography.caption, { width: 220, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Lesson/Test Name</Text>
-                  <Text style={[theme.typography.caption, { width: 110, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Type</Text>
+                  <Text style={[theme.typography.caption, { width: 60, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Type</Text>
                   <Text style={[theme.typography.caption, { width: 130, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Date Completed</Text>
                   <Text style={[theme.typography.caption, { width: 120, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase" }]}>Results</Text>
                   <View style={{ width: 24 }} />
@@ -2008,7 +2024,7 @@ export default function DashboardScreen() {
                         borderBottomColor: theme.colors.border,
                       }}
                     >
-                      <View style={{ width: 140, paddingRight: 12 }}>
+                      <View style={{ width: 190, paddingRight: 12 }}>
                         <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>{item.studentName}</Text>
                       </View>
 
@@ -2016,20 +2032,20 @@ export default function DashboardScreen() {
                         <Text style={[theme.typography.bodyStrong, { fontSize: 12, color: theme.colors.text }]} numberOfLines={2}>{item.contentName}</Text>
                       </View>
 
-                      <View style={{ width: 110, paddingRight: 12 }}>
+                      <View style={{ width: 60, paddingRight: 8 }}>
                         <View
                           style={{
                             alignSelf: "flex-start",
-                            paddingHorizontal: 10,
-                            paddingVertical: 5,
+                            paddingHorizontal: 7,
+                            paddingVertical: 4,
                             borderRadius: 999,
                             borderWidth: 1,
                             borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
                             backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
                           }}
                         >
-                          <Text style={{ fontSize: 10, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
-                            {item.isTest ? "Test" : "Lesson"}
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
+                            {item.isTest ? "T" : "L"}
                           </Text>
                         </View>
                       </View>
@@ -2110,7 +2126,10 @@ export default function DashboardScreen() {
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <View
                           style={{
-                            paddingHorizontal: 9,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            paddingHorizontal: 7,
                             paddingVertical: 4,
                             borderRadius: 999,
                             borderWidth: 1,
@@ -2119,8 +2138,9 @@ export default function DashboardScreen() {
                             flexShrink: 0,
                           }}
                         >
-                          <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
-                            {item.isTest ? "Test" : "Lesson"}
+                          <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
+                          <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
+                            {item.isTest ? "T" : "L"}
                           </Text>
                         </View>
 
@@ -2167,7 +2187,10 @@ export default function DashboardScreen() {
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <View
                         style={{
-                          paddingHorizontal: 9,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                          paddingHorizontal: 7,
                           paddingVertical: 4,
                           borderRadius: 999,
                           borderWidth: 1,
@@ -2176,8 +2199,9 @@ export default function DashboardScreen() {
                           flexShrink: 0,
                         }}
                       >
-                        <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
-                          {item.isTest ? "Test" : "Lesson"}
+                        <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
+                          {item.isTest ? "T" : "L"}
                         </Text>
                       </View>
 
@@ -2946,7 +2970,7 @@ export default function DashboardScreen() {
  
           <ThemeToggleButton />
           <AnimatedPressable
-            onPress={() => navigation.navigate("Settings")}
+            onPress={() => navigation.navigate("Notifications")}
             style={{
               height: 42,
               width: 42,
@@ -2958,7 +2982,27 @@ export default function DashboardScreen() {
               justifyContent: "center",
             }}
           >
-            <Text style={[theme.typography.bodyStrong, { fontWeight: "800", color: theme.colors.text }]}>{currentUserInitial}</Text>
+            <Ionicons name="notifications-outline" size={20} color={theme.colors.textMuted} />
+            {unreadNotifCount > 0 ? (
+              <View
+                style={{
+                  position: "absolute",
+                  top: 6,
+                  right: 6,
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  paddingHorizontal: 4,
+                  backgroundColor: "#E85D4A",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "800", lineHeight: 11 }}>
+                  {unreadNotifCount > 99 ? "99+" : unreadNotifCount}
+                </Text>
+              </View>
+            ) : null}
           </AnimatedPressable>
         </Animated.View>
  

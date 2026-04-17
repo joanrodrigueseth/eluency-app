@@ -81,6 +81,8 @@ export default function StudentFormScreen() {
 
   const [activeTab, setActiveTab] = useState<"lessons" | "tests">("lessons");
   const [lessonSearch, setLessonSearch] = useState("");
+  const [lessonLanguageFilter, setLessonLanguageFilter] = useState("All");
+  const [lessonLanguageMenuOpen, setLessonLanguageMenuOpen] = useState(false);
   const [testSearch, setTestSearch] = useState("");
   const [teacherSearch, setTeacherSearch] = useState("");
   const [lessonPickerOpen, setLessonPickerOpen] = useState(false);
@@ -105,10 +107,24 @@ export default function StudentFormScreen() {
   const listHeight = keyboardVisible ? ROW_HEIGHT * 6 : ROW_HEIGHT * 10;
   const pickerVerticalPadding = keyboardVisible ? "15%" : "15%";
 
-  const filteredLessons = useMemo(
-    () => allLessons.filter((l) => l.title.toLowerCase().includes(lessonSearch.toLowerCase())),
-    [allLessons, lessonSearch]
-  );
+  const lessonLanguageOptions = useMemo(() => {
+    const labels = new Set<string>();
+    allLessons.forEach((lesson) => {
+      labels.add(getLanguageBadge(lesson.language) ?? "Unknown");
+    });
+    return ["All", ...Array.from(labels).sort((a, b) => a.localeCompare(b))];
+  }, [allLessons]);
+
+  const filteredLessons = useMemo(() => {
+    const needle = lessonSearch.trim().toLowerCase();
+    return allLessons.filter((lesson) => {
+      const matchesSearch = lesson.title.toLowerCase().includes(needle);
+      if (!matchesSearch) return false;
+      if (lessonLanguageFilter === "All") return true;
+      const badge = getLanguageBadge(lesson.language) ?? "Unknown";
+      return badge === lessonLanguageFilter;
+    });
+  }, [allLessons, lessonSearch, lessonLanguageFilter]);
   const filteredTests = useMemo(
     () => allTests.filter((t) => (t.name ?? "").toLowerCase().includes(testSearch.toLowerCase())),
     [allTests, testSearch]
@@ -363,11 +379,21 @@ export default function StudentFormScreen() {
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: "#0F1115",
+    color: theme.colors.text,
     backgroundColor: theme.colors.surfaceAlt,
   };
 
-  const darkCaption = [theme.typography.caption, { color: "#0F1115" as const }];
+  const darkCaption = [theme.typography.caption, { color: theme.colors.textMuted }];
+  const assignedCardBackground = theme.isDark ? "rgba(62,163,112,0.2)" : GREEN_SOFT;
+  const assignedCardBorder = theme.isDark ? "rgba(86,214,150,0.55)" : GREEN;
+  const removeChipBackground = theme.isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.06)";
+  const selectedRowBackground = theme.isDark ? "rgba(62,163,112,0.2)" : GREEN_SOFT;
+  const vocabBadgeBorder = theme.isDark ? "rgba(125,211,252,0.45)" : "#B7D0E8";
+  const vocabBadgeBackground = theme.isDark ? "rgba(14,116,144,0.26)" : "#EAF3FB";
+  const vocabBadgeText = theme.isDark ? "#BAE6FD" : "#2E7ABF";
+  const questionBadgeBorder = theme.isDark ? "rgba(250,204,21,0.4)" : "#E6D39A";
+  const questionBadgeBackground = theme.isDark ? "rgba(161,98,7,0.24)" : "#FFF5DA";
+  const questionBadgeText = theme.isDark ? "#FDE68A" : "#B88400";
 
   if (bootLoading) {
     return (
@@ -411,27 +437,24 @@ export default function StudentFormScreen() {
         <Text style={[theme.typography.title, { flex: 1, textAlign: "center", fontSize: 17 }]}>
           {isEdit ? "Edit student" : "New student"}
         </Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <ThemeToggleButton />
-          <TouchableOpacity
-            onPress={() => navigation.navigate("Notifications")}
-            activeOpacity={0.85}
-            style={{ height: 40, width: 40, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
-          >
-            <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
-          </TouchableOpacity>
           <TouchableOpacity
             onPress={openWeb}
             style={{
-              paddingHorizontal: 11,
-              paddingVertical: 10,
+              paddingHorizontal: 10,
+              paddingVertical: 9,
               borderRadius: 10,
               borderWidth: 1,
               borderColor: GREEN,
               backgroundColor: GREEN_SOFT,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
             }}
           >
-            <Text style={{ color: GREEN, fontSize: 12, fontWeight: "800" }}>Web</Text>
+            <Ionicons name="open-outline" size={13} color={GREEN} />
+            <Text style={{ color: GREEN, fontSize: 11, fontWeight: "800" }}>Web</Text>
           </TouchableOpacity>
           <Animated.View style={{ transform: [{ scale: saveScale }] }}>
             <TouchableOpacity
@@ -610,7 +633,7 @@ export default function StudentFormScreen() {
                   {selectedLessons.length > 0 ? `${selectedLessons.length} assigned` : "None assigned"}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => { setLessonSearch(""); setLessonPickerOpen(true); }}
+                  onPress={() => { setLessonSearch(""); setLessonLanguageMenuOpen(false); setLessonPickerOpen(true); }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: GREEN }}
                 >
                   <Ionicons name="add" size={15} color="#fff" />
@@ -620,7 +643,7 @@ export default function StudentFormScreen() {
 
               {selectedLessons.length === 0 ? (
                 <TouchableOpacity
-                  onPress={() => { setLessonSearch(""); setLessonPickerOpen(true); }}
+                  onPress={() => { setLessonSearch(""); setLessonLanguageMenuOpen(false); setLessonPickerOpen(true); }}
                   activeOpacity={0.7}
                   style={{ paddingVertical: 24, alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, borderStyle: "dashed", backgroundColor: theme.colors.surfaceAlt }}
                 >
@@ -637,23 +660,23 @@ export default function StudentFormScreen() {
                     const languageBadge = getLanguageBadge(lesson.language);
                     const languageBadgeColors = getLanguageBadgeColors(languageBadge);
                     return (
-                      <View key={id} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT }}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
+                      <View key={id} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: assignedCardBorder, backgroundColor: assignedCardBackground }}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
                           <Text style={[theme.typography.body, { fontWeight: "600" }]} numberOfLines={1}>{lesson.title}</Text>
-                          <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
-                            {languageBadge ? (
-                              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: languageBadgeColors.borderColor, backgroundColor: languageBadgeColors.backgroundColor, paddingHorizontal: 7, paddingVertical: 2 }}>
-                                <Text style={{ fontSize: 10, fontWeight: "900", color: languageBadgeColors.textColor }}>{languageBadge}</Text>
-                              </View>
-                            ) : null}
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
-                            </View>
-                          </View>
                         </View>
-                        <TouchableOpacity onPress={() => toggleLesson(id)} style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center" }}>
-                          <Ionicons name="close" size={15} color={GREEN} />
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                          {languageBadge ? (
+                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: languageBadgeColors.borderColor, backgroundColor: languageBadgeColors.backgroundColor, paddingHorizontal: 7, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "900", color: languageBadgeColors.textColor }}>{languageBadge}</Text>
+                            </View>
+                          ) : null}
+                          <View style={{ borderRadius: 999, borderWidth: 1, borderColor: vocabBadgeBorder, backgroundColor: vocabBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 10, fontWeight: "900", color: vocabBadgeText }}>{vocabCount}V</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => toggleLesson(id)} style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: removeChipBackground, alignItems: "center", justifyContent: "center" }}>
+                            <Ionicons name="close" size={15} color={GREEN} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     );
                   })}
@@ -694,21 +717,21 @@ export default function StudentFormScreen() {
                     const vocabCount = Array.isArray(test.config_json?.words) ? test.config_json?.words.length : 0;
                     const questionCount = Array.isArray(test.config_json?.tests) ? test.config_json?.tests.length : 0;
                     return (
-                      <View key={id} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN_SOFT }}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
+                      <View key={id} style={{ flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: assignedCardBorder, backgroundColor: assignedCardBackground }}>
+                        <View style={{ flex: 1, marginRight: 10 }}>
                           <Text style={[theme.typography.body, { fontWeight: "600" }]} numberOfLines={1}>{test.name}</Text>
-                          <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
-                            </View>
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{questionCount}Q</Text>
-                            </View>
-                          </View>
                         </View>
-                        <TouchableOpacity onPress={() => toggleTest(id)} style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.06)", alignItems: "center", justifyContent: "center" }}>
-                          <Ionicons name="close" size={15} color={GREEN} />
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                          <View style={{ borderRadius: 999, borderWidth: 1, borderColor: vocabBadgeBorder, backgroundColor: vocabBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 10, fontWeight: "900", color: vocabBadgeText }}>{vocabCount}V</Text>
+                          </View>
+                          <View style={{ borderRadius: 999, borderWidth: 1, borderColor: questionBadgeBorder, backgroundColor: questionBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 10, fontWeight: "900", color: questionBadgeText }}>{questionCount}Q</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => toggleTest(id)} style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: removeChipBackground, alignItems: "center", justifyContent: "center" }}>
+                            <Ionicons name="close" size={15} color={GREEN} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     );
                   })}
@@ -726,12 +749,12 @@ export default function StudentFormScreen() {
       <FloatingToast {...toastProps} />
 
       {/* ── Lesson picker modal ── */}
-      <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}>
+      <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => { Keyboard.dismiss(); setLessonLanguageMenuOpen(false); setLessonPickerOpen(false); }}>
         <View style={{ flex: 1 }}>
           <TouchableOpacity
             style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-start", paddingTop: pickerVerticalPadding, paddingBottom: pickerVerticalPadding }}
             activeOpacity={1}
-            onPress={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}
+            onPress={() => { Keyboard.dismiss(); setLessonLanguageMenuOpen(false); setLessonPickerOpen(false); }}
           >
             <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
               <GlassCard style={{ borderRadius: 24, overflow: "hidden" }} padding={0} variant="strong">
@@ -743,20 +766,92 @@ export default function StudentFormScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity
-                    onPress={() => { Keyboard.dismiss(); setLessonPickerOpen(false); }}
+                    onPress={() => { Keyboard.dismiss(); setLessonLanguageMenuOpen(false); setLessonPickerOpen(false); }}
                     style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: GREEN }}
                   >
                     <Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                  <TextInput
-                    value={lessonSearch}
-                    onChangeText={setLessonSearch}
-                    placeholder="Search lessons…"
-                    placeholderTextColor={theme.colors.textMuted}
-                    style={[inputStyle, { marginBottom: 0 }]}
-                  />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <TextInput
+                        value={lessonSearch}
+                        onChangeText={setLessonSearch}
+                        placeholder="Search lessons…"
+                        placeholderTextColor={theme.colors.textMuted}
+                        style={[inputStyle, { marginBottom: 0, flex: 1 }]}
+                      />
+                      <View style={{ position: "relative" }}>
+                        <TouchableOpacity
+                          onPress={() => setLessonLanguageMenuOpen((prev) => !prev)}
+                          style={{
+                            minWidth: 132,
+                            maxWidth: 160,
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                            borderRadius: 12,
+                            backgroundColor: theme.colors.surfaceAlt,
+                            paddingHorizontal: 10,
+                            paddingVertical: 11,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 6,
+                          }}
+                        >
+                          <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, fontWeight: "700", color: theme.colors.text }}>
+                            {lessonLanguageFilter}
+                          </Text>
+                          <Ionicons
+                            name={lessonLanguageMenuOpen ? "chevron-up" : "chevron-down"}
+                            size={14}
+                            color={theme.colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                        {lessonLanguageMenuOpen ? (
+                          <View
+                            style={{
+                              position: "absolute",
+                              top: 46,
+                              right: 0,
+                              minWidth: 160,
+                              maxWidth: 200,
+                              borderWidth: 1,
+                              borderColor: theme.colors.border,
+                              borderRadius: 12,
+                              backgroundColor: theme.colors.surface,
+                              overflow: "hidden",
+                              zIndex: 30,
+                              elevation: 8,
+                            }}
+                          >
+                            {lessonLanguageOptions.map((option) => {
+                              const active = lessonLanguageFilter === option;
+                              return (
+                                <TouchableOpacity
+                                  key={option}
+                                  onPress={() => {
+                                    setLessonLanguageFilter(option);
+                                    setLessonLanguageMenuOpen(false);
+                                  }}
+                                  style={{
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 10,
+                                    backgroundColor: active ? (theme.isDark ? "rgba(62,163,112,0.2)" : GREEN_SOFT) : "transparent",
+                                    borderBottomWidth: option === lessonLanguageOptions[lessonLanguageOptions.length - 1] ? 0 : 1,
+                                    borderBottomColor: theme.colors.border,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12, fontWeight: active ? "800" : "600", color: theme.colors.text }}>
+                                    {option}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" style={{ height: listHeight }}>
                   {filteredLessons.length === 0 ? (
@@ -771,9 +866,12 @@ export default function StudentFormScreen() {
                     return (
                       <TouchableOpacity
                         key={l.id}
-                        onPress={() => toggleLesson(l.id)}
+                        onPress={() => {
+                          setLessonLanguageMenuOpen(false);
+                          toggleLesson(l.id);
+                        }}
                         activeOpacity={0.8}
-                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? GREEN_SOFT : "transparent" }}
+                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? selectedRowBackground : "transparent" }}
                       >
                         <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: selected ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: selected ? GREEN : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
                           {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
@@ -786,8 +884,8 @@ export default function StudentFormScreen() {
                                 <Text style={{ fontSize: 10, fontWeight: "900", color: languageBadgeColors.textColor }}>{languageBadge}</Text>
                               </View>
                             ) : null}
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
+                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: vocabBadgeBorder, backgroundColor: vocabBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "900", color: vocabBadgeText }}>{vocabCount}V</Text>
                             </View>
                           </View>
                         </View>
@@ -848,7 +946,7 @@ export default function StudentFormScreen() {
                         key={t.id}
                         onPress={() => toggleTest(t.id)}
                         activeOpacity={0.8}
-                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? GREEN_SOFT : "transparent" }}
+                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? selectedRowBackground : "transparent" }}
                       >
                         <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: selected ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: selected ? GREEN : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
                           {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
@@ -856,11 +954,11 @@ export default function StudentFormScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={[theme.typography.body, { fontWeight: selected ? "700" : "400" }]} numberOfLines={1}>{t.name}</Text>
                           <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#B7D0E8", backgroundColor: "#EAF3FB", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#2E7ABF" }}>{vocabCount}V</Text>
+                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: vocabBadgeBorder, backgroundColor: vocabBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "900", color: vocabBadgeText }}>{vocabCount}V</Text>
                             </View>
-                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: "#E6D39A", backgroundColor: "#FFF5DA", paddingHorizontal: 7, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: "900", color: "#B88400" }}>{questionCount}Q</Text>
+                            <View style={{ borderRadius: 999, borderWidth: 1, borderColor: questionBadgeBorder, backgroundColor: questionBadgeBackground, paddingHorizontal: 7, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "900", color: questionBadgeText }}>{questionCount}Q</Text>
                             </View>
                           </View>
                         </View>

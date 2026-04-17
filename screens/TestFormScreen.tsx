@@ -1109,21 +1109,18 @@ export default function TestFormScreen() {
               <Text style={[theme.typography.label, { color: theme.colors.primary }]}>{isEdit ? "Test editor" : "Test studio"}</Text>
               <Text style={[theme.typography.title, { marginTop: 4, fontSize: 20, lineHeight: 25 }]}>{isEdit ? "Edit test" : "New test"}</Text>
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <ThemeToggleButton />
-              <TouchableOpacity onPress={() => navigation.navigate("Notifications")} activeOpacity={0.85} style={{ width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="notifications-outline" size={17} color={theme.colors.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 13, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>Web</Text>
+              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="open-outline" size={13} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "800" }}>Web</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => { Keyboard.dismiss(); triggerLightImpact(); handleSave(); }}
                 disabled={saving}
-                style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
+                style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.colors.primary, opacity: saving ? 0.7 : 1 }}
               >
-                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
+                <Text style={{ color: theme.colors.primaryText, fontSize: 11, fontWeight: "800" }}>{saving ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
             </View>
           </View>
