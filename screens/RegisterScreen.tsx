@@ -4,6 +4,7 @@ import {
   useRef } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -24,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { SvgXml } from "react-native-svg";
+import type { User } from "@supabase/supabase-js";
 
 import AppButton from "../components/AppButton";
 import AppTextField from "../components/AppTextField";
@@ -448,6 +450,33 @@ function guessTimezone() {
   }
 }
 
+function hasCompletedTeacherOnboarding(rawMetadata: unknown): boolean {
+  if (!rawMetadata || typeof rawMetadata !== "object") return false;
+
+  const metadata = rawMetadata as Record<string, unknown>;
+  const hasLanguages =
+    Array.isArray(metadata.teaching_languages) && metadata.teaching_languages.length > 0;
+
+  return (
+    metadata.role === "teacher" &&
+    typeof metadata.profession === "string" &&
+    metadata.profession.length > 0 &&
+    typeof metadata.student_count === "string" &&
+    metadata.student_count.length > 0 &&
+    typeof metadata.plan === "string" &&
+    metadata.plan.length > 0 &&
+    hasLanguages
+  );
+}
+
+function isExistingOAuthAccount(user: User): boolean {
+  const createdAt = Date.parse(user.created_at ?? "");
+  if (Number.isNaN(createdAt)) return true;
+
+  // Fresh OAuth registrations are created moments before onboarding begins.
+  return Date.now() - createdAt > 2 * 60 * 1000;
+}
+
 function ChoiceGroup({
   title,
   options,
@@ -818,6 +847,7 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
+  const [isOAuthOnboarding, setIsOAuthOnboarding] = useState(false);
   const [showSchoolModal, setShowSchoolModal] = useState(false);
 
   // Step 1 — account
@@ -852,6 +882,7 @@ export default function RegisterScreen() {
 
   const advanceStep1 = () => {
     setError("");
+    setIsOAuthOnboarding(false);
     const e = email.trim().toLowerCase();
     if (!fullName.trim()) { setError("Please enter your name."); return; }
     if (!e || !e.includes("@")) { setError("Please enter a valid email."); return; }
@@ -948,6 +979,89 @@ export default function RegisterScreen() {
     }
   };
 
+  const handleCompleteOAuthOnboarding = async (plan: string) => {
+    if (loading) return;
+    setError("");
+    setLoading(true);
+
+    const timezone = guessTimezone();
+
+    try {
+      const [{ data: sessionData, error: sessionError }, { data: userData, error: userError }] =
+        await Promise.all([supabase.auth.getSession(), supabase.auth.getUser()]);
+
+      if (sessionError) throw sessionError;
+      if (userError) throw userError;
+
+      const session = sessionData.session;
+      const user = userData.user;
+
+      if (!session || !user) {
+        throw new Error("Session expired. Please sign in again.");
+      }
+
+      const metadata =
+        user.user_metadata && typeof user.user_metadata === "object"
+          ? (user.user_metadata as Record<string, unknown>)
+          : {};
+      const cleanedEmail = (user.email ?? email).trim().toLowerCase();
+      const cleanedName =
+        fullName.trim() ||
+        (typeof metadata.name === "string" ? metadata.name : "") ||
+        (typeof metadata.full_name === "string" ? metadata.full_name : "") ||
+        cleanedEmail.split("@")[0];
+
+      const { error: updateUserError } = await supabase.auth.updateUser({
+        data: {
+          ...metadata,
+          role: "teacher",
+          name: cleanedName,
+          active: true,
+          country_code: countryCode || undefined,
+          timezone: timezone || undefined,
+          profession,
+          student_count: studentCount,
+          referral_source: referralSource || undefined,
+          plan,
+          teaching_languages: selectedLanguages.map((code, i) => ({
+            code,
+            isPrimary: i === 0,
+          })),
+        },
+      });
+      if (updateUserError) throw updateUserError;
+
+      fetch(`${String(apiBaseUrl)}/api/onboarding/teacher/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          fullName: cleanedName,
+          countryCode: countryCode || null,
+          timezone: timezone || null,
+          profession,
+          studentCount,
+          referralSource: referralSource || null,
+          plan,
+          teachingLanguages: selectedLanguages.map((code, i) => ({
+            code,
+            isPrimary: i === 0,
+          })),
+        }),
+      }).catch((onboardingError) => {
+        if (__DEV__) console.warn("teacher onboarding completion failed", onboardingError);
+      });
+
+      goToDashboard();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unable to finish onboarding.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const goToDashboard = () => {
     navigation.reset({ index: 0, routes: [{ name: "Dashboard" }] });
   };
@@ -963,7 +1077,41 @@ export default function RegisterScreen() {
 
     try {
       await signInWithSupabaseOAuth(provider);
-      goToDashboard();
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+
+      const user = userData.user;
+      if (!user) throw new Error("Unable to load account after sign in.");
+
+      if (isExistingOAuthAccount(user) || hasCompletedTeacherOnboarding(user.user_metadata)) {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Account already exists",
+          "This Google account is already registered. Please sign in instead."
+        );
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Login", params: { initialView: "teacher" } }],
+        });
+        return;
+      }
+
+      const metadata =
+        user.user_metadata && typeof user.user_metadata === "object"
+          ? (user.user_metadata as Record<string, unknown>)
+          : {};
+
+      const prefilledEmail = (user.email ?? "").trim().toLowerCase();
+      const prefilledName =
+        (typeof metadata.name === "string" ? metadata.name : "") ||
+        (typeof metadata.full_name === "string" ? metadata.full_name : "") ||
+        (prefilledEmail ? prefilledEmail.split("@")[0] : "");
+
+      if (prefilledEmail) setEmail(prefilledEmail);
+      if (prefilledName) setFullName(prefilledName);
+
+      setIsOAuthOnboarding(true);
+      setStep(2);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unable to sign in with this provider.");
     } finally {
@@ -1110,8 +1258,12 @@ export default function RegisterScreen() {
         <TouchableOpacity
           onPress={() => {
             setError("");
-            if (step <= 1) setStep(0);
-            else setStep(step - 1);
+            if (step <= 1) {
+              setIsOAuthOnboarding(false);
+              setStep(0);
+            } else {
+              setStep(step - 1);
+            }
           }}
           style={{ alignSelf: "flex-start", padding: 4, marginBottom: 18 }}
         >
@@ -1411,7 +1563,7 @@ export default function RegisterScreen() {
         <View style={{ gap: 3, marginTop: 10 }}>
           <AppButton 
             label="Start My 14-Day Free Trial" 
-            onPress={() => handleCreateAccount('standard')} 
+            onPress={() => (isOAuthOnboarding ? handleCompleteOAuthOnboarding("standard") : handleCreateAccount("standard"))} 
             loading={loading} 
           />
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
@@ -1466,7 +1618,7 @@ export default function RegisterScreen() {
 
     {/* Basic Plan */}
     <TouchableOpacity 
-      onPress={() => handleCreateAccount('basic')}
+      onPress={() => (isOAuthOnboarding ? handleCompleteOAuthOnboarding("basic") : handleCreateAccount("basic"))}
       activeOpacity={0.6}
       style={{ 
         flex: 1, 

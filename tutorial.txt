@@ -1,0 +1,80 @@
+Google Sign-In setup tutorial (Android + Supabase)
+
+This tutorial configures Google Sign-In for the app package:
+com.eluency.mobile
+
+Use this SHA-1 (debug keystore on this machine):
+5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25
+
+--------------------------------------------------
+1) Open Google Cloud Console
+--------------------------------------------------
+1. Go to: https://console.cloud.google.com/
+2. Select your project.
+3. Go to "APIs & Services" -> "Credentials".
+
+--------------------------------------------------
+2) Create Android OAuth client
+--------------------------------------------------
+1. Click "Create credentials" -> "OAuth client ID".
+2. Select "Android".
+3. Fill:
+   - Name: Eluency Android (or any name you prefer)
+   - Package name: com.eluency.mobile
+   - SHA-1 certificate fingerprint:
+     5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25
+4. Save.
+
+Important:
+- If package name or SHA-1 does not match exactly, Google Sign-In returns DEVELOPER_ERROR.
+
+--------------------------------------------------
+3) Create Web OAuth client (required for Supabase token exchange)
+--------------------------------------------------
+1. In the same Credentials page, click:
+   "Create credentials" -> "OAuth client ID".
+2. Select "Web application".
+3. Create it and copy the generated Client ID.
+   (format: xxxxx.apps.googleusercontent.com)
+
+--------------------------------------------------
+4) Configure Supabase Google provider
+--------------------------------------------------
+1. Open Supabase project dashboard.
+2. Go to "Authentication" -> "Providers" -> "Google".
+3. Enable Google provider.
+4. Paste Google Client ID and Client Secret (from Google Cloud).
+5. Save.
+
+--------------------------------------------------
+5) Set app environment variables
+--------------------------------------------------
+Edit .env and set:
+
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=YOUR_WEB_CLIENT_ID.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=YOUR_IOS_CLIENT_ID.apps.googleusercontent.com
+
+Notes:
+- Web client ID is required for current native Google flow in this app.
+- iOS client ID is optional if you are only testing Android.
+
+--------------------------------------------------
+6) Rebuild and run Android app
+--------------------------------------------------
+From project root:
+
+npx expo run:android
+
+Then test "Sign in by Gmail".
+
+--------------------------------------------------
+7) If you still get DEVELOPER_ERROR
+--------------------------------------------------
+Checklist:
+1. Android OAuth client package is exactly:
+   com.eluency.mobile
+2. SHA-1 is exactly:
+   5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25
+3. .env has EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID filled correctly.
+4. App was rebuilt after config changes.
+5. Supabase Google provider is enabled with valid credentials.

@@ -1,0 +1,32 @@
+How to find your Google Web Client ID
+
+1) Open Google Cloud Console
+- Go to: https://console.cloud.google.com/
+- Select the correct project (top project selector).
+
+2) Open Credentials
+- In the left menu, go to "APIs & Services" -> "Credentials".
+
+3) Find an existing OAuth client
+- Under "OAuth 2.0 Client IDs", look for a client with Type = "Web application".
+- Click it to open details.
+
+4) Copy the Client ID
+- Copy the value in the "Client ID" field.
+- It looks like: xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+
+5) If you do not have a Web client yet
+- Click "+ CREATE CREDENTIALS" -> "OAuth client ID".
+- Choose "Web application".
+- Give it a name (example: "Eluency Web OAuth").
+- Create it and copy the generated Client ID.
+
+6) Add it to your app environment
+- Open your .env file.
+- Set:
+  EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=your_web_client_id_here
+
+Optional but recommended (Supabase redirect setup)
+- In the same Web client, add this Authorized redirect URI:
+  https://YOUR_SUPABASE_PROJECT_REF.supabase.co/auth/v1/callback
+- Save changes.

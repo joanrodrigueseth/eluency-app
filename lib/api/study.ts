@@ -11,17 +11,25 @@ import type {
 
 const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
+/** RN-compatible random token. `crypto.randomUUID` may be unavailable on Hermes. */
+function randomToken(): string {
+  const rand = `${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now().toString(36)}-${rand}`;
+}
+
 /** RN/Android can cache GETs; lessons/tests must reflect dashboard edits immediately. */
 function fetchNoStore(pathAndQuery: string): Promise<Response> {
   const sep = pathAndQuery.includes("?") ? "&" : "?";
-  const url = `${apiBaseUrl}${pathAndQuery}${sep}_=${Date.now()}`;
-  const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  const token = randomToken();
+  // Two independent cache-bust params: `_=timestamp` + `r=uuid-like`. Both in URL so any
+  // intermediate (CDN, OkHttp, RN-fetch polyfill) treats each call as a brand new resource.
+  const url = `${apiBaseUrl}${pathAndQuery}${sep}_=${Date.now()}&r=${token}`;
   return fetch(url, {
     headers: {
       "Cache-Control": "no-cache, no-store",
       Pragma: "no-cache",
       // Some Android HTTP stacks still cache GETs; vary headers so each request is unique.
-      "X-Request-Nonce": nonce,
+      "X-Request-Nonce": token,
     },
     cache: "no-store",
   } as RequestInit);

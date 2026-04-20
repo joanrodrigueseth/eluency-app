@@ -507,6 +507,19 @@ export default function StudyGameScreen() {
       getAssignedLessons(session.student.assigned_lessons ?? []),
       getAssignedTests(session.student.assigned_tests ?? []),
     ]);
+    if (__DEV__) {
+      // Helps diagnose "web shows new title, app shows old title": prints what the API returned.
+      console.log(
+        "[StudyGame] refreshCatalog lessons:",
+        lessons.map((l) => ({
+          id: l.id,
+          name: l.name,
+          cover_image_url: l.cover_image_url,
+          updated_at: l.updated_at,
+          words: l.words?.length ?? 0,
+        }))
+      );
+    }
     const epoch = bumpAssetCatalogEpoch();
     setLessonsData(lessons);
     setTestsData(tests);
@@ -536,6 +549,7 @@ export default function StudyGameScreen() {
     setCatalogRefreshing(true);
     try {
       await refreshCatalog();
+      showToast("Lessons and tests updated.", "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not refresh lessons and tests.", "danger");
     } finally {
@@ -1647,6 +1661,18 @@ export default function StudyGameScreen() {
           hydrateProgress(sessionId),
         ]);
         if (!mounted) return;
+        if (__DEV__) {
+          console.log(
+            "[StudyGame] initial load lessons:",
+            lessons.map((l) => ({
+              id: l.id,
+              name: l.name,
+              cover_image_url: l.cover_image_url,
+              updated_at: l.updated_at,
+              words: l.words?.length ?? 0,
+            }))
+          );
+        }
         setStudentName(session.student.name);
         setTeacherName(session.teacher?.name ?? "Teacher");
         assetCatalogEpochRef.current += 1;
