@@ -1,0 +1,87 @@
+# Requisitos para integrar subscriptions da Play Store (Android)
+
+## 1) Conta e Console
+- Conta Google Play Console ativa.
+- App publicado (pelo menos em teste interno) com o mesmo `applicationId` do app: `com.eluency.mobile`.
+- Google Play Billing habilitado no app.
+- Produtos de assinatura criados no Play Console:
+  - Um `subscriptionId` por plano (ex.: `basic_monthly`, `standard_monthly`).
+  - Base plans e offers configurados (trial, promo, mensal/anual).
+- Licença de testadores configurada no Play Console para testes reais.
+
+## 2) Dependencias no app (React Native / Expo prebuild)
+- Biblioteca de billing:
+  - Recomendado: `react-native-iap`
+- Ambiente com build nativo Android (ja existe no projeto via `expo run:android`).
+- Fluxo de compra no app:
+  - Buscar produtos da Play Store.
+  - Iniciar compra.
+  - Validar compra no backend.
+  - Confirmar/acknowledge compra.
+  - Atualizar estado de assinatura do usuario.
+
+## 3) Backend obrigatorio (nao confiar so no app)
+- Endpoint para validar token de compra da Play (`purchaseToken`) com a Google Play Developer API.
+- Service Account com permissao no Play Console (API access) vinculada ao projeto Google Cloud.
+- Armazenamento no backend:
+  - `user_id`
+  - `platform` (`android`)
+  - `subscription_id`
+  - `base_plan_id`
+  - `purchase_token`
+  - `expiry_time`
+  - `status` (active, grace, paused, canceled, expired)
+  - `auto_renewing`
+- Regra de autorizacao:
+  - O app libera premium somente com status validado no backend.
+
+## 4) Webhooks / eventos de ciclo de vida
+- Configurar RTDN (Real-time Developer Notifications) via Pub/Sub.
+- Consumir eventos de:
+  - renovacao
+  - cancelamento
+  - expiracao
+  - grace period
+  - recover
+- Atualizar assinatura no banco ao receber eventos.
+
+## 5) Integracao com auth (Supabase)
+- Mapear assinatura ao `user.id` do Supabase.
+- Nunca liberar plano por email apenas; usar `user.id` + validacao de compra.
+- Salvar claims/flags de plano em tabela propria (nao somente `user_metadata`).
+
+## 6) Itens de UX no app
+- Tela de paywall com planos da Play (nao hardcoded de preco).
+- Botao "Restore purchases".
+- Botao "Manage subscription" abrindo gerenciador da Play.
+- Estados claros:
+  - Compra em andamento
+  - Compra aprovada
+  - Erro de compra
+  - Assinatura ativa/inativa
+
+## 7) Compliance e publicacao
+- Politica de privacidade atualizada com billing.
+- Termos de assinatura (preco, periodicidade, renovacao, cancelamento).
+- Mensagem de trial/renovacao automatica visivel antes da compra.
+- App Bundle assinado e versao enviada para trilha de teste.
+
+## 8) Testes minimos antes de producao
+- Compra nova com conta de teste.
+- Renovacao (sandbox).
+- Cancelamento e expiracao.
+- Reinstalacao + restore purchases.
+- Troca de plano (upgrade/downgrade/proration).
+- Troca de dispositivo com mesma conta Google.
+
+## 9) Variaveis e segredos recomendados
+- `GOOGLE_PLAY_PACKAGE_NAME=com.eluency.mobile`
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (somente backend, nunca no app)
+- `GOOGLE_PLAY_PUBSUB_TOPIC` (backend)
+- `PLAY_SUBSCRIPTION_IDS=basic_monthly,standard_monthly` (opcional)
+
+## 10) Decisao tecnica recomendada para este projeto
+- Android: integrar Play Billing via `react-native-iap`.
+- Backend: criar endpoint de validacao + listener RTDN.
+- Fonte da verdade de assinatura: backend (nao cliente).
+
