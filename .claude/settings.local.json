@@ -42,7 +42,8 @@
       "Bash(npm install *)",
       "Bash(node -e \"require\\('expo-crypto'\\); console.log\\('expo-crypto OK'\\)\")",
       "Bash(node -e \"require\\('expo-auth-session'\\); console.log\\('expo-auth-session OK'\\)\")",
-      "Bash(node -e \"require\\('expo-web-browser'\\); console.log\\('expo-web-browser OK'\\)\")"
+      "Bash(node -e \"require\\('expo-web-browser'\\); console.log\\('expo-web-browser OK'\\)\")",
+      "Bash(node_modules/.bin/expo install *)"
     ]
   }
 }

@@ -280,22 +280,25 @@ export default function StudentFormScreen() {
   };
 
   const copyCode = async () => {
+    if (!code) return;
     try {
       await Clipboard.setStringAsync(code);
-      Animated.sequence([
-        Animated.parallel([
-          Animated.spring(copyScale, { toValue: 1.04, useNativeDriver: true, speed: 24, bounciness: 8 }),
-          Animated.timing(copyGlow, { toValue: 1, duration: 180, useNativeDriver: false }),
-        ]),
-        Animated.parallel([
-          Animated.spring(copyScale, { toValue: 1, useNativeDriver: true, speed: 24, bounciness: 6 }),
-          Animated.timing(copyGlow, { toValue: 0, duration: 260, useNativeDriver: false }),
-        ]),
-      ]).start();
       showToast("Access code copied", "success");
     } catch {
-      showToast("Could not copy.", "danger");
+      showToast("Could not copy access code.", "danger");
+      return;
     }
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(copyScale, { toValue: 1.04, useNativeDriver: true, speed: 24, bounciness: 8 }),
+        Animated.timing(copyGlow, { toValue: 1, duration: 180, useNativeDriver: false }),
+      ]),
+      Animated.parallel([
+        Animated.spring(copyScale, { toValue: 1, useNativeDriver: true, speed: 24, bounciness: 6 }),
+        Animated.timing(copyGlow, { toValue: 0, duration: 260, useNativeDriver: false }),
+      ]),
+    ]).start();
   };
 
   const regenCode = async () => {
@@ -485,8 +488,7 @@ export default function StudentFormScreen() {
         keyboardDismissMode="interactive"
         removeClippedSubviews={false}
       >
-        <TouchableOpacity activeOpacity={1} onPress={() => Keyboard.dismiss()}>
-          <View>
+        <View>
         <ScreenReveal delay={20}>
         <GlassCard style={{ borderRadius: 16, marginBottom: 16 }} padding={16} variant="hero">
           <Text style={[darkCaption, { textTransform: "uppercase", marginBottom: 8 }]}>Profile</Text>
@@ -520,21 +522,22 @@ export default function StudentFormScreen() {
                   onPress={copyCode}
                   activeOpacity={0.85}
                   style={{
-                    borderRadius: 12,
+                    borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: GREEN,
-                    backgroundColor: GREEN_SOFT,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceGlass,
                     paddingHorizontal: 10,
-                    paddingVertical: 12,
+                    paddingVertical: 8,
                     flexDirection: "row",
                     alignItems: "center",
-                    justifyContent: "space-between",
+                    justifyContent: "center",
+                    gap: 6,
                   }}
                 >
-                  <Text style={{ fontFamily: "monospace", fontSize: 20, fontWeight: "900", color: GREEN }}>
+                  <Text style={{ fontFamily: "monospace", fontWeight: "900", fontSize: 17, color: theme.colors.success }}>
                     {code}
                   </Text>
-                  <Ionicons name="copy-outline" size={16} color={GREEN} />
+                  <Ionicons name="copy-outline" size={18} color={theme.colors.textMuted} />
                 </TouchableOpacity>
               </Animated.View>
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
@@ -743,8 +746,7 @@ export default function StudentFormScreen() {
         </ScreenReveal>
 
         <AppButton label={isEdit ? "Save changes" : "Create student"} onPress={handleSave} loading={saving} />
-          </View>
-        </TouchableOpacity>
+        </View>
       </ScrollView>
       <FloatingToast {...toastProps} />
 

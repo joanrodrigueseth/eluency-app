@@ -1685,7 +1685,7 @@ export default function DashboardScreen() {
       }}
     >
       {(["student_activity", "lessons", "tests"] as ActivityTab[]).map((tab) => {
-        const label = tab === "lessons" ? "Lessons" : tab === "tests" ? "Tests" : isCompactPhone ? "Student" : "Student Activity";
+        const label = tab === "lessons" ? "Lessons" : tab === "tests" ? "Tests" : "Activity";
         const active = activityTab === tab;
         const colors =
           tab === "lessons"
@@ -2139,9 +2139,6 @@ export default function DashboardScreen() {
                           }}
                         >
                           <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
-                          <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
-                            {item.isTest ? "T" : "L"}
-                          </Text>
                         </View>
 
                         <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
@@ -2200,9 +2197,6 @@ export default function DashboardScreen() {
                         }}
                       >
                         <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
-                        <Text style={{ fontSize: 9, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
-                          {item.isTest ? "T" : "L"}
-                        </Text>
                       </View>
 
                       <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
@@ -2468,17 +2462,33 @@ export default function DashboardScreen() {
           <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
             <SectionHeader eyebrow="Platform" title="Key KPIs" subtitle="Plan distribution plus recurring monthly revenue." />
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <CompactMetric label="Basic" value={adminPlanCounts.basic} accent="#F7F8FA" />
-              <CompactMetric label="Standard" value={adminPlanCounts.standard} accent="#F4EEFF" />
-              <CompactMetric label="School" value={adminPlanCounts.school} accent="#EEF8F2" />
-              <CompactMetric label="Internal" value={adminPlanCounts.internal} accent="#F5F5F7" />
+              <CompactMetric
+                label="Basic"
+                value={adminPlanCounts.basic}
+                accent={theme.isDark ? "rgba(248,250,252,0.05)" : "#F7F8FA"}
+              />
+              <CompactMetric
+                label="Standard"
+                value={adminPlanCounts.standard}
+                accent={theme.isDark ? "rgba(96,165,250,0.12)" : "#F4EEFF"}
+              />
+              <CompactMetric
+                label="School"
+                value={adminPlanCounts.school}
+                accent={theme.isDark ? "rgba(52,211,153,0.12)" : "#EEF8F2"}
+              />
+              <CompactMetric
+                label="Internal"
+                value={adminPlanCounts.internal}
+                accent={theme.isDark ? "rgba(255,255,255,0.04)" : "#F5F5F7"}
+              />
               <View
                 style={{
                   width: "100%",
                   borderRadius: 18,
                   borderWidth: 1,
-                  borderColor: theme.colors.success,
-                  backgroundColor: theme.colors.successSoft,
+                  borderColor: theme.isDark ? "rgba(52,211,153,0.28)" : theme.colors.success,
+                  backgroundColor: theme.isDark ? "rgba(52,211,153,0.10)" : theme.colors.successSoft,
                   padding: 16,
                 }}
               >

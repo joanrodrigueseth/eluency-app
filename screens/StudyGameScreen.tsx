@@ -387,7 +387,7 @@ export default function StudyGameScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, "StudyGame">>();
   const sessionId = route.params?.sessionId;
-  const tinyLogoUri = useMemo(() => Asset.fromModule(require("../assets/2.svg")).uri, []);
+  const tinyLogoUri = useMemo(() => Asset.fromModule(require("../assets/tiny.png")).uri, []);
 
   /** Login persists the canonical session id; route params can lag behind (e.g. Stack initialParams). */
   useEffect(() => {

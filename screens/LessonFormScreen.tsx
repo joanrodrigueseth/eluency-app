@@ -11,6 +11,7 @@ import { Alert,
   Keyboard,
   LayoutAnimation,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   Text,
@@ -61,7 +62,10 @@ type LessonFlashParams = {
   flashTone: FloatingToastTone;
 };
 
-const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl =
+  process.env.EXPO_PUBLIC_API_BASE_URL?.toString().trim() ||
+  Constants.expoConfig?.extra?.apiBaseUrl?.toString() ||
+  "https://www.eluency.com";
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -121,6 +125,18 @@ const LESSON_PACK_CATEGORIES = [
 const LANGUAGE_LEVELS = ["", "A1", "A2", "B1", "B2", "C1", "C2"] as const;
 const LESSON_LANGUAGES = ["Choose Language", "Portuguese (BR)", "Spanish", "English", "French", "German", "Italian", "Japanese", "Korean", "Chinese (Mandarin)", "Arabic"] as const;
 const CHOOSE_LANGUAGE_PLACEHOLDER = LESSON_LANGUAGES[0];
+const LANGUAGE_FLAGS: Record<string, string> = {
+  "Portuguese (BR)": "🇧🇷",
+  "Spanish": "🇪🇸",
+  "English": "🇬🇧",
+  "French": "🇫🇷",
+  "German": "🇩🇪",
+  "Italian": "🇮🇹",
+  "Japanese": "🇯🇵",
+  "Korean": "🇰🇷",
+  "Chinese (Mandarin)": "🇨🇳",
+  "Arabic": "🇸🇦",
+};
 const EMPTY_LESSON_PACK_CATEGORY = "(None)";
 
 const ROW_TYPE_TAB_LABEL: Record<RowType, string> = {
@@ -354,6 +370,76 @@ function DropdownField({
         </View>
       ) : null}
     </View>
+  );
+}
+
+function WizardModalPicker({
+  visible,
+  title,
+  options,
+  value,
+  renderOption,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  options: readonly string[];
+  value: string;
+  renderOption?: (option: string, selected: boolean) => React.ReactNode;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+}) {
+  const theme = useAppTheme();
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 }}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => undefined}
+          style={{ width: "100%", maxWidth: 400, borderRadius: 24, backgroundColor: theme.colors.surface, overflow: "hidden", maxHeight: 500 }}
+        >
+          <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.text }}>{title}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView>
+            {options.map((option, index) => {
+              if (!option) return null;
+              const selected = option === value;
+              return (
+                <TouchableOpacity
+                  key={`${option}-${index}`}
+                  activeOpacity={0.8}
+                  onPress={() => { onSelect(option); onClose(); }}
+                  style={{
+                    paddingHorizontal: 20,
+                    paddingVertical: 15,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    backgroundColor: selected ? theme.colors.primarySoft : "transparent",
+                    borderBottomWidth: index === options.length - 1 ? 0 : 1,
+                    borderBottomColor: theme.colors.border,
+                  }}
+                >
+                  {renderOption ? renderOption(option, selected) : (
+                    <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{option}</Text>
+                  )}
+                  {selected && <Ionicons name="checkmark" size={18} color={theme.colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
   );
 }
 
@@ -641,6 +727,9 @@ export default function LessonFormScreen() {
   const [levelOpen, setLevelOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [lessonCategoryOpen, setLessonCategoryOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [generatingAllImages, setGeneratingAllImages] = useState(false);
+  const [buildMethod, setBuildMethod] = useState<"ai" | "upload" | "manual" | null>(null);
 
   /** Unset / placeholder → same defaults as web lesson editor (PT conjugation templates, prepositions). */
   const effectiveLessonLanguage = useMemo(() => {
@@ -951,6 +1040,7 @@ export default function LessonFormScreen() {
     });
 
   const authedJsonFetch = async (path: string, body: unknown) => {
+    const base = apiBaseUrl.replace(/\/$/, "");
     let token = await getAccessToken();
     let res = await postAuthed(path, token, {
       headers: { "Content-Type": "application/json" },
@@ -970,6 +1060,11 @@ export default function LessonFormScreen() {
     const json = (await res.json().catch(() => ({}))) as Record<string, any>;
     if (!res.ok) {
       const detail = String(json?.error ?? json?.message ?? "").trim();
+      if (res.status === 401) {
+        throw new Error(
+          `Unauthorized (${res.status}) from ${base}. If this app should use your patched backend, set EXPO_PUBLIC_API_BASE_URL to that server or deploy the Eluency API changes.`
+        );
+      }
       throw new Error(detail ? `${detail} (${res.status})` : `Request failed (${res.status})`);
     }
     return json;
@@ -1122,6 +1217,19 @@ export default function LessonFormScreen() {
     } finally {
       setAiLoading(false);
     }
+  };
+
+  const generateAllImages = async () => {
+    if (!canUseAI) return Alert.alert("AI", "AI is not available on your current plan.");
+    const eligible = words
+      .map((w, i) => ({ w, i }))
+      .filter(({ w }) => w.rowType === "vocab" && (w.termA.trim() || w.termB.trim()) && !w.image_url.trim());
+    if (!eligible.length) return Alert.alert("AI", "No vocab rows need images.");
+    setGeneratingAllImages(true);
+    for (const { i } of eligible) {
+      await generateWordImageWithAI(i);
+    }
+    setGeneratingAllImages(false);
   };
 
   const generateWordImageWithAI = async (index: number) => {
@@ -1351,6 +1459,613 @@ export default function LessonFormScreen() {
     minHeight: 48,
   };
 
+  const WIZARD_TITLES = ["", "Lesson Identity", "Language & Settings", "Build Your Lesson", "Vocabulary Builder"];
+  const WIZARD_SUBTITLES = [
+    "",
+    "Add a cover image, title, and description to kick things off.",
+    "Select the lesson language, level, and optional categories.",
+    "How would you like to build your lesson?",
+    "Add vocabulary pairs, conjugations, and preposition drills.",
+  ];
+
+  const advanceWizard = () => {
+    if (wizardStep === 1 && !title.trim()) {
+      showToast("Please add a lesson title first.", "danger");
+      return;
+    }
+    if (wizardStep === 2 && (!language || language === CHOOSE_LANGUAGE_PLACEHOLDER)) {
+      showToast("Please select a lesson language.", "danger");
+      return;
+    }
+    Keyboard.dismiss();
+    setWizardStep((s) => Math.min(s + 1, 4));
+  };
+
+  if (!isEdit) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {pendingLanguage ? (
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+            <GlassCard style={{ width: "100%", borderRadius: 28 }} variant="strong">
+              <Text style={[theme.typography.title, { marginBottom: 8 }]}>Change language?</Text>
+              <Text style={[theme.typography.body, { marginBottom: 16, color: theme.colors.textMuted }]}>
+                Switching to <Text style={{ fontWeight: "800", color: theme.colors.text }}>{pendingLanguage}</Text> may affect conjugation and preposition rows.
+              </Text>
+              <TouchableOpacity onPress={() => { const np = pairForLessonLanguage(pendingLanguage, languagePair); setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => prev.map((w) => w.rowType === "conjugation" ? { ...w, conjugations: conjugationsFor(pendingLanguage) } : w)); setPendingLanguage(null); }} style={{ borderRadius: 12, backgroundColor: theme.colors.primary, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
+                <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 15 }}>Keep existing rows</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { const np = pairForLessonLanguage(pendingLanguage, languagePair); setLanguage(pendingLanguage); setLanguagePair(np); setWords((prev) => { const kept = prev.filter((w) => w.rowType === "vocab"); return kept.length > 0 ? kept : [makeWord(np, pendingLanguage, "vocab")]; }); setPendingLanguage(null); }} style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: 14, alignItems: "center", marginBottom: 10 }}>
+                <Text style={{ color: theme.colors.text, fontWeight: "700", fontSize: 15 }}>Clear language-specific rows</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setPendingLanguage(null)} style={{ alignItems: "center", paddingVertical: 10 }}>
+                <Text style={{ color: theme.colors.textMuted, fontWeight: "700" }}>Cancel</Text>
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
+        ) : null}
+
+        {/* Wizard header */}
+        <View style={{ paddingTop: Math.max(insets.top, 8) + 8, paddingHorizontal: 20, paddingBottom: 8 }}>
+          <TouchableOpacity
+            onPress={() => { if (wizardStep <= 1) navigation.goBack(); else setWizardStep((s) => s - 1); }}
+            style={{ alignSelf: "flex-start", padding: 4, marginBottom: 18 }}
+          >
+            <Ionicons name="chevron-back" size={26} color={theme.colors.text} />
+          </TouchableOpacity>
+
+          {/* Progress bar */}
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 20 }}>
+            {[1, 2, 3, 4].map((s) => (
+              <View key={s} style={{ flex: 1, height: 4, borderRadius: 999, backgroundColor: s <= wizardStep ? theme.colors.primary : theme.colors.border }} />
+            ))}
+          </View>
+
+          <Text style={[theme.typography.label, { color: theme.colors.textMuted, marginBottom: 4 }]}>
+            Step {wizardStep} of 4
+          </Text>
+          <Text style={[theme.typography.display, { fontSize: 26, lineHeight: 32 }]}>
+            {WIZARD_TITLES[wizardStep]}
+          </Text>
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: 6, marginBottom: 4 }]}>
+            {WIZARD_SUBTITLES[wizardStep]}
+          </Text>
+        </View>
+
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 48, gap: 16 }}
+        >
+          {/* ── Step 1: Cover + Title + Description ── */}
+          {wizardStep === 1 && (
+            <>
+              <TouchableOpacity onPress={pickCover} activeOpacity={0.9}>
+                {coverPreviewUri.trim() ? (
+                  <Image source={{ uri: coverPreviewUri.trim() }} style={{ width: "100%", height: 210, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                ) : (
+                  <View style={{ width: "100%", height: 210, borderRadius: 20, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <Ionicons name="image-outline" size={40} color={theme.colors.textMuted} />
+                    <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 14 }}>Add cover image</Text>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 12 }}>Tap to choose a photo</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              {coverUploading ? (
+                <Text style={{ textAlign: "center", color: theme.colors.textMuted, fontSize: 12 }}>Uploading cover…</Text>
+              ) : null}
+
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <TextInput
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="Lesson title *"
+                  placeholderTextColor={placeholderColor}
+                  returnKeyType="done"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 22, fontWeight: "800", color: theme.colors.text }}
+                />
+                <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+                <TextInput
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  blurOnSubmit
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  placeholder="Description (optional)"
+                  placeholderTextColor={placeholderColor}
+                  style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }}
+                />
+              </View>
+
+              <AppButton label="Continue →" onPress={advanceWizard} />
+            </>
+          )}
+
+          {/* ── Step 2: Language + Settings + Doc ── */}
+          {wizardStep === 2 && (
+            <>
+              {/* Modals — rendered outside ScrollView content so they cover full screen */}
+              <WizardModalPicker
+                visible={languageOpen}
+                title="Lesson Language"
+                options={LESSON_LANGUAGES.filter((l) => l !== CHOOSE_LANGUAGE_PLACEHOLDER)}
+                value={language}
+                renderOption={(opt, selected) => (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                    <Text style={{ fontSize: 24 }}>{LANGUAGE_FLAGS[opt] ?? "🌐"}</Text>
+                    <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{opt}</Text>
+                  </View>
+                )}
+                onSelect={(val) => {
+                  if (val === language) return;
+                  const hasContent = words.some((w) => w.termA.trim() || w.termB.trim() || w.infinitive?.trim());
+                  const hasSpecial = words.some((w) => w.rowType === "conjugation" || w.rowType === "preposition");
+                  if (hasContent && hasSpecial) { setPendingLanguage(val); } else {
+                    const np = pairForLessonLanguage(val, languagePair);
+                    setLanguage(val); setLanguagePair(np);
+                    setWords((prev) => prev.map((w) => { if (w.rowType === "conjugation") return { ...w, conjugations: conjugationsFor(val) }; if (w.rowType === "preposition" && !LANGUAGE_CONFIG[val]?.rowTypes.includes("preposition")) return makeWord(np, val, "vocab"); return w; }));
+                  }
+                }}
+                onClose={() => setLanguageOpen(false)}
+              />
+              <WizardModalPicker
+                visible={levelOpen}
+                title="Level"
+                options={LANGUAGE_LEVELS.filter(Boolean)}
+                value={languageLevel}
+                onSelect={(val) => setLanguageLevel(val)}
+                onClose={() => setLevelOpen(false)}
+              />
+              <WizardModalPicker
+                visible={categoryOpen}
+                title="Category"
+                options={CATEGORY_OPTIONS}
+                value={category}
+                onSelect={(val) => setCategory(val)}
+                onClose={() => setCategoryOpen(false)}
+              />
+              {isAdmin && (
+                <WizardModalPicker
+                  visible={lessonCategoryOpen}
+                  title="Lesson Category"
+                  options={LESSON_PACK_CATEGORIES}
+                  value={lessonCategory}
+                  onSelect={(val) => setLessonCategory(val)}
+                  onClose={() => setLessonCategoryOpen(false)}
+                />
+              )}
+
+              {/* PDF upload — top */}
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Lesson Document (PDF)</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>
+                    This will show up on your students' Study screen as a PDF they can review from their phone.
+                  </Text>
+                </View>
+                <View style={{ padding: 14, gap: 10 }}>
+                  {docUrl ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons name="document-outline" size={16} color={theme.colors.primary} />
+                      <Text style={{ flex: 1, fontSize: 13, color: theme.colors.text }} numberOfLines={1}>{docName || docUrl}</Text>
+                      <TouchableOpacity onPress={() => { setDocUrl(""); setDocName(""); }}>
+                        <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                  <TouchableOpacity onPress={pickDoc} style={{ paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, alignItems: "center", backgroundColor: theme.colors.primarySoft }}>
+                    <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: "700" }}>Upload PDF</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Language */}
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Lesson Language</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>
+                    This sets the language pair used across all vocabulary pairs, conjugations, and drills in this lesson.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setLanguageOpen(true)}
+                  style={{ margin: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  {language && language !== CHOOSE_LANGUAGE_PLACEHOLDER ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Text style={{ fontSize: 20 }}>{LANGUAGE_FLAGS[language] ?? "🌐"}</Text>
+                      <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: "600" }}>{language}</Text>
+                    </View>
+                  ) : (
+                    <Text style={{ fontSize: 15, color: theme.colors.textMuted }}>Choose Language</Text>
+                  )}
+                  <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Level + Category + Admin — combined pill */}
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Optional Settings</Text>
+                </View>
+
+                {/* Level */}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setLevelOpen(true)}
+                  style={{ paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Level</Text>
+                    <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>CEFR level for this lesson — tags it for CEFR Vocabulary or Lesson categories.</Text>
+                  </View>
+                  <View style={{ marginLeft: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 90 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 13, color: languageLevel ? theme.colors.text : theme.colors.textMuted, fontWeight: languageLevel ? "700" : "400", flex: 1, textAlign: "center" }}>
+                      {languageLevel || "Select"}
+                    </Text>
+                    <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
+                  </View>
+                </TouchableOpacity>
+
+                {/* Category */}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setCategoryOpen(true)}
+                  style={{ paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: isAdmin ? 1 : 0, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Category</Text>
+                    <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>Instructional type — e.g. Vocabulary, Verb Tenses, Phrasal Verbs.</Text>
+                  </View>
+                  <View style={{ marginLeft: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 90 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 13, color: category ? theme.colors.text : theme.colors.textMuted, fontWeight: category ? "700" : "400", flex: 1, textAlign: "center" }}>
+                      {category || "Select"}
+                    </Text>
+                    <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
+                  </View>
+                </TouchableOpacity>
+
+                {/* Admin: Lesson Category */}
+                {isAdmin ? (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setLessonCategoryOpen(true)}
+                    style={{ paddingHorizontal: 14, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Lesson Category</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>Add this lesson to a curriculum category pack.</Text>
+                    </View>
+                    <View style={{ marginLeft: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 6, minWidth: 90 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 13, color: lessonCategory ? theme.colors.text : theme.colors.textMuted, fontWeight: lessonCategory ? "700" : "400", flex: 1, textAlign: "center" }}>
+                        {lessonCategory || "Select"}
+                      </Text>
+                      <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <AppButton label="Continue →" onPress={advanceWizard} />
+            </>
+          )}
+
+          {/* ── Step 3: Build Method Choice ── */}
+          {wizardStep === 3 && (
+            <>
+              {/* Upload PDF/Excel — blue */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => { setBuildMethod("upload"); setWizardStep(4); }}
+                style={{ borderWidth: 1.5, borderColor: "#0EA5E9", borderRadius: 22, backgroundColor: "#0EA5E911", padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }}
+              >
+                <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: "#0EA5E9", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="cloud-upload-outline" size={24} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: "#0EA5E9", marginBottom: 4 }}>Upload a PDF / Excel</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>AI extracts vocabulary pairs from your file automatically.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#0EA5E9" />
+              </TouchableOpacity>
+
+              {/* Build with AI — purple/primary */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => { setBuildMethod("ai"); setWizardStep(4); }}
+                style={{ borderWidth: 1.5, borderColor: canUseAI ? "#EF4444" : theme.colors.border, borderRadius: 22, backgroundColor: canUseAI ? "#EF444411" : theme.colors.surfaceGlass, padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }}
+              >
+                <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: canUseAI ? "#EF4444" : theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="sparkles-outline" size={24} color={canUseAI ? "#fff" : theme.colors.textMuted} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: canUseAI ? "#EF4444" : theme.colors.text }}>Build with AI</Text>
+                    {canUseAI ? (
+                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: "#EF4444" }}>
+                        <Text style={{ fontSize: 9, fontWeight: "800", color: "#fff" }}>AI enabled</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Describe a topic or paste a word list — AI builds your vocab.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={canUseAI ? "#EF4444" : theme.colors.textMuted} />
+              </TouchableOpacity>
+
+              {/* Create Manually — green */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => { setBuildMethod("manual"); setWizardStep(4); }}
+                style={{ borderWidth: 1.5, borderColor: "#10B981", borderRadius: 22, backgroundColor: "#10B98111", padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }}
+              >
+                <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: "#10B981", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="create-outline" size={24} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: "#10B981", marginBottom: 4 }}>Create Manually</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Type in your vocabulary pairs one by one.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#10B981" />
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* ── Step 4: Vocabulary Builder ── */}
+          {wizardStep === 4 && (
+            <>
+              {/* Build method pill */}
+              {buildMethod === "ai" && (
+                <View style={{ borderWidth: 1.5, borderColor: "#EF4444", borderRadius: 20, backgroundColor: "#EF444411", overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#EF444433" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons name="sparkles-outline" size={14} color="#EF4444" />
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: "#EF4444", letterSpacing: 1.2, textTransform: "uppercase" }}>AI Lesson Generator</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: "#EF4444", opacity: 0.75, marginTop: 4, lineHeight: 16 }}>
+                      Describe the topic or paste a vocabulary list — AI will fill the builder below automatically.
+                    </Text>
+                  </View>
+                  <View style={{ padding: 14, gap: 10 }}>
+                    <TextInput
+                      value={aiSubject}
+                      onChangeText={setAiSubject}
+                      placeholder="e.g. Kitchen Vocab, B1 or paste a word here"
+                      placeholderTextColor={theme.colors.textMuted}
+                      multiline
+                      style={{ borderWidth: 1, borderColor: "#EF444444", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: theme.colors.text, backgroundColor: theme.colors.surface, fontSize: 14, minHeight: 72, textAlignVertical: "top" }}
+                    />
+                    <TouchableOpacity
+                      onPress={generateWithAI}
+                      disabled={aiLoading || !canUseAI}
+                      activeOpacity={0.85}
+                      style={{ paddingVertical: 12, borderRadius: 12, backgroundColor: "#EF4444", alignItems: "center", opacity: aiLoading || !canUseAI ? 0.6 : 1 }}
+                    >
+                      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {buildMethod === "upload" && (
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.primary, borderRadius: 20, backgroundColor: theme.colors.primarySoft, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.primary + "33" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons name="cloud-upload-outline" size={14} color={theme.colors.primary} />
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.2, textTransform: "uppercase" }}>Upload a File</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: theme.colors.primary, opacity: 0.75, marginTop: 4, lineHeight: 16 }}>
+                      AI will extract vocabulary pairs from your PDF, Excel, or CSV file.
+                    </Text>
+                  </View>
+                  <View style={{ padding: 14 }}>
+                    <TouchableOpacity
+                      onPress={extractVocabularyFile}
+                      disabled={extractLoading}
+                      activeOpacity={0.85}
+                      style={{ paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.primary + "66", alignItems: "center", justifyContent: "center", gap: 6, opacity: extractLoading ? 0.7 : 1, backgroundColor: theme.colors.surface }}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={20} color={theme.colors.primary} />
+                      <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: "700" }}>{extractLoading ? "Extracting…" : "Choose PDF, Excel or CSV"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary Builder</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 16 }}>
+                    Add vocabulary pairs, verb conjugations, and preposition drills — same structure as the web dashboard.
+                  </Text>
+                </View>
+
+                <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
+                  {words.map((w, i) => {
+                    const isOpen = !!advancedOpen[w.key];
+                    return (
+                      <View key={w.key} style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 22, overflow: "hidden", backgroundColor: theme.colors.surfaceAlt }}>
+                        {languageConfig.rowTypes.length > 1 ? (
+                          <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }}>
+                            {languageConfig.rowTypes.map((rt, idx) => (
+                              <TouchableOpacity key={rt} onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...makeWord(languagePair, effectiveLessonLanguage, rt), key: x.key, image_url: x.image_url } : x)))}
+                                style={{ flex: 1, paddingVertical: 11, alignItems: "center", borderRightWidth: idx === languageConfig.rowTypes.length - 1 ? 0 : 1, borderRightColor: theme.colors.border, backgroundColor: w.rowType === rt ? theme.colors.primarySoft : "transparent" }}>
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: w.rowType === rt ? theme.colors.primary : theme.colors.textMuted }}>{ROW_TYPE_TAB_LABEL[rt]}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        ) : null}
+
+                        <View style={{ padding: 16, gap: 10 }}>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{ROW_TYPE_TAB_LABEL[w.rowType]}</Text>
+                              </View>
+                            </View>
+                            {words.length > 1 ? (
+                              <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => prev.filter((x) => x.key !== w.key)); }} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}>
+                                <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+
+                          {w.rowType === "vocab" ? (
+                            <>
+                              <View style={{ flexDirection: "row", gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase" }}>{labelA}</Text>
+                                  <TextInput value={w.termA} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, termA: t } : x)))} placeholder={`${labelA} term`} placeholderTextColor={placeholderColor} style={pillStyle} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase" }}>{labelB}</Text>
+                                  <TextInput value={w.termB} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, termB: t } : x)))} placeholder={`${labelB} term`} placeholderTextColor={placeholderColor} style={pillStyle} />
+                                </View>
+                              </View>
+
+                              <TouchableOpacity onPress={() => toggleAdvanced(w.key)} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Advanced options</Text>
+                                <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.primary} />
+                              </TouchableOpacity>
+
+                              {isOpen ? (
+                                <View style={{ gap: 10 }}>
+                                  <View style={{ flexDirection: "row", gap: 8 }}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Tense</Text>
+                                      <MiniDropdown value={w.tense} options={TENSE_OPTIONS} placeholder="Select tense" isOpen={openInlineDropdown === `${w.key}-tense`} onToggle={() => setOpenInlineDropdown(openInlineDropdown === `${w.key}-tense` ? null : `${w.key}-tense`)} onSelect={(t) => { setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, tense: t } : x))); setOpenInlineDropdown(null); }} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Grammar</Text>
+                                      <MiniDropdown value={w.grammar} options={GRAMMAR_OPTIONS} placeholder="Select grammar" isOpen={openInlineDropdown === `${w.key}-grammar`} onToggle={() => setOpenInlineDropdown(openInlineDropdown === `${w.key}-grammar` ? null : `${w.key}-grammar`)} onSelect={(t) => { setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, grammar: t } : x))); setOpenInlineDropdown(null); }} />
+                                    </View>
+                                  </View>
+                                  <View style={{ flexDirection: "row", gap: 8 }}>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>{labelA} Alts</Text>
+                                      <TextInput value={w.altA} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, altA: t } : x)))} placeholder="Comma separated" placeholderTextColor={placeholderColor} style={[pillStyle, { fontSize: 13 }]} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>{labelB} Alts</Text>
+                                      <TextInput value={w.altB} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, altB: t } : x)))} placeholder="Comma separated" placeholderTextColor={placeholderColor} style={[pillStyle, { fontSize: 13 }]} />
+                                    </View>
+                                  </View>
+                                  <View style={{ gap: 8 }}>
+                                    <View>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>{labelA} Sentence</Text>
+                                      <TextInput value={w.contextA} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, contextA: t } : x)))} placeholder="Example sentence" placeholderTextColor={placeholderColor} style={[pillStyle, { fontSize: 13, minHeight: 44 }]} />
+                                    </View>
+                                    <View>
+                                      <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>{labelB} Sentence</Text>
+                                      <TextInput value={w.contextB} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, contextB: t } : x)))} placeholder="Example sentence" placeholderTextColor={placeholderColor} style={[pillStyle, { fontSize: 13, minHeight: 44 }]} />
+                                    </View>
+                                  </View>
+                                  {w.image_url.trim() ? (
+                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                                  ) : null}
+                                  <View style={{ flexDirection: "row", gap: 8 }}>
+                                    <TouchableOpacity onPress={() => pickWordImage(i)} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }}>
+                                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{uploadingWordIndex === i ? "Uploading…" : "Upload image"}</Text>
+                                    </TouchableOpacity>
+                                    {canUseAI ? (
+                                      <>
+                                        <TouchableOpacity onPress={() => generateWordImageWithAI(i)} disabled={generatingImageIndex === i} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, opacity: generatingImageIndex === i ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
+                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>{generatingImageIndex === i ? "AI…" : "AI image"}</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => fillBlanksWithAI(i)} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Fill AI</Text>
+                                        </TouchableOpacity>
+                                      </>
+                                    ) : null}
+                                  </View>
+                                </View>
+                              ) : null}
+                            </>
+                          ) : null}
+
+                          {w.rowType === "conjugation" ? (
+                            <>
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                                Verb conjugation practice: set the infinitive and tense, then fill the correct form for each pronoun.
+                              </Text>
+                              <View style={{ flexDirection: "row", gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Verb / Infinitive</Text>
+                                  <TextInput value={w.infinitive} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, infinitive: t } : x)))} placeholder="falar / sein / être" placeholderTextColor={placeholderColor} style={pillStyle} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Tense</Text>
+                                  <MiniDropdown value={w.tense} options={TENSE_OPTIONS} placeholder="Tense" isOpen={openInlineDropdown === `${w.key}-conj-tense`} onToggle={() => setOpenInlineDropdown(openInlineDropdown === `${w.key}-conj-tense` ? null : `${w.key}-conj-tense`)} onSelect={(t) => { setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, tense: t } : x))); setOpenInlineDropdown(null); }} />
+                                </View>
+                              </View>
+                              <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.primary, letterSpacing: 0.6, textTransform: "uppercase", marginTop: 4 }}>Pronoun → form</Text>
+                              {w.conjugations.map((c, ci) => (
+                                <View key={`${w.key}-c-${ci}`} style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                                  <View style={{ width: 100, flexShrink: 0, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center" }}>
+                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary, textAlign: "center" }}>{c.pronoun}</Text>
+                                  </View>
+                                  <TextInput value={c.form_a} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, conjugations: x.conjugations.map((cc, j) => (j === ci ? { ...cc, form_a: t } : cc)) } : x)))} placeholder="Form" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1, minHeight: 40 }]} />
+                                </View>
+                              ))}
+                            </>
+                          ) : null}
+
+                          {w.rowType === "preposition" ? (
+                            <>
+                              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Use template chips to preload common preposition and contraction sets.</Text>
+                              <TextInput value={w.prepositionTitle} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositionTitle: t } : x)))} placeholder="Title" placeholderTextColor={placeholderColor} style={pillStyle} />
+                              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                                {(languageConfig.templates ?? []).map((tp) => (
+                                  <TouchableOpacity key={tp.id} onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositionTemplateId: tp.id, prepositionTitle: tp.title, prepositionGroup: "Prepositions / Contractions", prepositions: tp.entries.map((e) => ({ ...e })) } : x)))}
+                                    style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: w.prepositionTemplateId === tp.id ? theme.colors.primary : theme.colors.border, backgroundColor: w.prepositionTemplateId === tp.id ? theme.colors.primarySoft : theme.colors.surface }}>
+                                    <Text style={{ fontSize: 11, fontWeight: "700", color: w.prepositionTemplateId === tp.id ? theme.colors.primary : theme.colors.textMuted }}>{tp.title}</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                              {w.prepositions.map((p, pi) => (
+                                <View key={`${w.key}-p-${pi}`} style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                                  <TextInput value={p.left} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositions: x.prepositions.map((pp, j) => (j === pi ? { ...pp, left: t } : pp)) } : x)))} placeholder="A" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1 }]} />
+                                  <TextInput value={p.right} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositions: x.prepositions.map((pp, j) => (j === pi ? { ...pp, right: t } : pp)) } : x)))} placeholder="B" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1 }]} />
+                                  <TextInput value={p.answer} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositions: x.prepositions.map((pp, j) => (j === pi ? { ...pp, answer: t } : pp)) } : x)))} placeholder="=" placeholderTextColor={placeholderColor} style={[pillStyle, { flex: 1 }]} />
+                                  <TouchableOpacity onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositions: x.prepositions.filter((_, j) => j !== pi) } : x)))}>
+                                    <Ionicons name="close" size={14} color={theme.colors.danger} />
+                                  </TouchableOpacity>
+                                </View>
+                              ))}
+                              <TouchableOpacity onPress={() => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, prepositions: [...x.prepositions, { left: "", right: "", answer: "" }] } : x)))}>
+                                <Text style={{ color: theme.colors.primary, fontWeight: "700", fontSize: 12 }}>+ Add line</Text>
+                              </TouchableOpacity>
+                            </>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                    <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
+                        {`${vocabCount} ${vocabCount === 1 ? "row" : "rows"}`}
+                        {specialRowCount > 0 ? ` · ${conjugationRowCount} conj. · ${prepositionRowCount} prep.` : ""}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => { layoutSpring(); setWords((prev) => [...prev, makeWord(languagePair, effectiveLessonLanguage, "vocab")]); }} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.primary }}>
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: "#fff" }}>+ Add row</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <AppButton label="Create Lesson" onPress={save} loading={saving} />
+            </>
+          )}
+        </ScrollView>
+        <FloatingToast {...toastProps} />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       {pendingLanguage ? (
@@ -1508,6 +2223,77 @@ export default function LessonFormScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* AI Lesson Generator card (edit mode) */}
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Ionicons name="sparkles-outline" size={16} color={theme.colors.primary} />
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, textTransform: "uppercase" }}>AI Lesson Generator</Text>
+                    {canUseAI ? (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
+                        <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>AI enabled</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>
+                    Upload a file or enter a subject/prompt below — AI will extract vocabulary pairs and fill the Vocabulary Builder in your selected language pair automatically.
+                  </Text>
+                </View>
+
+                <View style={{ padding: 18, gap: 16 }}>
+                  {/* File upload */}
+                  <View>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 8 }}>Upload a file (optional)</Text>
+                    <TouchableOpacity
+                      onPress={extractVocabularyFile}
+                      disabled={extractLoading}
+                      activeOpacity={0.85}
+                      style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", gap: 6, opacity: extractLoading ? 0.7 : 1, backgroundColor: theme.colors.surfaceAlt }}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={22} color={theme.colors.primary} />
+                      <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: "700" }}>{extractLoading ? "Extracting…" : "Choose PDF, Excel or CSV"}</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* AI Prompt */}
+                  <View>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>Subject / AI Prompt</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17, marginBottom: 8 }}>
+                      Describe the topic or paste a vocabulary list. E.g. "Kitchen vocabulary for B1 students", "Phrasal verbs with GET", or "Common verbs for a restaurant scenario". The more specific, the better the results.
+                    </Text>
+                    <TextInput
+                      value={aiSubject}
+                      onChangeText={setAiSubject}
+                      placeholder="e.g. Kitchen vocabulary, B1 — or paste a word list here"
+                      placeholderTextColor={placeholderColor}
+                      multiline
+                      style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.text, backgroundColor: theme.colors.surfaceAlt, fontSize: 14, minHeight: 88, textAlignVertical: "top" }}
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={generateWithAI}
+                    disabled={aiLoading || !canUseAI}
+                    activeOpacity={0.85}
+                    style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: aiLoading || !canUseAI ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={generateAllImages}
+                    disabled={generatingAllImages || !canUseAI}
+                    activeOpacity={0.85}
+                    style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: generatingAllImages || !canUseAI ? 0.6 : 1 }}
+                  >
+                    <View style={{ alignItems: "center", gap: 4 }}>
+                      <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 14 }}>{generatingAllImages ? "Generating images…" : "✦  AI Generate All Images"}</Text>
+                      <Text style={{ color: theme.colors.primary, fontSize: 11, opacity: 0.7 }}>Builds 10 words at a time.</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Lesson Builder</Text>
@@ -1587,9 +2373,6 @@ export default function LessonFormScreen() {
                         <View style={{ padding: 16, gap: 10 }}>
                           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.surfaceGlass }}>
-                                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>#{i + 1}</Text>
-                              </View>
                               <View style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: theme.colors.violetSoft }}>
                                 <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{ROW_TYPE_TAB_LABEL[w.rowType]}</Text>
                               </View>

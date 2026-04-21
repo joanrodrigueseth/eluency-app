@@ -421,7 +421,13 @@ function LanguagePickerModal({
                       gap: 12,
                     }}
                   >
-                    <Text style={[theme.typography.body, item === "" ? { color: theme.colors.textMuted } : {}]}>
+                    <Text
+                      style={[
+                        theme.typography.body,
+                        { color: theme.colors.text },
+                        item === "" ? { color: theme.colors.textMuted } : {},
+                      ]}
+                    >
                       {renderLabel ? renderLabel(item) : item === "" ? "— None —" : item}
                     </Text>
                     {typeof count === "number" && !isAll ? (
@@ -1415,67 +1421,101 @@ export default function LessonPacksScreen() {
           <Text style={[theme.typography.caption, { marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }]}>
             What language are you teaching?
           </Text>
-          <TouchableOpacity
-            onPress={() => setLanguagePickerOpen(true)}
-            style={{
-              alignSelf: "flex-start",
-              width: "48%",
-              marginBottom: 14,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              paddingHorizontal: 14,
-              paddingVertical: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: filterLanguage !== "all" ? theme.colors.primary : theme.colors.border,
-              backgroundColor: filterLanguage !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-            }}
-          >
-            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+            <TouchableOpacity
+              onPress={() => setLanguagePickerOpen(true)}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: filterLanguage !== "all" ? theme.colors.primary : theme.colors.border,
+                backgroundColor: filterLanguage !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+              }}
+            >
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "700",
+                    color: filterLanguage !== "all" ? theme.colors.primary : theme.colors.text,
+                    flexShrink: 1,
+                  }}
+                  numberOfLines={1}
+                >
+                  {filterLanguage === "all" ? "All languages" : filterLanguage}
+                </Text>
+                {filterLanguage !== "all" ? (
+                  <View
+                    style={{
+                      minWidth: 28,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 999,
+                      backgroundColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.bg ?? theme.colors.surface,
+                      borderWidth: 1,
+                      borderColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.border ?? theme.colors.border,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "800",
+                        color: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.text ?? theme.colors.text,
+                      }}
+                    >
+                      {languageOptionCounts.get(filterLanguage) || 0}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Ionicons
+                name="chevron-down"
+                size={16}
+                color={filterLanguage !== "all" ? theme.colors.primary : theme.colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setCefrPickerOpen(true)}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: filterCefr !== "all" ? theme.colors.primary : theme.colors.border,
+                backgroundColor: filterCefr !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+              }}
+            >
               <Text
                 style={{
                   fontSize: 13,
                   fontWeight: "700",
-                  color: filterLanguage !== "all" ? theme.colors.primary : theme.colors.text,
+                  color: filterCefr !== "all" ? theme.colors.primary : theme.colors.text,
                   flexShrink: 1,
                 }}
                 numberOfLines={1}
               >
-                {filterLanguage === "all" ? "All languages" : filterLanguage}
+                {filterCefr === "all" ? "All levels" : filterCefr}
               </Text>
-              {filterLanguage !== "all" ? (
-                <View
-                  style={{
-                    minWidth: 28,
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                    borderRadius: 999,
-                    backgroundColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.bg ?? theme.colors.surface,
-                    borderWidth: 1,
-                    borderColor: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.border ?? theme.colors.border,
-                    alignItems: "center",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: "800",
-                      color: LANGUAGE_PILL_COLORS[filterLanguage]?.inactive.text ?? theme.colors.text,
-                    }}
-                  >
-                    {languageOptionCounts.get(filterLanguage) || 0}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-            <Ionicons
-              name="chevron-down"
-              size={16}
-              color={filterLanguage !== "all" ? theme.colors.primary : theme.colors.textMuted}
-            />
-          </TouchableOpacity>
+              <Ionicons
+                name="chevron-down"
+                size={16}
+                color={filterCefr !== "all" ? theme.colors.primary : theme.colors.textMuted}
+              />
+            </TouchableOpacity>
+          </View>
 
           <TextInput
             value={query}
@@ -1493,28 +1533,6 @@ export default function LessonPacksScreen() {
               backgroundColor: theme.colors.surfaceAlt,
             }}
           />
-
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-            <TouchableOpacity
-              onPress={() => setCefrPickerOpen(true)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 4,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: filterCefr !== "all" ? theme.colors.primary : theme.colors.border,
-                backgroundColor: filterCefr !== "all" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-              }}
-            >
-              <Text style={{ fontSize: 10, fontWeight: "800" }}>
-                {filterCefr === "all" ? "LEVEL" : filterCefr}
-              </Text>
-              <Ionicons name="chevron-down" size={12} color={filterCefr !== "all" ? theme.colors.primary : theme.colors.textMuted} />
-            </TouchableOpacity>
-          </View>
 
           {(filterCefr !== "all" || filterLanguage !== "all" || query.length > 0) && (
             <TouchableOpacity onPress={clearFilters} style={{ marginBottom: 16 }}>
@@ -1547,8 +1565,20 @@ export default function LessonPacksScreen() {
         </GlassCard>
       </ScrollView>
 
-      {/* CEFR picker modal */}
-      <Modal visible={cefrPickerOpen} animationType="slide" transparent onRequestClose={() => setCefrPickerOpen(false)}>
+      <LanguagePickerModal
+        visible={cefrPickerOpen}
+        title="Filter by CEFR level"
+        value={filterCefr}
+        allowEmpty={false}
+        options={["all", ...availableCefrLevels]}
+        renderLabel={(item) => (item === "all" ? "All levels" : item)}
+        onClose={() => setCefrPickerOpen(false)}
+        onSelect={setFilterCefr}
+        theme={theme}
+      />
+
+      {/* Legacy CEFR picker modal kept disabled */}
+      <Modal visible={false} animationType="slide" transparent onRequestClose={() => setCefrPickerOpen(false)}>
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}
           activeOpacity={1}
@@ -2061,7 +2091,7 @@ function EditPackModal({
                 backgroundColor: cefrLevel === "" ? theme.colors.primarySoft : theme.colors.surfaceAlt,
               }}
             >
-              <Text style={{ fontSize: 11, fontWeight: "700" }}>None</Text>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>None</Text>
             </TouchableOpacity>
             {CEFR_OPTIONS.map((o) => (
               <TouchableOpacity
@@ -2077,7 +2107,7 @@ function EditPackModal({
                   backgroundColor: cefrLevel === o ? theme.colors.primarySoft : theme.colors.surfaceAlt,
                 }}
               >
-                <Text style={{ fontSize: 11, fontWeight: "700" }}>{o}</Text>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{o}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -2226,7 +2256,9 @@ function EditPackModal({
                   backgroundColor: level === value ? theme.colors.primarySoft : theme.colors.surfaceAlt,
                 }}
               >
-                <Text style={{ fontSize: 10, fontWeight: "800" }}>{value === "all" ? "ALL" : value}</Text>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.text }}>
+                  {value === "all" ? "ALL" : value}
+                </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -2484,7 +2516,7 @@ function NewPackModal({
                     backgroundColor: cefrLevel === o ? theme.colors.primarySoft : theme.colors.surfaceAlt,
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: "700" }}>{o}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{o}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>

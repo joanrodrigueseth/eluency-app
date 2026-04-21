@@ -342,6 +342,8 @@ export default function TestFormScreen() {
   const [helpBubble, setHelpBubble] = useState<"vocab" | "questions" | null>(null);
   const [playingAudio, setPlayingAudio] = useState<Record<string, boolean>>({});
   const audioSoundRef = useState<{ sound: Audio.Sound | null }>({ sound: null })[0];
+  const [wizardStep, setWizardStep] = useState(1);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
 
   const canUseAI = useMemo(() => isAdmin || AI_ELIGIBLE_PLANS.includes((planUi ?? "").toLowerCase()), [isAdmin, planUi]);
 
@@ -1049,6 +1051,24 @@ export default function TestFormScreen() {
     }
   };
 
+  const advanceWizard = () => {
+    if (wizardStep === 1 && !name.trim()) {
+      showToast("Please add a test name first.", "danger");
+      return;
+    }
+    Keyboard.dismiss();
+    setWizardStep((s) => Math.min(s + 1, 4));
+  };
+
+  const WIZARD_TITLES = ["", "Test Identity", "Test Settings", "Lessons & Vocabulary", "Questions"];
+  const WIZARD_SUBTITLES = [
+    "",
+    "Give your test a name, cover image, and description so students know exactly what to expect.",
+    "Configure how students experience this test — timing, attempts, and question order.",
+    "Connect lessons to pull vocabulary automatically, or add words manually.",
+    "Build the questions students will answer. Use templates or let AI generate from your vocabulary.",
+  ];
+
   const placeholderColor = theme.isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)";
 
   const inputStyle = {
@@ -1093,6 +1113,686 @@ export default function TestFormScreen() {
             <SkeletonBox width="100%" height={180} radius={24} />
           </View>
         </GlassCard>
+      </View>
+    );
+  }
+
+  if (!isEdit) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {/* ── Modals (sit above everything) ── */}
+        <Modal visible={categoryPickerOpen} transparent animationType="fade" onRequestClose={() => setCategoryPickerOpen(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => setCategoryPickerOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 }}>
+            <TouchableOpacity activeOpacity={1} onPress={() => undefined} style={{ width: "100%", maxWidth: 400, borderRadius: 24, backgroundColor: theme.colors.surface, overflow: "hidden", maxHeight: 500 }}>
+              <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.text }}>Category</Text>
+                <TouchableOpacity onPress={() => setCategoryPickerOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Ionicons name="close" size={22} color={theme.colors.textMuted} /></TouchableOpacity>
+              </View>
+              <ScrollView>
+                {TEST_CATEGORIES.map((opt, idx) => {
+                  const selected = opt === type;
+                  return (
+                    <TouchableOpacity key={opt} activeOpacity={0.8} onPress={() => { setType(opt); setCategoryPickerOpen(false); }}
+                      style={{ paddingHorizontal: 20, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: selected ? accentPurpleSoft : "transparent", borderBottomWidth: idx === TEST_CATEGORIES.length - 1 ? 0 : 1, borderBottomColor: theme.colors.border }}>
+                      <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{opt}</Text>
+                      {selected && <Ionicons name="checkmark" size={18} color={accentPurple} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => setLessonPickerOpen(false)}>
+          <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingVertical: 32 }} activeOpacity={1} onPress={() => setLessonPickerOpen(false)}>
+            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 500 }}>
+              <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                {/* Header */}
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View>
+                    <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text }}>Link Lessons</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 2 }}>{linkedLessonIds.length} linked</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setLessonPickerOpen(false)} style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                {/* Search */}
+                <View style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <TextInput value={lessonSearch} onChangeText={setLessonSearch} placeholder="Search..." placeholderTextColor={theme.colors.textMuted} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, fontSize: 13 }} />
+                </View>
+                {/* Column headers */}
+                <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <View style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRightWidth: 1, borderRightColor: theme.colors.border, backgroundColor: accentPurpleSoft }}>
+                    <Text style={{ fontSize: 9, fontWeight: "800", color: accentPurple, letterSpacing: 1.2, textTransform: "uppercase", textAlign: "center" }}>Linked ({linkedLessonIds.length})</Text>
+                  </View>
+                  <View style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 10 }}>
+                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", textAlign: "center" }}>Available ({filteredLinkableLessons.length})</Text>
+                  </View>
+                </View>
+                {/* Split columns */}
+                <View style={{ flexDirection: "row", maxHeight: 360 }}>
+                  {/* Left: linked */}
+                  <ScrollView style={{ flex: 1, borderRightWidth: 1, borderRightColor: theme.colors.border }} keyboardShouldPersistTaps="handled">
+                    {linkedLessonIds.length === 0 ? (
+                      <View style={{ padding: 16, alignItems: "center" }}>
+                        <Text style={{ fontSize: 11, color: theme.colors.textMuted, textAlign: "center", lineHeight: 16 }}>No lessons linked yet.{"\n"}Tap from the right →</Text>
+                      </View>
+                    ) : linkedLessonIds.filter((id) => { const l = lessons.find((x) => x.id === id); return !lessonSearch || l?.title.toLowerCase().includes(lessonSearch.toLowerCase()); }).map((id) => {
+                      const lesson = lessons.find((l) => l.id === id);
+                      return (
+                        <TouchableOpacity key={id} onPress={() => setLinkedLessonIds((prev) => prev.filter((x) => x !== id))} activeOpacity={0.8}
+                          style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: accentPurpleSoft, flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                          <Ionicons name="remove-circle" size={14} color={accentPurple} style={{ marginTop: 1, flexShrink: 0 }} />
+                          <Text style={{ flex: 1, fontSize: 11, fontWeight: "700", color: accentPurple, lineHeight: 15 }} numberOfLines={4}>{lesson?.title ?? id}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                  {/* Right: available */}
+                  <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                    {filteredLinkableLessons.length === 0 ? (
+                      <View style={{ padding: 16, alignItems: "center" }}>
+                        <Text style={{ fontSize: 11, color: theme.colors.textMuted, textAlign: "center" }}>No lessons found</Text>
+                      </View>
+                    ) : filteredLinkableLessons.map((l) => (
+                      <TouchableOpacity key={l.id} onPress={() => setLinkedLessonIds((prev) => [...prev, l.id])} activeOpacity={0.8}
+                        style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                        <Ionicons name="add-circle-outline" size={14} color={theme.colors.textMuted} style={{ marginTop: 1, flexShrink: 0 }} />
+                        <Text style={{ flex: 1, fontSize: 11, color: theme.colors.text, lineHeight: 15 }} numberOfLines={4}>{l.title}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={attemptsPickerOpen} animationType="fade" transparent onRequestClose={() => setAttemptsPickerOpen(false)}>
+          <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 }} activeOpacity={1} onPress={() => setAttemptsPickerOpen(false)}>
+            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 400 }}>
+              <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flex: 1, paddingRight: 10 }}><Text style={[theme.typography.title, { fontSize: 18 }]}>Limit Attempts?</Text><Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>How many attempts would you like to set?</Text></View>
+                  <TouchableOpacity onPress={() => setAttemptsPickerOpen(false)} style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}><Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text></TouchableOpacity>
+                </View>
+                <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 360 }}>
+                  <TouchableOpacity onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: "unlimited" }))} activeOpacity={0.85}
+                    style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: testSettings.attempts_allowed === "unlimited" ? "#F2F3F5" : "transparent" }}>
+                    <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: testSettings.attempts_allowed === "unlimited" ? "#ECEDEF" : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                      {testSettings.attempts_allowed === "unlimited" ? <Ionicons name="infinite" size={13} color="#2B2B2B" /> : null}
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 13, color: "#2B2B2B" }}>Unlimited Attempts</Text>
+                  </TouchableOpacity>
+                  {Array.from({ length: 10 }, (_, idx) => idx + 1).map((n) => {
+                    const sel = testSettings.attempts_allowed === n;
+                    return (
+                      <TouchableOpacity key={n} onPress={() => setTestSettings((prev) => ({ ...prev, attempts_allowed: n }))} activeOpacity={0.85}
+                        style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: sel ? accentPurpleSoft : "transparent" }}>
+                        <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: sel ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: sel ? accentPurple : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                          {sel ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 13, color: theme.colors.text }}>{n} {n === 1 ? "attempt" : "attempts"}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={templatePickerOpen} animationType="fade" transparent onRequestClose={() => setTemplatePickerOpen(false)}>
+          <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.58)", justifyContent: "center", paddingHorizontal: 16 }} activeOpacity={1} onPress={() => setTemplatePickerOpen(false)}>
+            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+              <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: accentPurpleSoft, borderWidth: 1, borderColor: accentPurpleBorder }}>
+                      <Ionicons name="layers-outline" size={18} color={accentPurple} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={theme.typography.title}>Question templates</Text>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>Choose a starter and we will add it instantly.</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => setTemplatePickerOpen(false)} style={{ width: 34, height: 34, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={{ maxHeight: 480 }} contentContainerStyle={{ padding: 12, gap: 10 }} keyboardShouldPersistTaps="handled">
+                  {TEMPLATE_PRESETS.map((p, idx) => {
+                    const iconColors = TEMPLATE_ICON_PALETTE[idx % TEMPLATE_ICON_PALETTE.length];
+                    return (
+                      <TouchableOpacity key={p.id} onPress={() => { setQuestions((prev) => prev.concat(mapQuestion(ensureQuestionDefaults({ ...p.build(), prompt_text: p.build().prompt_text ?? "", correct_text: "" })))); setTemplatePickerOpen(false); }}
+                        style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <View style={{ width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: iconColors.background, borderWidth: 1, borderColor: iconColors.border }}>
+                          <Ionicons name="sparkles-outline" size={14} color={iconColors.icon} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>{p.label}</Text>
+                          <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 3 }}>{TEMPLATE_PRESET_COPY[p.id] ?? "Preconfigured question structure."}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* ── Wizard header ── */}
+        <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <TouchableOpacity
+              onPress={() => { if (wizardStep <= 1) navigation.goBack(); else setWizardStep((s) => s - 1); }}
+              style={{ width: 46, height: 46, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}
+            >
+              <Ionicons name={wizardStep <= 1 ? "close" : "chevron-back"} size={22} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+            <View style={{ flex: 1, flexDirection: "row", gap: 4 }}>
+              {[1, 2, 3, 4].map((s) => (
+                <View key={s} style={{ flex: 1, height: 4, borderRadius: 999, backgroundColor: s <= wizardStep ? accentPurple : theme.colors.border }} />
+              ))}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <ThemeToggleButton />
+              <TouchableOpacity onPress={openWebEditor} style={{ paddingHorizontal: 10, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: accentPurple, backgroundColor: accentPurpleSoft, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="open-outline" size={13} color={accentPurple} />
+                <Text style={{ color: accentPurple, fontSize: 11, fontWeight: "800" }}>Web</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={{ marginTop: 20, marginBottom: 4 }}>
+            <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple, letterSpacing: 1.4, textTransform: "uppercase" }}>Step {wizardStep} of 4</Text>
+            <Text style={{ fontSize: 22, fontWeight: "900", color: theme.colors.text, marginTop: 4 }}>{WIZARD_TITLES[wizardStep]}</Text>
+            <Text style={{ fontSize: 13, color: theme.colors.textMuted, marginTop: 4, lineHeight: 18 }}>{WIZARD_SUBTITLES[wizardStep]}</Text>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+          <View style={{ gap: 16 }}>
+
+            {/* ── Step 1: Test Identity ── */}
+            {wizardStep === 1 && (
+              <>
+                {/* Cover image */}
+                <TouchableOpacity onPress={pickCoverImage} activeOpacity={0.9} disabled={coverUploading}>
+                  {coverImageUrl.trim() ? (
+                    <Image source={{ uri: coverImageUrl.trim() }} style={{ width: "100%", height: 180, borderRadius: 22, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                  ) : (
+                    <View style={{ width: "100%", height: 160, borderRadius: 22, borderWidth: 1.5, borderColor: theme.colors.border, borderStyle: "dashed", backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 10 }}>
+                      <Ionicons name="image-outline" size={36} color={theme.colors.textMuted} />
+                      <Text style={{ color: theme.colors.textMuted, fontWeight: "700", fontSize: 13 }}>{coverUploading ? "Uploading..." : "Add cover image (optional)"}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Name + Description */}
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <TextInput value={name} onChangeText={setName} placeholder="Test name *" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 22, fontWeight: "800", color: theme.colors.text }} />
+                  <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+                  <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
+                </View>
+
+                {/* Admin: teacher picker */}
+                {isAdmin ? (
+                  <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden", padding: 16 }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Teacher</Text>
+                    <TouchableOpacity onPress={() => { setTeacherSearch(""); setTeacherModalOpen(true); }} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                      <Text style={{ color: theme.colors.text }}>{teachers.find((t) => t.id === teacherId)?.name ?? teacherId}</Text>
+                      <Ionicons name="chevron-down" size={18} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Step 2: Test Settings ── */}
+            {wizardStep === 2 && (
+              <>
+                {/* Category */}
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Test Category</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Categorise your test so students and the dashboard can filter it correctly.</Text>
+                  </View>
+                  <TouchableOpacity activeOpacity={0.8} onPress={() => setCategoryPickerOpen(true)} style={{ margin: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: "600" }}>{type}</Text>
+                    <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Settings card */}
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Test Behaviour</Text>
+                  </View>
+
+                  {/* Time limit */}
+                  <View style={{ paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Time Limit</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>Set a time limit in minutes. Leave blank for no limit.</Text>
+                    </View>
+                    <TextInput
+                      value={testSettings.time_limit_minutes == null ? "" : String(testSettings.time_limit_minutes)}
+                      onChangeText={(t) => setTestSettings((prev) => ({ ...prev, time_limit_minutes: t.trim() ? Number(t) || null : null }))}
+                      keyboardType="numeric"
+                      placeholder="None"
+                      placeholderTextColor={theme.colors.textMuted}
+                      style={{ width: 80, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, fontSize: 14, textAlign: "center" }}
+                    />
+                  </View>
+
+                  {/* Randomize questions */}
+                  <TouchableOpacity
+                    onPress={() => setTestSettings((prev) => ({ ...prev, randomize_questions: !prev.randomize_questions }))}
+                    style={{ paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Randomize Question Order</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>Each student sees questions in a different order.</Text>
+                    </View>
+                    <View style={{ width: 44, height: 26, borderRadius: 13, backgroundColor: testSettings.randomize_questions ? "#2F9E44" : theme.colors.border, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 }}>
+                      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff", alignSelf: testSettings.randomize_questions ? "flex-end" : "flex-start" }} />
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Randomize MCQ options */}
+                  <TouchableOpacity
+                    onPress={() => setTestSettings((prev) => ({ ...prev, randomize_mcq_options: !prev.randomize_mcq_options }))}
+                    style={{ paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Randomize MCQ Options</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>Shuffle multiple-choice answers so the correct one isn't always in the same position.</Text>
+                    </View>
+                    <View style={{ width: 44, height: 26, borderRadius: 13, backgroundColor: testSettings.randomize_mcq_options ? "#2F9E44" : theme.colors.border, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 }}>
+                      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff", alignSelf: testSettings.randomize_mcq_options ? "flex-end" : "flex-start" }} />
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Attempts */}
+                  <TouchableOpacity
+                    onPress={() => setAttemptsPickerOpen(true)}
+                    style={{ paddingHorizontal: 14, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text, marginBottom: 2 }}>Attempts Allowed</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, lineHeight: 15 }}>How many times a student can attempt this test.</Text>
+                    </View>
+                    <View style={{ marginLeft: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text numberOfLines={1} style={{ fontSize: 13, color: theme.colors.text, fontWeight: "700" }}>
+                        {testSettings.attempts_allowed === "unlimited" ? "Unlimited" : `${testSettings.attempts_allowed}×`}
+                      </Text>
+                      <Ionicons name="chevron-down" size={12} color={theme.colors.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Step 3: Lessons & Vocabulary ── */}
+            {wizardStep === 3 && (
+              <>
+                {/* Linked lessons */}
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple, letterSpacing: 1.5, textTransform: "uppercase" }}>Linked Lessons</Text>
+                      {linkedLessonIds.length > 0 && (
+                        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: accentPurpleSoft }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple }}>{linkedLessonIds.length}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Link lessons to automatically pull their vocabulary into this test. Students see the linked lesson on their study screen.</Text>
+                  </View>
+                  <View style={{ padding: 14, gap: 8 }}>
+                    <TouchableOpacity onPress={() => { setLessonSearch(""); setLessonPickerOpen(true); }} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Search and add a lesson...</Text>
+                      <Ionicons name="chevron-down" size={14} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                    {linkedLessonIds.length > 0 && (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {linkedLessonIds.map((id) => {
+                          const lesson = lessons.find((l) => l.id === id);
+                          return (
+                            <View key={id} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, backgroundColor: accentPurpleSoft, borderWidth: 1, borderColor: accentPurple }}>
+                              <Text style={{ fontSize: 10, fontWeight: "700", color: accentPurple }} numberOfLines={1}>{lesson?.title ?? id}</Text>
+                              <TouchableOpacity onPress={() => setLinkedLessonIds((prev) => prev.filter((x) => x !== id))}>
+                                <Ionicons name="close-circle" size={13} color={accentPurple} />
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Vocabulary */}
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Vocabulary</Text>
+                          <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: accentPurpleSoft }}>
+                            <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple }}>{words.length}</Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Add vocabulary words for this test. Linked lesson words appear here automatically — you can also add words manually.</Text>
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 8, marginLeft: 10 }}>
+                        <TouchableOpacity onPress={handleEnrichVocabularyWithAI} disabled={!canUseAI || aiVocabLoading} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: accentPurple, backgroundColor: accentPurpleSoft, opacity: !canUseAI || aiVocabLoading ? 0.6 : 1 }}>
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple }}>{aiVocabLoading ? "AI..." : "AI Fill"}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setWords((w) => [...w, { key: uid(), en: "", pt: "", sp: "", se: "" }])} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: accentPurpleSoft }}>
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: accentPurple }}>+ Add</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                  {words.length > 0 && (
+                    <View style={{ marginHorizontal: 12, marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{linkedWordCount} synced from lessons · {manualWordCount} added manually</Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 12 }}>
+                    {words.map((w, i) => {
+                      const isOpen = !!vocabOpen[w.key];
+                      return (
+                        <View key={w.key} style={[{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt }, isOpen ? { width: "100%" } : { flexBasis: "48%", flexGrow: 1 }]}>
+                          <TouchableOpacity onPress={() => setVocabOpen((prev) => ({ ...prev, [w.key]: !isOpen }))} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 10 }}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>#{i + 1}</Text>
+                              <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text, marginTop: 2 }} numberOfLines={1}>{w.en || "English"}</Text>
+                              <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 1 }} numberOfLines={1}>{w.pt || "Target"}</Text>
+                            </View>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              {words.length > 1 && !isOpen && <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}><Ionicons name="trash-outline" size={13} color={theme.colors.danger} /></TouchableOpacity>}
+                              <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.textMuted} />
+                            </View>
+                          </TouchableOpacity>
+                          {isOpen && (
+                            <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 10, gap: 8 }}>
+                              <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+                                {words.length > 1 && <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}><Ionicons name="trash-outline" size={15} color={theme.colors.danger} /></TouchableOpacity>}
+                              </View>
+                              {[["English", "en", "English term"] as const, ["Target language", "pt", "Portuguese (or target)"] as const, ["Context (target)", "sp", "Example sentence"] as const, ["Context (English)", "se", "Example sentence"] as const].map(([label, field, ph]) => (
+                                <View key={field}>
+                                  <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>{label}</Text>
+                                  <TextInput value={w[field]} onChangeText={(t) => setWords((prev) => prev.map((x) => (x.key === w.key ? { ...x, [field]: t } : x)))} placeholder={ph} placeholderTextColor={placeholderColor} style={inputStyle} />
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Step 4: Questions ── */}
+            {wizardStep === 4 && (
+              <>
+                {/* AI generate card — above questions */}
+                <TouchableOpacity
+                  onPress={handleGenerateQuestionsFromVocabulary}
+                  disabled={!canUseAI || aiQuestionsLoading}
+                  activeOpacity={0.85}
+                  style={{ borderWidth: 1.5, borderColor: theme.isDark ? "rgba(217,67,67,0.45)" : AI_RED, borderRadius: 22, backgroundColor: theme.isDark ? "rgba(217,67,67,0.1)" : AI_RED_SOFT, padding: 18, flexDirection: "row", alignItems: "center", gap: 14, opacity: !canUseAI || aiQuestionsLoading ? 0.6 : 1 }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: AI_RED, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Animated.View style={{ transform: [{ rotate: aiThinking.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] }}>
+                      <MaterialCommunityIcons name="brain" size={22} color="#fff" />
+                    </Animated.View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: "800", color: AI_RED, marginBottom: 3 }}>{aiQuestionsLoading ? `Thinking${thinkingDots}` : "Generate with AI"}</Text>
+                    <Text style={{ fontSize: 12, color: AI_RED, opacity: 0.75, lineHeight: 16 }}>Instantly builds 6 questions from your vocabulary. Add more after reviewing.</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={AI_RED} />
+                </TouchableOpacity>
+
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden", padding: 16 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Questions</Text>
+                    <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: accentPurpleSoft }}>
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple }}>{questions.length}</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginBottom: 14, lineHeight: 17 }}>Design each question students will answer. Choose prompt format (text, audio, image) and how they answer (specific, open, multiple choice). Long-press the drag handle to reorder.</Text>
+
+                  <DraggableFlatList
+                    data={questions}
+                    keyExtractor={(item) => item.key}
+                    scrollEnabled={false}
+                    activationDistance={14}
+                    onDragEnd={({ data }) => setQuestions(data)}
+                    renderItem={({ item: q, getIndex, drag, isActive }) => {
+                      const i = Math.max(0, getIndex?.() ?? questions.findIndex((x) => x.key === q.key));
+                      const isOpen = !!questionOpen[q.key];
+                      const isAdvOpen = !!advancedOpen[q.key];
+                      const PROMPT_FORMAT_LABELS: Record<string, string> = { text: "Text", fill_blank: "Fill in Blank", audio: "Audio", image: "Image" };
+                      const ANSWER_FORMAT_LABELS: Record<string, string> = { specific: "Specific", open: "Open", mcq: "Multiple Choice" };
+                      const qDropdown = dropdownOpen[q.key] ?? null;
+                      return (
+                        <View style={{ marginBottom: 10 }}>
+                          <View style={{ borderWidth: 1.5, borderColor: isActive ? accentPurple : theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt }}>
+                            <TouchableOpacity onPress={() => setQuestionOpen((prev) => ({ ...prev, [q.key]: !isOpen }))} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 }}>
+                              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                                <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>Question {i + 1}</Text>
+                                {q.prompt_text.trim() ? <Text style={{ fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.prompt_text}</Text> : null}
+                              </View>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                <TouchableOpacity onPress={(e) => e.stopPropagation()} onLongPress={drag} delayLongPress={130} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                  <Ionicons name="reorder-three" size={17} color={theme.colors.textMuted} />
+                                </TouchableOpacity>
+                                {questions.length > 1 && (
+                                  <TouchableOpacity onPress={(e) => { e.stopPropagation(); Alert.alert("Delete Question", `Delete Question ${i + 1}?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => setQuestions((prev) => prev.filter((x) => x.key !== q.key)) }]); }}>
+                                    <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                                  </TouchableOpacity>
+                                )}
+                                <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
+                              </View>
+                            </TouchableOpacity>
+                            {isOpen && (
+                              <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 12 }}>
+                                <View style={{ flexDirection: "row", gap: 8 }}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Prompt format</Text>
+                                    <TouchableOpacity onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "prompt" ? null : "prompt" }))} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                                      <Text style={{ fontSize: 13, color: theme.colors.text }}>{PROMPT_FORMAT_LABELS[q.prompt_format]}</Text>
+                                      <Ionicons name={qDropdown === "prompt" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
+                                    </TouchableOpacity>
+                                    {qDropdown === "prompt" && (
+                                      <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
+                                        {(["text", "fill_blank", "audio", "image"] as const).map((pf, idx) => (
+                                          <TouchableOpacity key={pf} onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }} style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}>
+                                            <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? accentPurple : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
+                                    )}
+                                  </View>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Answer format</Text>
+                                    <TouchableOpacity onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "answer" ? null : "answer" }))} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                                      <Text style={{ fontSize: 13, color: theme.colors.text }}>{ANSWER_FORMAT_LABELS[q.answer_format]}</Text>
+                                      <Ionicons name={qDropdown === "answer" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
+                                    </TouchableOpacity>
+                                    {qDropdown === "answer" && (
+                                      <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
+                                        {(["specific", "open", "mcq"] as const).map((af, idx) => (
+                                          <TouchableOpacity key={af} onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }} style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}>
+                                            <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? accentPurple : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
+                                    )}
+                                  </View>
+                                </View>
+                                <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, required: !cur.required }))}>
+                                  <Text style={{ color: accentPurple, fontWeight: "700", fontSize: 12 }}>{q.required ? "Required" : "Optional"}</Text>
+                                </TouchableOpacity>
+                                {q.prompt_format === "audio" && (
+                                  <View style={{ gap: 8 }}>
+                                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 2 }}>Audio</Text>
+                                    {q.audio_url.trim() ? (
+                                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}>
+                                        <TouchableOpacity onPress={async () => { const isPlaying = !!playingAudio[q.key]; if (isPlaying) { await audioSoundRef.sound?.stopAsync(); audioSoundRef.sound = null; setPlayingAudio((prev) => ({ ...prev, [q.key]: false })); } else { const { sound } = await Audio.Sound.createAsync({ uri: q.audio_url }); audioSoundRef.sound = sound; setPlayingAudio((prev) => ({ ...prev, [q.key]: true })); await sound.playAsync(); sound.setOnPlaybackStatusUpdate((status) => { if (status.isLoaded && status.didJustFinish) { setPlayingAudio((prev) => ({ ...prev, [q.key]: false })); audioSoundRef.sound = null; } }); } }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: accentPurple, alignItems: "center", justifyContent: "center" }}>
+                                          <Ionicons name={playingAudio[q.key] ? "stop" : "play"} size={16} color="#fff" />
+                                        </TouchableOpacity>
+                                        <Text style={{ flex: 1, fontSize: 11, color: theme.colors.textMuted }} numberOfLines={1}>{q.audio_url.split("/").pop()}</Text>
+                                        <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, audio_url: "" }))}><Ionicons name="trash-outline" size={16} color={theme.colors.danger} /></TouchableOpacity>
+                                      </View>
+                                    ) : (
+                                      <TouchableOpacity onPress={() => pickQuestionAudio(i)} disabled={uploadingQuestionIndex === i} style={{ paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}>
+                                        <Ionicons name="musical-notes-outline" size={20} color={theme.colors.textMuted} />
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.textMuted, marginTop: 4 }}>{uploadingQuestionIndex === i ? "Uploading..." : "Upload audio"}</Text>
+                                      </TouchableOpacity>
+                                    )}
+                                    <View>
+                                      <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Transcript (optional)</Text>
+                                      <TextInput value={q.audio_transcript} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, audio_transcript: t }))} placeholder="Accessibility / teacher reference" placeholderTextColor={placeholderColor} style={inputStyle} />
+                                    </View>
+                                  </View>
+                                )}
+                                {(q.prompt_format === "text" || q.prompt_format === "audio" || q.prompt_format === "image" || q.answer_format === "mcq") && (
+                                  <View style={{ gap: 8 }}>
+                                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 2 }}>{q.prompt_format === "image" ? "Image prompt" : "Optional image"}</Text>
+                                    {q.image_url.trim() && (
+                                      <View>
+                                        <Image source={{ uri: q.image_url.trim() }} style={{ width: "100%", height: 160, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }} resizeMode="cover" />
+                                        <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, image_url: "" }))} style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.danger, alignItems: "center", justifyContent: "center" }}>
+                                          <Ionicons name="close" size={14} color="#fff" />
+                                        </TouchableOpacity>
+                                      </View>
+                                    )}
+                                    <View style={{ flexDirection: "row", gap: 8 }}>
+                                      <TouchableOpacity onPress={() => pickQuestionImage(i)} disabled={uploadingQuestionIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", opacity: uploadingQuestionIndex === i ? 0.6 : 1 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{uploadingQuestionIndex === i ? "Uploading..." : "Upload image"}</Text>
+                                      </TouchableOpacity>
+                                      {canUseAI && (
+                                        <TouchableOpacity onPress={() => handleGenerateImageForQuestion(i)} disabled={aiImageIndex === i} style={{ flex: 1, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: accentPurple, backgroundColor: accentPurpleSoft, alignItems: "center", opacity: aiImageIndex === i ? 0.6 : 1 }}>
+                                          <Text style={{ fontSize: 11, fontWeight: "700", color: accentPurple }}>{aiImageIndex === i ? "AI..." : "AI image"}</Text>
+                                        </TouchableOpacity>
+                                      )}
+                                    </View>
+                                  </View>
+                                )}
+                                <View>
+                                  <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Question</Text>
+                                  <TextInput value={q.prompt_text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, prompt_text: t }))} placeholder="Write the question students will see…" placeholderTextColor={placeholderColor} multiline style={inputStyle} />
+                                </View>
+                                {q.answer_format === "specific" && (
+                                  <>
+                                    <View>
+                                      <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Correct answer</Text>
+                                      <TextInput value={q.correct_text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, correct_text: t, fill_blank_character_count: cur.prompt_format === "fill_blank" ? Math.max(1, t.trim().length || 1) : cur.fill_blank_character_count }))} placeholder="Correct answer" placeholderTextColor={placeholderColor} style={inputStyle} />
+                                    </View>
+                                    <View>
+                                      <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Accepted alternatives</Text>
+                                      <TextInput value={q.accepted_texts.join(", ")} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, accepted_texts: t.split(",").map((x) => x.trim()).filter(Boolean) }))} placeholder="Comma separated" placeholderTextColor={placeholderColor} style={inputStyle} />
+                                    </View>
+                                  </>
+                                )}
+                                {q.answer_format === "open" && (
+                                  <View>
+                                    <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Reference answer</Text>
+                                    <TextInput value={q.teacher_reference_answer} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, teacher_reference_answer: t }))} placeholder="Teacher reference / rubric (optional)" placeholderTextColor={placeholderColor} multiline style={inputStyle} />
+                                  </View>
+                                )}
+                                {q.answer_format === "mcq" && (
+                                  <View style={{ gap: 8 }}>
+                                    {q.mcq_options.map((opt, oi) => (
+                                      <View key={opt.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                        <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_correct_option_id: opt.id }))}>
+                                          <Ionicons name={q.mcq_correct_option_id === opt.id ? "radio-button-on" : "radio-button-off"} size={18} color={accentPurple} />
+                                        </TouchableOpacity>
+                                        <TextInput value={opt.text} onChangeText={(t) => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: cur.mcq_options.map((x, idx) => (idx === oi ? { ...x, text: t } : x)) }))} placeholder={`Option ${oi + 1}`} placeholderTextColor={placeholderColor} style={[inputStyle, { flex: 1 }]} />
+                                        <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => { const next = cur.mcq_options.filter((_, idx) => idx !== oi); return { ...cur, mcq_options: next.length >= 2 ? next : [...next, { id: uid(), text: "" }] }; })}>
+                                          <Text style={{ color: theme.colors.danger, fontSize: 12 }}>Del</Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                    ))}
+                                    <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, mcq_options: [...cur.mcq_options, { id: uid(), text: "" }] }))}>
+                                      <Text style={{ color: accentPurple, fontWeight: "700" }}>+ Add option</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                                <TouchableOpacity onPress={() => setAdvancedOpen((prev) => ({ ...prev, [q.key]: !isAdvOpen }))} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, marginTop: 2 }}>
+                                  <Text style={{ fontSize: 11, fontWeight: "700", color: accentPurple }}>Advanced options</Text>
+                                  <Ionicons name={isAdvOpen ? "chevron-up" : "chevron-down"} size={13} color={accentPurple} />
+                                </TouchableOpacity>
+                                {isAdvOpen && (
+                                  <View style={{ gap: 6 }}>
+                                    {([["caseInsensitive", "Case insensitive"], ["ignorePunctuation", "Ignore punctuation"], ["trimSpaces", "Trim spaces"], ["accentInsensitive", "Accent optional"]] as const).map(([k, label]) => (
+                                      <View key={k} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                                        <Text style={{ fontSize: 11, color: theme.colors.text, fontWeight: "600", flex: 1 }}>{label}</Text>
+                                        <View style={{ flexDirection: "row", borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                                          <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: true } }))} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: q.specific_rules[k] ? theme.colors.success : "transparent" }}>
+                                            <Text style={{ fontSize: 11, fontWeight: "800", color: q.specific_rules[k] ? "#fff" : theme.colors.textMuted }}>On</Text>
+                                          </TouchableOpacity>
+                                          <View style={{ width: 1, backgroundColor: theme.colors.border }} />
+                                          <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: false } }))} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: !q.specific_rules[k] ? theme.colors.danger : "transparent" }}>
+                                            <Text style={{ fontSize: 11, fontWeight: "800", color: !q.specific_rules[k] ? "#fff" : theme.colors.textMuted }}>Off</Text>
+                                          </TouchableOpacity>
+                                        </View>
+                                      </View>
+                                    ))}
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    }}
+                  />
+
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                    <TouchableOpacity onPress={() => setQuestions((prev) => [...prev, mapQuestion(ensureQuestionDefaults(null))])} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: accentPurpleSoft, alignItems: "center" }}>
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: accentPurple }}>+ Add Question</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setTemplatePickerOpen(true)} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, alignItems: "center" }}>
+                      <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>+ Template</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Save button */}
+                <TouchableOpacity onPress={() => { Keyboard.dismiss(); triggerLightImpact(); handleSave(); }} disabled={saving} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center", opacity: saving ? 0.7 : 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>{saving ? "Saving..." : "Save Test"}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+          </View>
+        </ScrollView>
+
+        <FloatingToast {...toastProps} />
       </View>
     );
   }
@@ -1794,22 +2494,20 @@ export default function TestFormScreen() {
                       <Ionicons name={isAdvOpen ? "chevron-up" : "chevron-down"} size={13} color={accentPurple} />
                     </TouchableOpacity>
                     {isAdvOpen ? (
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                        {(
-                          [
-                            ["caseInsensitive", "Case insensitive"],
-                            ["ignorePunctuation", "Ignore punctuation"],
-                            ["trimSpaces", "Trim spaces"],
-                            ["accentInsensitive", "Accent optional"],
-                          ] as const
-                        ).map(([k, label]) => (
-                          <TouchableOpacity
-                            key={k}
-                            onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: !cur.specific_rules[k] } }))}
-                            style={{ flexBasis: "48%", flexGrow: 1, paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: q.specific_rules[k] ? theme.colors.success : theme.colors.border, backgroundColor: q.specific_rules[k] ? theme.colors.successSoft : "transparent", alignItems: "center" }}
-                          >
-                            <Text style={{ fontSize: 10, fontWeight: "700", color: q.specific_rules[k] ? theme.colors.success : theme.colors.textMuted }}>{q.specific_rules[k] ? "On " : ""}{label}</Text>
-                          </TouchableOpacity>
+                      <View style={{ gap: 6 }}>
+                        {([["caseInsensitive", "Case insensitive"], ["ignorePunctuation", "Ignore punctuation"], ["trimSpaces", "Trim spaces"], ["accentInsensitive", "Accent optional"]] as const).map(([k, label]) => (
+                          <View key={k} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                            <Text style={{ fontSize: 11, color: theme.colors.text, fontWeight: "600", flex: 1 }}>{label}</Text>
+                            <View style={{ flexDirection: "row", borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
+                              <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: true } }))} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: q.specific_rules[k] ? theme.colors.success : "transparent" }}>
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: q.specific_rules[k] ? "#fff" : theme.colors.textMuted }}>On</Text>
+                              </TouchableOpacity>
+                              <View style={{ width: 1, backgroundColor: theme.colors.border }} />
+                              <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, specific_rules: { ...cur.specific_rules, [k]: false } }))} style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: !q.specific_rules[k] ? theme.colors.danger : "transparent" }}>
+                                <Text style={{ fontSize: 11, fontWeight: "800", color: !q.specific_rules[k] ? "#fff" : theme.colors.textMuted }}>Off</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
                         ))}
                       </View>
                     ) : null}
@@ -1863,62 +2561,60 @@ export default function TestFormScreen() {
       </ScrollView>
 
       <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => setLessonPickerOpen(false)}>
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-start", paddingTop: "15%", paddingBottom: "10%" }}
-          activeOpacity={1}
-          onPress={() => setLessonPickerOpen(false)}
-        >
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ marginHorizontal: 16 }}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingVertical: 32 }} activeOpacity={1} onPress={() => setLessonPickerOpen(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 500 }}>
             <View style={{ backgroundColor: theme.colors.surface, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: "hidden" }}>
               <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <View>
-                  <Text style={[theme.typography.title, { fontSize: 18 }]}>Link lessons</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
-                    {linkedLessonIds.length} selected
-                  </Text>
+                  <Text style={{ fontSize: 17, fontWeight: "800", color: theme.colors.text }}>Link Lessons</Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 2 }}>{linkedLessonIds.length} linked</Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setLessonPickerOpen(false)}
-                  style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}
-                >
+                <TouchableOpacity onPress={() => setLessonPickerOpen(false)} style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: accentPurple }}>
                   <Text style={{ fontSize: 13, fontWeight: "800", color: "#fff" }}>Done</Text>
                 </TouchableOpacity>
               </View>
-              <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                <TextInput
-                  value={lessonSearch}
-                  onChangeText={setLessonSearch}
-                  placeholder="Search lessons..."
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={[inputStyle, { marginBottom: 0 }]}
-                />
+              <View style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <TextInput value={lessonSearch} onChangeText={setLessonSearch} placeholder="Search..." placeholderTextColor={theme.colors.textMuted} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, fontSize: 13 }} />
               </View>
-              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 420 }}>
-                {filteredLinkableLessons.length === 0 ? (
-                  <View style={{ paddingVertical: 32, alignItems: "center" }}>
-                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No lessons found</Text>
-                  </View>
-                ) : filteredLinkableLessons.map((l) => {
-                  const selected = linkedLessonIds.includes(l.id);
-                  return (
-                    <TouchableOpacity
-                      key={l.id}
-                      onPress={() => {
-                        setLinkedLessonIds((prev) =>
-                          prev.includes(l.id) ? prev.filter((id) => id !== l.id) : [...prev, l.id]
-                        );
-                      }}
-                      activeOpacity={0.85}
-                      style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: selected ? accentPurpleSoft : "transparent" }}
-                    >
-                      <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: selected ? 0 : 1.5, borderColor: theme.colors.border, backgroundColor: selected ? accentPurple : "transparent", alignItems: "center", justifyContent: "center", marginRight: 12, flexShrink: 0 }}>
-                        {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
-                      </View>
-                      <Text style={{ flex: 1, fontSize: 13, color: theme.colors.text }} numberOfLines={2}>{l.title}</Text>
+              <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <View style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRightWidth: 1, borderRightColor: theme.colors.border, backgroundColor: accentPurpleSoft }}>
+                  <Text style={{ fontSize: 9, fontWeight: "800", color: accentPurple, letterSpacing: 1.2, textTransform: "uppercase", textAlign: "center" }}>Linked ({linkedLessonIds.length})</Text>
+                </View>
+                <View style={{ flex: 1, paddingVertical: 8, paddingHorizontal: 10 }}>
+                  <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", textAlign: "center" }}>Available ({filteredLinkableLessons.length})</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", maxHeight: 360 }}>
+                <ScrollView style={{ flex: 1, borderRightWidth: 1, borderRightColor: theme.colors.border }} keyboardShouldPersistTaps="handled">
+                  {linkedLessonIds.length === 0 ? (
+                    <View style={{ padding: 16, alignItems: "center" }}>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, textAlign: "center", lineHeight: 16 }}>No lessons linked yet.{"\n"}Tap from the right →</Text>
+                    </View>
+                  ) : linkedLessonIds.filter((id) => { const l = lessons.find((x) => x.id === id); return !lessonSearch || l?.title.toLowerCase().includes(lessonSearch.toLowerCase()); }).map((id) => {
+                    const lesson = lessons.find((l) => l.id === id);
+                    return (
+                      <TouchableOpacity key={id} onPress={() => setLinkedLessonIds((prev) => prev.filter((x) => x !== id))} activeOpacity={0.8}
+                        style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: accentPurpleSoft, flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                        <Ionicons name="remove-circle" size={14} color={accentPurple} style={{ marginTop: 1, flexShrink: 0 }} />
+                        <Text style={{ flex: 1, fontSize: 11, fontWeight: "700", color: accentPurple, lineHeight: 15 }} numberOfLines={4}>{lesson?.title ?? id}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                  {filteredLinkableLessons.length === 0 ? (
+                    <View style={{ padding: 16, alignItems: "center" }}>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, textAlign: "center" }}>No lessons found</Text>
+                    </View>
+                  ) : filteredLinkableLessons.map((l) => (
+                    <TouchableOpacity key={l.id} onPress={() => setLinkedLessonIds((prev) => [...prev, l.id])} activeOpacity={0.8}
+                      style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                      <Ionicons name="add-circle-outline" size={14} color={theme.colors.textMuted} style={{ marginTop: 1, flexShrink: 0 }} />
+                      <Text style={{ flex: 1, fontSize: 11, color: theme.colors.text, lineHeight: 15 }} numberOfLines={4}>{l.title}</Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                  ))}
+                </ScrollView>
+              </View>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>

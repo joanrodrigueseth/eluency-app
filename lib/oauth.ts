@@ -3,7 +3,6 @@ import * as QueryParams from "expo-auth-session/build/QueryParams";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
-import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 
 import { supabase } from "./supabase";
 
@@ -12,6 +11,14 @@ WebBrowser.maybeCompleteAuthSession();
 type OAuthProvider = "google" | "apple";
 
 let googleConfigured = false;
+
+// Lazy-loaded to avoid crashing at startup when the native module isn't in the
+// current dev client build. The module is only required when sign-in is actually
+// attempted, so the app starts normally and falls back to browser OAuth if missing.
+function getGoogleSigninModule() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("@react-native-google-signin/google-signin") as typeof import("@react-native-google-signin/google-signin");
+}
 
 function getGoogleClientConfig(): { webClientId: string; iosClientId?: string } {
   const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() || "";
@@ -32,11 +39,9 @@ function getGoogleClientConfig(): { webClientId: string; iosClientId?: string } 
 function configureGoogleSigninOnce() {
   if (googleConfigured) return;
 
+  const { GoogleSignin } = getGoogleSigninModule();
   const { webClientId, iosClientId } = getGoogleClientConfig();
-  GoogleSignin.configure({
-    webClientId,
-    iosClientId,
-  });
+  GoogleSignin.configure({ webClientId, iosClientId });
   googleConfigured = true;
 }
 
@@ -55,6 +60,7 @@ function getRedirectUri(): string {
 }
 
 async function signInWithSupabaseGoogleNative(): Promise<void> {
+  const { GoogleSignin } = getGoogleSigninModule();
   configureGoogleSigninOnce();
 
   if (Platform.OS === "android") {
@@ -128,14 +134,31 @@ export async function signInWithSupabaseOAuth(provider: OAuthProvider): Promise<
       await signInWithSupabaseGoogleNative();
       return;
     } catch (error: unknown) {
+      // If the native module isn't in this build, fall through to browser OAuth
       if (
         error &&
         typeof error === "object" &&
-        "code" in error &&
-        (error as { code?: string }).code === statusCodes.SIGN_IN_CANCELLED
+        "message" in error &&
+        typeof (error as { message?: unknown }).message === "string" &&
+        (error as { message: string }).message.includes("RNGoogleSignin")
       ) {
-        throw new Error("Sign in was cancelled.");
+        await signInWithSupabaseOAuthBrowser(provider);
+        return;
       }
+
+      // Re-throw user cancellation and all other real errors
+      try {
+        const { statusCodes } = getGoogleSigninModule();
+        if (
+          "code" in (error as object) &&
+          (error as { code?: string }).code === statusCodes.SIGN_IN_CANCELLED
+        ) {
+          throw new Error("Sign in was cancelled.");
+        }
+      } catch {
+        // statusCodes unavailable — just rethrow original
+      }
+
       throw error;
     }
   }
