@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
-import { NavigationProp, useNavigation } from "@react-navigation/native";
+import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +25,13 @@ import { sendAdminNotifications } from "../lib/sendAdminNotifications";
 
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  SendNotifications: undefined;
+  SendNotifications:
+    | {
+        targetTeacherId?: string;
+        targetTeacherName?: string;
+        targetTeacherEmail?: string;
+      }
+    | undefined;
   Notifications: undefined;
 };
 
@@ -41,6 +47,11 @@ export default function SendNotificationsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, "SendNotifications">>();
+  const targetTeacherId = route.params?.targetTeacherId?.trim() || null;
+  const targetTeacherName = route.params?.targetTeacherName?.trim() || null;
+  const targetTeacherEmail = route.params?.targetTeacherEmail?.trim() || null;
+  const isTargetedSend = !!targetTeacherId;
 
   const [loading, setLoading] = useState(true);
   const [adminOk, setAdminOk] = useState<boolean | null>(null);
@@ -54,6 +65,9 @@ export default function SendNotificationsScreen() {
   const [sendingError, setSendingError] = useState<string | null>(null);
 
   const audienceLabel = useMemo(() => {
+    if (isTargetedSend) {
+      return targetTeacherName || targetTeacherEmail || "Selected teacher";
+    }
     switch (audience) {
       case "principals":
         return "All principals";
@@ -62,7 +76,7 @@ export default function SendNotificationsScreen() {
       default:
         return "All teachers";
     }
-  }, [audience]);
+  }, [audience, isTargetedSend, targetTeacherEmail, targetTeacherName]);
 
   useEffect(() => {
     let mounted = true;
@@ -131,12 +145,15 @@ export default function SendNotificationsScreen() {
         title: trimmedTitle,
         body: trimmedBody || null,
         audience,
+        targetUserId: targetTeacherId,
       });
 
       Alert.alert(
         "Sent",
         result.sent > 0
-          ? `Notification delivered to ${result.sent} recipient${result.sent === 1 ? "" : "s"}.`
+          ? isTargetedSend
+            ? `Notification delivered to ${targetTeacherName || targetTeacherEmail || "the selected teacher"}.`
+            : `Notification delivered to ${result.sent} recipient${result.sent === 1 ? "" : "s"}.`
           : result.message || "No recipients found."
       );
       setTitle("");
@@ -292,92 +309,130 @@ export default function SendNotificationsScreen() {
                   <Ionicons name="megaphone-outline" size={22} color={theme.colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Broadcast</Text>
+                  <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
+                    {isTargetedSend ? "Direct message" : "Broadcast"}
+                  </Text>
                   <Text style={[theme.typography.title, { marginTop: 2, fontSize: 20, lineHeight: 26 }]}>
                     Send notification
                   </Text>
                 </View>
               </View>
               <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 20 }]}>
-                In-app message for your team. Recipients see it in the dashboard notification bell.
+                {isTargetedSend
+                  ? "Send a focused in-app notification to one teacher. They will see it in the dashboard notification bell."
+                  : "In-app message for your team. Recipients see it in the dashboard notification bell."}
               </Text>
             </View>
 
+            {isTargetedSend ? (
+              <>
+                <View style={{ height: 1, backgroundColor: theme.colors.border, marginHorizontal: 20, opacity: 0.85 }} />
+
+                <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                  <Text style={[theme.typography.label, { letterSpacing: 1.1 }]}>Recipient</Text>
+                  <View
+                    style={{
+                      marginTop: 14,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surfaceAlt,
+                      paddingHorizontal: 14,
+                      paddingVertical: 14,
+                    }}
+                  >
+                    <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>
+                      {targetTeacherName || "Selected teacher"}
+                    </Text>
+                    {targetTeacherEmail ? (
+                      <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>
+                        {targetTeacherEmail}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
             <View style={{ height: 1, backgroundColor: theme.colors.border, marginHorizontal: 20, opacity: 0.85 }} />
 
-            <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
-              <Text style={[theme.typography.label, { letterSpacing: 1.1 }]}>Audience</Text>
-              <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
-                Currently: {audienceLabel}
-              </Text>
+            {isTargetedSend ? null : (
+              <>
+                <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                  <Text style={[theme.typography.label, { letterSpacing: 1.1 }]}>Audience</Text>
+                  <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
+                    Currently: {audienceLabel}
+                  </Text>
 
-              <View style={{ marginTop: 14, gap: 10 }}>
-                {AUDIENCE_OPTIONS.map((opt) => {
-                  const active = audience === opt.id;
-                  return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      onPress={() => setAudience(opt.id)}
-                      activeOpacity={0.85}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: active ? theme.colors.primary : theme.colors.border,
-                        backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt,
-                        paddingVertical: 14,
-                        paddingHorizontal: 14,
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 10,
-                          backgroundColor: active ? theme.colors.background : theme.colors.surfaceGlass,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          marginRight: 12,
-                          borderWidth: active ? 0 : 1,
-                          borderColor: theme.colors.border,
-                        }}
-                      >
-                        <Ionicons name={opt.icon} size={20} color={active ? theme.colors.primary : theme.colors.textMuted} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>{opt.label}</Text>
-                        <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]}>{opt.hint}</Text>
-                      </View>
-                      <View
-                        style={{
-                          width: 22,
-                          height: 22,
-                          borderRadius: 11,
-                          borderWidth: 2,
-                          borderColor: active ? theme.colors.primary : theme.colors.borderStrong,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {active ? (
+                  <View style={{ marginTop: 14, gap: 10 }}>
+                    {AUDIENCE_OPTIONS.map((opt) => {
+                      const active = audience === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          onPress={() => setAudience(opt.id)}
+                          activeOpacity={0.85}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: active ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: active ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                            paddingVertical: 14,
+                            paddingHorizontal: 14,
+                          }}
+                        >
                           <View
                             style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: 5,
-                              backgroundColor: theme.colors.primary,
+                              width: 40,
+                              height: 40,
+                              borderRadius: 10,
+                              backgroundColor: active ? theme.colors.background : theme.colors.surfaceGlass,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginRight: 12,
+                              borderWidth: active ? 0 : 1,
+                              borderColor: theme.colors.border,
                             }}
-                          />
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
+                          >
+                            <Ionicons name={opt.icon} size={20} color={active ? theme.colors.primary : theme.colors.textMuted} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>{opt.label}</Text>
+                            <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]}>{opt.hint}</Text>
+                          </View>
+                          <View
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 11,
+                              borderWidth: 2,
+                              borderColor: active ? theme.colors.primary : theme.colors.borderStrong,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {active ? (
+                              <View
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 5,
+                                  backgroundColor: theme.colors.primary,
+                                }}
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
 
-            <View style={{ height: 1, backgroundColor: theme.colors.border, marginHorizontal: 20, opacity: 0.85 }} />
+                <View style={{ height: 1, backgroundColor: theme.colors.border, marginHorizontal: 20, opacity: 0.85 }} />
+              </>
+            )}
 
             <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 22 }}>
               <Text style={[theme.typography.label, { letterSpacing: 1.1 }]}>Content</Text>

@@ -36,7 +36,13 @@ type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Teachers: undefined;
   Chats: undefined;
-  SendNotifications: undefined;
+  SendNotifications:
+    | {
+        targetTeacherId?: string;
+        targetTeacherName?: string;
+        targetTeacherEmail?: string;
+      }
+    | undefined;
   Notifications: undefined;
   Login: undefined;
   Register: undefined;
@@ -52,6 +58,10 @@ type TeacherRow = {
   student_limit?: number | null;
   org_id?: string | null;
   active?: boolean | null;
+  last_sign_in_at?: string | null;
+  student_count?: number | null;
+  lessonCount?: number | null;
+  testCount?: number | null;
 };
 
 const apiBaseUrl =
@@ -68,6 +78,7 @@ const PLAN_TO_LIMIT: Record<string, number> = {
   basic: 1,
   standard: 30,
   school: 999,
+  "school/organization": 999,
   internal: 999,
 };
 
@@ -77,10 +88,18 @@ function planUiIdToDbPlan(uiId: string): string {
   const map: Record<string, string> = {
     basic: "Basic",
     standard: "Standard",
-    school: "School",
+    school: "School/Organization",
     internal: "Internal",
   };
   return map[id] ?? "Basic";
+}
+
+function dbPlanToUiId(plan: string | null | undefined): string {
+  const normalized = normalizePlanUi(plan).toLowerCase();
+  if (normalized === "standard") return "standard";
+  if (normalized === "school/organization") return "school";
+  if (normalized === "internal") return "internal";
+  return "basic";
 }
 
 const ROLE_OPTIONS = [
@@ -96,6 +115,16 @@ function formatJoined(dateIso: string) {
   const d = new Date(dateIso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatLastActive(dateIso: string | null | undefined) {
+  if (!dateIso) return "Never";
+  return formatJoined(dateIso);
+}
+
+function formatPlanLabel(plan: string | null | undefined) {
+  const normalized = normalizePlanUi(plan);
+  return normalized === "School/Organization" ? "School" : normalized;
 }
 
 export default function TeachersScreen() {
@@ -168,6 +197,54 @@ export default function TeachersScreen() {
         throw teachersError;
       }
 
+      const userIds: string[] = (teacherData || []).map((t: any) => t.user_id);
+      const studentCountMap: Record<string, number> = {};
+      const lessonCountMap: Record<string, number> = {};
+      const testCountMap: Record<string, number> = {};
+      const lastSignInMap: Record<string, string | null> = {};
+
+      if (userIds.length > 0) {
+        const [{ data: profileData }, { data: studentRows }, { data: lessonRows }, { data: testRows }] =
+          await Promise.all([
+            (supabase.from("profiles") as any)
+              .select("id, last_sign_in_at")
+              .in("id", userIds),
+            (supabase.from("students") as any)
+              .select("teacher_id")
+              .in("teacher_id", userIds),
+            (supabase.from("lessons") as any)
+              .select("teacher_id")
+              .in("teacher_id", userIds),
+            (supabase.from("tests") as any)
+              .select("teacher_id")
+              .in("teacher_id", userIds),
+          ]);
+
+        if (profileData) {
+          profileData.forEach((p: any) => {
+            lastSignInMap[p.id] = p.last_sign_in_at ?? null;
+          });
+        }
+
+        (studentRows ?? []).forEach((row: any) => {
+          const teacherId = typeof row?.teacher_id === "string" ? row.teacher_id : "";
+          if (!teacherId) return;
+          studentCountMap[teacherId] = (studentCountMap[teacherId] ?? 0) + 1;
+        });
+
+        (lessonRows ?? []).forEach((row: any) => {
+          const teacherId = typeof row?.teacher_id === "string" ? row.teacher_id : "";
+          if (!teacherId) return;
+          lessonCountMap[teacherId] = (lessonCountMap[teacherId] ?? 0) + 1;
+        });
+
+        (testRows ?? []).forEach((row: any) => {
+          const teacherId = typeof row?.teacher_id === "string" ? row.teacher_id : "";
+          if (!teacherId) return;
+          testCountMap[teacherId] = (testCountMap[teacherId] ?? 0) + 1;
+        });
+      }
+
       const rows: TeacherRow[] = (teacherData || []).map(
         (t: {
           user_id: string;
@@ -189,6 +266,10 @@ export default function TeachersScreen() {
           student_limit: t.student_limit,
           org_id: t.org_id,
           active: t.active,
+          last_sign_in_at: lastSignInMap[t.user_id] ?? t.created_at ?? null,
+          student_count: studentCountMap[t.user_id] ?? 0,
+          lessonCount: lessonCountMap[t.user_id] ?? 0,
+          testCount: testCountMap[t.user_id] ?? 0,
         })
       );
       setTeachers(rows);
@@ -266,7 +347,7 @@ export default function TeachersScreen() {
   const getPlanCount = useCallback(
     (plan: string) => {
       const p = plan.toLowerCase();
-      return adminTeachersOnly.filter((t) => (t.plan?.toLowerCase() || "basic") === p).length;
+      return adminTeachersOnly.filter((t) => dbPlanToUiId(t.plan) === p).length;
     },
     [adminTeachersOnly]
   );
@@ -286,12 +367,12 @@ export default function TeachersScreen() {
   const filteredTeachers = useMemo(() => {
     if (!isAdmin) return teachers;
     if (!filter) return adminVisibleTeachers;
-    return adminVisibleTeachers.filter((t) => (t.plan?.toLowerCase() || "basic") === filter.toLowerCase());
+    return adminVisibleTeachers.filter((t) => dbPlanToUiId(t.plan) === filter.toLowerCase());
   }, [adminVisibleTeachers, filter, isAdmin, teachers]);
 
   const principalTeacherLimit = useMemo(() => {
     if (!isPrincipal) return null;
-    const plan = (currentTeacher?.plan ?? "").toLowerCase().trim();
+    const plan = dbPlanToUiId(currentTeacher?.plan);
     if (plan && PLAN_TO_LIMIT[plan] != null) return PLAN_TO_LIMIT[plan];
     return 3;
   }, [currentTeacher?.plan, isPrincipal]);
@@ -373,6 +454,10 @@ export default function TeachersScreen() {
         if (addAccountRole === "teacher" && addPrincipalUserId.trim() !== "") {
           body.principal_user_id = addPrincipalUserId.trim();
         }
+      } else {
+        // Principal creating a teacher - must still include a valid plan
+        body.role = "teacher";
+        body.plan = "Basic"; // Default plan for new teachers created by principals
       }
 
       const res = await fetch(`${base}/api/admin/teachers/create`, {
@@ -403,7 +488,7 @@ export default function TeachersScreen() {
     const r = (teacher.role ?? "teacher").toLowerCase();
     const coerced = coercePlanForRole(r, normalizePlanUi(teacher.plan));
     setEditRole(r);
-    setEditPlan(coerced.toLowerCase());
+    setEditPlan(dbPlanToUiId(coerced));
     setEditStudentLimit(String(getStudentLimitForPlan(coerced)));
     setEditActive(teacher.active !== false);
   };
@@ -949,142 +1034,66 @@ export default function TeachersScreen() {
             ) : (
               searchedTeachers.map((t) => {
                 const isSelf = t.id === currentUserId;
-                const isActive = t.active !== false;
-                const roleLower = (t.role ?? "").toLowerCase();
+                const limit = t.student_limit ?? 30;
                 return (
-                  <GlassCard key={t.id} style={{ borderRadius: 12, marginBottom: 10 }} padding={16}>
-                    <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                      <View
-                        style={{
-                          width: 48,
-                          height: 48,
-                          borderRadius: 12,
-                          backgroundColor: theme.colors.primary,
-                          alignItems: "center",
-                          justifyContent: "center",
-                          marginRight: 12,
-                        }}
-                      >
-                        <Text style={{ color: theme.colors.primaryText, fontSize: 18, fontWeight: "800" }}>
-                          {(t.name ?? "T").charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
+                  <GlassCard key={t.id} style={{ borderRadius: 12, marginBottom: 8 }} padding={12}>
+                    {/* Row 1: Name | Plan | Joined */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 }}>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-                          <Text style={[theme.typography.bodyStrong, { fontSize: 17 }]} numberOfLines={1}>
-                            {t.name ?? "—"}
-                          </Text>
-                          {isSelf ? (
-                            <View
-                              style={{
-                                paddingHorizontal: 8,
-                                paddingVertical: 2,
-                                borderRadius: 6,
-                                backgroundColor: theme.colors.primarySoft,
-                              }}
-                            >
-                              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>YOU</Text>
-                            </View>
-                          ) : null}
-                        </View>
-                        {t.email ? (
-                          <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]} numberOfLines={1}>
-                            {t.email}
-                          </Text>
-                        ) : null}
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                          <View
-                            style={{
-                              paddingHorizontal: 10,
-                              paddingVertical: 4,
-                              borderRadius: 8,
-                              backgroundColor: roleLower === "admin" ? "rgba(245,158,11,0.15)" : "rgba(59,130,246,0.12)",
-                              borderWidth: 1,
-                              borderColor: roleLower === "admin" ? "rgba(245,158,11,0.35)" : "rgba(59,130,246,0.25)",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                fontWeight: "800",
-                                color: roleLower === "admin" ? "#d97706" : "#2563eb",
-                                textTransform: "capitalize",
-                              }}
-                            >
-                              {t.role ?? "teacher"}
-                            </Text>
-                          </View>
-                          <View
-                            style={{
-                              paddingHorizontal: 10,
-                              paddingVertical: 4,
-                              borderRadius: 8,
-                              backgroundColor: theme.colors.primarySoft,
-                              borderWidth: 1,
-                              borderColor: theme.colors.border,
-                            }}
-                          >
-                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
-                              {normalizePlanUi(t.plan)}
-                            </Text>
-                          </View>
-                          <View
-                            style={{
-                              paddingHorizontal: 10,
-                              paddingVertical: 4,
-                              borderRadius: 8,
-                              backgroundColor: isActive ? theme.colors.successSoft : theme.colors.dangerSoft,
-                              borderWidth: 1,
-                              borderColor: isActive ? theme.colors.success : theme.colors.danger,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                fontWeight: "800",
-                                color: isActive ? theme.colors.success : theme.colors.danger,
-                              }}
-                            >
-                              {isActive ? "Active" : "Inactive"}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={[theme.typography.caption, { marginTop: 10, color: theme.colors.textMuted }]}>
-                          Joined {formatJoined(t.created_at)}
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 16, fontWeight: "800" }]} numberOfLines={1}>
+                          {t.name ?? "—"}
                         </Text>
                       </View>
+                      
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>
+                          {formatPlanLabel(t.plan)}
+                        </Text>
+                      </View>
+                      
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, minWidth: 70 }}>
+                        Joined: {formatJoined(t.created_at)}
+                      </Text>
                     </View>
-                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+                    
+                    {/* Row 2: Last Active | Student Count / Cap | Edit | Delete */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, minWidth: 90 }}>
+                        Active: {formatLastActive(t.last_sign_in_at)}
+                      </Text>
+                      
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: theme.colors.background }}>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
+                          {t.student_count ?? 0} / {limit}
+                        </Text>
+                      </View>
+                      
+                      <View style={{ flex: 1 }} />
+                      
                       <TouchableOpacity
                         onPress={() => openEditTeacher(t)}
-                        activeOpacity={0.85}
+                        activeOpacity={0.7}
                         style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          paddingVertical: 10,
-                          paddingHorizontal: 14,
-                          borderRadius: 12,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
                           borderWidth: 1,
                           borderColor: theme.colors.border,
                           backgroundColor: theme.colors.surfaceAlt,
                         }}
                       >
-                        <Ionicons name="create-outline" size={18} color={theme.colors.text} />
-                        <Text style={[theme.typography.caption, { fontWeight: "700", color: theme.colors.text }]}>Edit</Text>
+                        <Ionicons name="create-outline" size={15} color={theme.colors.text} />
                       </TouchableOpacity>
+                      
                       {isAdmin && !isSelf ? (
                         <TouchableOpacity
                           onPress={() => handleDelete(t)}
                           disabled={deletingId === t.id}
-                          activeOpacity={0.85}
+                          activeOpacity={0.7}
                           style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
-                            borderRadius: 12,
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                            borderRadius: 8,
                             borderWidth: 1,
                             borderColor: theme.colors.dangerSoft,
                             backgroundColor: theme.colors.dangerSoft,
@@ -1093,12 +1102,7 @@ export default function TeachersScreen() {
                           {deletingId === t.id ? (
                             <ActivityIndicator size="small" color={theme.colors.danger} />
                           ) : (
-                            <>
-                              <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
-                              <Text style={[theme.typography.caption, { fontWeight: "700", color: theme.colors.danger }]}>
-                                Delete
-                              </Text>
-                            </>
+                            <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
                           )}
                         </TouchableOpacity>
                       ) : null}
@@ -1154,11 +1158,140 @@ export default function TeachersScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <Text style={[theme.typography.caption, { marginTop: 8, color: theme.colors.textMuted }]}>
+                                <Text style={[theme.typography.caption, { marginTop: 8, color: theme.colors.textMuted }]}>
                   Update the main account details directly in the app.
                 </Text>
 
-                <View style={{ marginTop: 18 }}>
+                <View
+                  style={{
+                    marginTop: 18,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    padding: 16,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Email address</Text>
+                      <Text style={[theme.typography.bodyStrong, { marginTop: 6, fontSize: 15, color: theme.colors.text }]}>
+                        {editingTeacher?.email ?? "—"}
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: theme.colors.primarySoft,
+                      }}
+                    >
+                      <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "700" }]}>
+                        {formatPlanLabel(editingTeacher?.plan)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                    <View
+                      style={{
+                        flex: 1,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.background,
+                        padding: 12,
+                      }}
+                    >
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Students</Text>
+                      <Text style={[theme.typography.title, { marginTop: 6, fontSize: 22, lineHeight: 28 }]}>
+                        {editingTeacher?.student_count ?? 0} / {editingTeacher?.student_limit ?? 30}
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        flex: 1,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.background,
+                        padding: 12,
+                      }}
+                    >
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Lessons / Tests</Text>
+                      <Text style={[theme.typography.title, { marginTop: 6, fontSize: 22, lineHeight: 28 }]}>
+                        {editingTeacher?.lessonCount ?? 0} / {editingTeacher?.testCount ?? 0}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={[theme.typography.caption, { marginTop: 16, marginBottom: 10, color: theme.colors.textMuted }]}>Key KPIs</Text>
+                  <View style={{ gap: 8 }}>
+                    {[
+                      {
+                        label: "Students vs cap",
+                        value: `${editingTeacher?.student_count ?? 0} / ${editingTeacher?.student_limit ?? 30}`,
+                      },
+                      { label: "Lessons", value: String(editingTeacher?.lessonCount ?? 0) },
+                      { label: "Tests", value: String(editingTeacher?.testCount ?? 0) },
+                      { label: "Last active", value: formatLastActive(editingTeacher?.last_sign_in_at) },
+                      { label: "Joined date", value: formatJoined(editingTeacher?.created_at ?? "") },
+                    ].map((item) => (
+                      <View
+                        key={item.label}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          borderRadius: 10,
+                          backgroundColor: theme.colors.background,
+                        }}
+                      >
+                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{item.label}</Text>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 14, color: theme.colors.text }]}>
+                          {item.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {isAdmin ? (
+                    <View style={{ marginTop: 16 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const teacher = editingTeacher;
+                          if (!teacher) return;
+                          setEditingTeacher(null);
+                          navigation.navigate("SendNotifications", {
+                            targetTeacherId: teacher.id,
+                            targetTeacherName: teacher.name ?? undefined,
+                            targetTeacherEmail: teacher.email ?? undefined,
+                          });
+                        }}
+                        activeOpacity={0.85}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 14,
+                          borderRadius: 12,
+                          backgroundColor: theme.colors.primarySoft,
+                          borderWidth: 1,
+                          borderColor: theme.colors.primary,
+                          alignItems: "center",
+                          flexDirection: "row",
+                          justifyContent: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <Ionicons name="send-outline" size={16} color={theme.colors.primary} />
+                        <Text style={[theme.typography.caption, { fontWeight: "700", color: theme.colors.primary }]}>Send Notification</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+<View style={{ marginTop: 18 }}>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Name</Text>
                   <TextInput
                     value={editName}
@@ -1657,7 +1790,7 @@ export default function TeachersScreen() {
                     </Text>
                     {currentTeacher?.plan ? (
                       <Text style={[theme.typography.caption, { marginTop: 8, color: theme.colors.text }]}>
-                        Your plan: {currentTeacher.plan}
+                        Your plan: {formatPlanLabel(currentTeacher.plan)}
                       </Text>
                     ) : null}
                   </View>
@@ -1683,5 +1816,6 @@ export default function TeachersScreen() {
     </View>
   );
 }
+
 
 

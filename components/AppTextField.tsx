@@ -21,28 +21,29 @@ export default function AppTextField({
   ...props
 }: AppTextFieldProps) {
   const theme = useAppTheme();
+  const { spacing, radii } = theme;
 
   // Keep focus styling static on Android to avoid keyboard/focus flicker loops.
   const borderColor = error ? theme.colors.danger : theme.colors.border;
 
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={theme.typography.label}>{label}</Text>
+    <View style={{ gap: spacing.xs }}>
+      <Text style={theme.typography.fieldLabel}>{label}</Text>
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 12,
-          borderRadius: 22,
+          gap: spacing.sm,
+          borderRadius: radii.lg,
           borderWidth: 1,
           borderColor,
-          backgroundColor: theme.colors.surfaceAlt,
-          paddingHorizontal: 16,
+          backgroundColor: theme.isDark ? theme.colors.surfaceAlt : "#FFFFFF",
+          paddingHorizontal: spacing.md,
           paddingVertical: 2,
           shadowColor: theme.colors.shadow,
-          shadowOpacity: theme.isDark ? 0.18 : 0.08,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: theme.isDark ? 0.16 : 0.06,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: 6 },
           elevation: 0,
         }}
       >
@@ -64,11 +65,11 @@ export default function AppTextField({
         {rightElement ? <View>{rightElement}</View> : null}
       </View>
       {error ? (
-        <Text style={[theme.typography.caption, { color: theme.colors.danger }]}>
+        <Text style={[theme.typography.helper, { color: theme.colors.danger }]}>
           {error}
         </Text>
       ) : helperText ? (
-        <Text style={theme.typography.caption}>{helperText}</Text>
+        <Text style={theme.typography.helper}>{helperText}</Text>
       ) : null}
     </View>
   );

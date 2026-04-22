@@ -37,9 +37,15 @@ type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Notifications: undefined;
   Chats: undefined;
-  SendNotifications: undefined;
+  SendNotifications:
+    | {
+        targetTeacherId?: string;
+        targetTeacherName?: string;
+        targetTeacherEmail?: string;
+      }
+    | undefined;
   Teachers: undefined;
-  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
+  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
   Subscription: undefined;
   LessonPacks: undefined;
   Lessons: undefined;
@@ -81,6 +87,7 @@ type TeacherCapacityItem = {
   id: string;
   name: string;
   created_at: string;
+  last_login: string | null;
   student_limit: number;
   studentCount: number;
   percentage: number;
@@ -121,6 +128,30 @@ type VerifyAccessCodeResponse = {
   session?: {
     id?: string;
   };
+};
+
+type DashboardSummaryResponse = {
+  role: string;
+  isAdmin: boolean;
+  isPrincipal: boolean;
+  teacherName: string;
+  lessonsCount: number;
+  testsCount: number;
+  studentsCount: number;
+  teachersCount: number;
+  adminPlanCounts: {
+    basic: number;
+    standard: number;
+    school: number;
+    internal: number;
+  };
+  adminRevenueMonthly: number;
+  recentLessons: RecentLesson[];
+  recentTests: RecentTest[];
+  recentStudentActivity: StudentActivity[];
+  teacherCapacity: TeacherCapacityItem[];
+  studentAccessCodes: { studentId: string; code: string }[];
+  error?: string;
 };
  
 function formatDateTime(dateIso?: string | null) {
@@ -657,6 +688,7 @@ export default function DashboardScreen() {
   const [selectedStudentActivity, setSelectedStudentActivity] = useState<StudentActivity | null>(null);
   const [studentActivityDetailLoadingId, setStudentActivityDetailLoadingId] = useState<string | null>(null);
   const [teacherCapacity, setTeacherCapacity] = useState<TeacherCapacityItem[]>([]);
+  const [lastLoginSort, setLastLoginSort] = useState<'asc' | 'desc' | null>(null);
  
   const [studentName, setStudentName] = useState<string>("");
   const [studentTeacherName, setStudentTeacherName] = useState<string>("");
@@ -669,18 +701,6 @@ export default function DashboardScreen() {
  
   const isStudentMode = !!sessionId;
 
-
- 
-  const PLAN_PRICE_MONTHLY = useMemo(
-    () => ({
-      basic: 0,
-      standard: 29.99,
-      school: 0,
-      internal: 0,
-    }),
-    []
-  );
- 
   const animatedLessonsCount = useCountUp(lessonsCount);
   const animatedTestsCount = useCountUp(testsCount);
   const animatedStudentsCount = useCountUp(studentsCount);
@@ -903,344 +923,57 @@ export default function DashboardScreen() {
       setLoading(true);
  
       try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
- 
+        const [
+          {
+            data: { user },
+            error: userError,
+          },
+          {
+            data: { session },
+          },
+        ] = await Promise.all([supabase.auth.getUser(), supabase.auth.getSession()]);
+
         if (userError) throw userError;
-        if (!user) {
+        if (!user || !session?.access_token) {
           if (!isMounted) return;
           navigation.reset({ index: 0, routes: [{ name: "Login" }] });
           return;
         }
- 
-        const { data: currentTeacher, error: teacherError } = await (supabase.from("teachers") as any)
-          .select("id, user_id, name, role, active, plan, student_limit, created_at")
-          .eq("user_id", user.id)
-          .maybeSingle();
- 
-        if (teacherError && !currentTeacher) {
-          throw new Error("Unable to load teacher profile.");
+        const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/mobile/dashboard-summary`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        let result: DashboardSummaryResponse | null = null;
+        try {
+          result = (await response.json()) as DashboardSummaryResponse;
+        } catch {
+          result = null;
         }
- 
-        const role = (currentTeacher?.role ?? "teacher") as string;
-        const admin = role === "admin";
-        const principal = role === "principal";
-        const tName = currentTeacher?.name || (admin ? "Administrator" : principal ? "Principal" : "Teacher");
- 
+
+        if (!response.ok || !result || result.error) {
+          throw new Error(result?.error || "Unable to load dashboard.");
+        }
+
         if (!isMounted) return;
-        setIsAdmin(admin);
-        setIsPrincipal(principal);
-        setTeacherName(tName);
- 
-        const lessonQuery = (supabase.from("lessons") as any).select("*", { count: "exact", head: true });
-        const testQuery = (supabase.from("tests") as any).select("*", { count: "exact", head: true });
-        const studentQuery = (supabase.from("students") as any).select("*", { count: "exact", head: true });
-        const teachersQuery = (supabase.from("teachers") as any).select("*", { count: "exact", head: true });
- 
-        if (!admin && !principal) {
-          lessonQuery.eq("created_by", user.id);
-          testQuery.eq("created_by", user.id);
-          studentQuery.eq("teacher_id", user.id);
-        }
- 
-        const [lessonsRes, testsRes, studentsRes, teachersRes] = await Promise.all([
-          lessonQuery,
-          testQuery,
-          studentQuery,
-          teachersQuery,
-        ]);
- 
-        if (!isMounted) return;
-        setLessonsCount(lessonsRes?.count ?? 0);
-        setTestsCount(testsRes?.count ?? 0);
-        setStudentsCount(studentsRes?.count ?? 0);
-        setTeachersCount(teachersRes?.count ?? 0);
- 
-        if (admin) {
-          const { data: plansRows } = await (supabase.from("teachers") as any).select("plan");
-          const planRows = (plansRows ?? []) as { plan: string | null }[];
- 
-          const localPlanCounts = {
-            basic: 0,
-            standard: 0,
-            school: 0,
-            internal: 0,
-          };
 
-          for (const row of planRows) {
-            const p = (row?.plan ?? "basic").toLowerCase().trim();
-            if (p === "standard" || p === "teacher" || p === "tutor") localPlanCounts.standard++;
-            else if (p === "basic" || p === "free") localPlanCounts.basic++;
-            else if (p === "pro") localPlanCounts.school++;
-            else if (p === "internal") localPlanCounts.internal++;
-            else if (p in localPlanCounts) (localPlanCounts as any)[p]++;
-            else localPlanCounts.basic++;
-          }
-
-          const revenueMonthly =
-            localPlanCounts.standard * PLAN_PRICE_MONTHLY.standard;
- 
-          setAdminPlanCounts(localPlanCounts);
-          setAdminRevenueMonthly(revenueMonthly);
-        }
- 
-        if (admin || principal) {
-          const { data: teachersRows } = await (supabase.from("teachers") as any)
-            .select("user_id, name, student_limit, created_at")
-            .eq("role", "teacher");
- 
-          const teacherRows = (teachersRows ?? []) as any[];
- 
-          const capacityItems: TeacherCapacityItem[] = await Promise.all(
-            teacherRows.map(async (t) => {
-              const teacherUserId = String(t.user_id);
-              const { count } = await (supabase.from("students") as any)
-                .select("*", { count: "exact", head: true })
-                .eq("teacher_id", teacherUserId);
- 
-              const studentCount = count ?? 0;
-              const limitNumber = typeof t.student_limit === "number" ? t.student_limit : t.student_limit ? Number(t.student_limit) : 10;
-              const limit = Number.isFinite(limitNumber) && limitNumber > 0 ? limitNumber : 10;
-              const percentage = Math.min((studentCount / limit) * 100, 100);
- 
-              return {
-                id: teacherUserId,
-                name: t.name ?? "Teacher",
-                created_at: t.created_at ?? "",
-                student_limit: limit,
-                studentCount,
-                percentage,
-              };
-            })
-          );
- 
-          if (!isMounted) return;
-          setTeacherCapacity(capacityItems);
-          setRecentLessons([]);
-          setRecentTests([]);
-        } else {
-          const [rawLessons, rawTests] = await Promise.all([
-            (supabase.from("lessons") as any)
-              .select("*")
-              .eq("created_by", user.id)
-              .order("created_at", { ascending: false })
-              .limit(5),
-            (supabase.from("tests") as any)
-              .select("*")
-              .eq("teacher_id", user.id)
-              .order("created_at", { ascending: false })
-              .limit(5),
-          ]);
- 
-          if (!isMounted) return;
-          setRecentLessons((rawLessons?.data ?? []) as RecentLesson[]);
-          setRecentTests((rawTests?.data ?? []) as RecentTest[]);
-          setTeacherCapacity([]);
-
-          // Load condensed student activity for the third tab
-          try {
-            const { data: studentRows } = await (supabase.from("students") as any)
-              .select("id, name, code")
-              .eq("teacher_id", user.id);
-            const myStudents: { id: string; name: string; code: string }[] = studentRows ?? [];
-            if (myStudents.length > 0) {
-              studentAccessCodeMapRef.current = new Map(myStudents.map((student) => [student.id, student.code ?? ""]));
-              const ids = myStudents.map((s) => s.id);
-              const nameMap = new Map(myStudents.map((s) => [s.id, s.name]));
-
-              // Helper: parse a single progress row into StudentActivity[]
-              const parseProgressRow = (studentId: string, practiceH: any[], testH: any[]): StudentActivity[] => {
-                const out: StudentActivity[] = [];
-                const name = nameMap.get(studentId) ?? "Student";
-                const push = (records: any[], isTest: boolean) => {
-                  for (const rec of records ?? []) {
-                    const contentName =
-                      typeof rec.lessonName === "string" ? rec.lessonName :
-                      typeof rec.testName === "string" ? rec.testName :
-                      typeof rec.lessonTitle === "string" ? rec.lessonTitle :
-                      typeof rec.testTitle === "string" ? rec.testTitle :
-                      typeof rec.lesson_title === "string" ? rec.lesson_title :
-                      typeof rec.test_title === "string" ? rec.test_title :
-                      typeof rec.title === "string" ? rec.title :
-                      typeof rec.name === "string" ? rec.name :
-                      typeof rec.lesson?.name === "string" ? rec.lesson.name :
-                      typeof rec.lesson?.title === "string" ? rec.lesson.title :
-                      typeof rec.test?.name === "string" ? rec.test.name :
-                      typeof rec.test?.title === "string" ? rec.test.title : null;
-                    const rawScore = rec.score;
-                    const rawAnswers: any[] = Array.isArray(rawScore?.answers) ? rawScore.answers : [];
-                    const rawIssues: any[] = Array.isArray(rec.issues) ? rec.issues : [];
-                    const issues = normalizeIssues(rawIssues, rawAnswers);
-                    const correctCount = typeof rawScore === "number" ? rawScore :
-                      typeof rawScore?.correct === "number" ? rawScore.correct :
-                      rawAnswers.filter((a: any) => a.result === "correct").length;
-                    const totalWords = getStudentActivityTotal(rec, rawScore, rawAnswers);
-                    const pct: number | null =
-                      typeof rec.percentage === "number" ? rec.percentage :
-                      typeof rec.score_percentage === "number" ? rec.score_percentage :
-                      typeof rawScore?.percentage === "number" ? rawScore.percentage :
-                      totalWords != null && totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : null;
-                    const createdAt = typeof rec.date === "string" ? rec.date :
-                      typeof rec.timestamp === "number" ? new Date(rec.timestamp).toISOString() :
-                      typeof rec.timestamp === "string" ? rec.timestamp : new Date().toISOString();
-                    out.push({
-                      id: `${studentId}-${createdAt}-${isTest ? "t" : "l"}`,
-                      studentId,
-                      studentName: name,
-                      contentName: contentName ?? (isTest ? "Test" : "Lesson"),
-                      isTest,
-                      percentage: pct,
-                      score: correctCount >= 0 && totalWords != null ? correctCount : correctCount > 0 ? correctCount : null,
-                      total: totalWords,
-                      issues,
-                      created_at: createdAt,
-                    });
-                  }
-                };
-                push(practiceH, false);
-                push(testH, true);
-                return out;
-              };
-
-              let activities: StudentActivity[] = [];
-              const progressRowsByStudent = new Map<string, { practiceHistory: any[]; testHistory: any[] }>();
-
-              // 1. Try direct student_game_progress table
-              const { data: progressRows, error: progressError } = await (supabase.from("student_game_progress") as any)
-                .select("student_id, practice_history, test_history")
-                .in("student_id", ids);
-
-              if (!progressError && Array.isArray(progressRows)) {
-                for (const row of progressRows) {
-                  const sid = typeof row?.student_id === "string" ? row.student_id : null;
-                  if (!sid) continue;
-                  progressRowsByStudent.set(sid, normalizeStudentActivityProgressPayload(row));
-                }
-              }
-
-              // 2. Fill in any missing students via API
-              const missingStudentIds = ids.filter((sid) => !progressRowsByStudent.has(sid));
-              if (missingStudentIds.length > 0) {
-                const { data: { session: authSession } } = await supabase.auth.getSession();
-                const token = authSession?.access_token ?? "";
-                const apiResults = await Promise.all(
-                  missingStudentIds.map(async (sid) => {
-                    try {
-                      const res = await fetch(`${apiBaseUrl}/api/teacher/students/${encodeURIComponent(sid)}/progress`, {
-                        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                      });
-                      if (!res.ok) return null;
-                      const json = await res.json();
-                      return { sid, payload: normalizeStudentActivityProgressPayload(json) };
-                    } catch {
-                      return null;
-                    }
-                  })
-                );
-
-                for (const row of apiResults) {
-                  if (!row) continue;
-                  progressRowsByStudent.set(row.sid, row.payload);
-                }
-              }
-
-              for (const [studentId, progress] of progressRowsByStudent.entries()) {
-                activities.push(...parseProgressRow(studentId, progress.practiceHistory, progress.testHistory));
-              }
-
-              // 3. Last resort: teacher_notifications
-              if (activities.length === 0) {
-                const { data: notifs } = await (supabase.from("teacher_notifications") as any)
-                  .select("id, type, title, metadata, created_at")
-                  .in("type", ["lesson_completed", "test_completed"])
-                  .order("created_at", { ascending: false })
-                  .limit(30);
-                for (const n of notifs ?? []) {
-                  const meta = n.metadata && typeof n.metadata === "object" ? n.metadata : {};
-                  const sid = typeof meta.student_id === "string" ? meta.student_id : null;
-                  if (sid && !ids.includes(sid)) continue;
-                  const isTest = n.type === "test_completed";
-                  const contentName = typeof meta.lesson_name === "string" ? meta.lesson_name :
-                    typeof meta.test_name === "string" ? meta.test_name : (isTest ? "Test" : "Lesson");
-                  activities.push({
-                    id: n.id,
-                    studentId: sid ?? "",
-                    studentName: typeof meta.student_name === "string" ? meta.student_name : nameMap.get(sid ?? "") ?? "Student",
-                    contentName,
-                    isTest,
-                    percentage:
-                      typeof meta.percentage === "number" ? meta.percentage :
-                      typeof meta.score_percentage === "number" ? meta.score_percentage : null,
-                    score:
-                      typeof meta.score === "number" ? meta.score :
-                      typeof meta.correct === "number" ? meta.correct : null,
-                    total:
-                      typeof meta.total === "number" ? meta.total :
-                      typeof meta.total_words === "number" ? meta.total_words :
-                      typeof meta.question_count === "number" ? meta.question_count : null,
-                    created_at: n.created_at,
-                  });
-                }
-              }
-
-              activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-              if (isMounted) setRecentStudentActivity(activities.slice(0, 15));
-
-              const studentsWithCodes = myStudents.filter((student) => student.code);
-              if (studentsWithCodes.length > 0) {
-                void (async () => {
-                  for (const student of studentsWithCodes) {
-                    try {
-                      const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ accessCode: student.code.trim().toUpperCase() }),
-                      });
-                      let result: VerifyAccessCodeResponse | null = null;
-                      try {
-                        result = (await response.json()) as VerifyAccessCodeResponse;
-                      } catch {
-                        result = null;
-                      }
-
-                      const sessionId = result?.session?.id?.trim() || "";
-                      if (!response.ok || !sessionId) continue;
-
-                      const progress = await getRemoteProgress(sessionId);
-                      const normalized = normalizeStudentActivityProgressPayload(progress);
-                      const detailedRows = parseProgressRow(student.id, normalized.practiceHistory, normalized.testHistory);
-                      if (detailedRows.length === 0 || !isMounted) continue;
-
-                      setRecentStudentActivity((prev) =>
-                        prev.map((activity) => {
-                          if (activity.studentId !== student.id) return activity;
-                          const match = findMatchingStudentActivity(detailedRows, activity);
-                          if (!match) return activity;
-
-                          return {
-                            ...activity,
-                            contentName: isGenericStudentActivityContentName(activity.contentName) ? match.contentName : activity.contentName || match.contentName,
-                            percentage: activity.percentage ?? match.percentage,
-                            score: activity.score ?? match.score,
-                            total: activity.total ?? match.total,
-                            issues: Array.isArray(activity.issues) && activity.issues.length > 0 ? activity.issues : match.issues,
-                            created_at: activity.created_at || match.created_at,
-                          };
-                        })
-                      );
-                    } catch {
-                      // best-effort enrichment
-                    }
-                  }
-                })();
-              }
-            }
-          } catch {
-            // best-effort
-          }
-        }
+        setIsAdmin(result.isAdmin);
+        setIsPrincipal(result.isPrincipal);
+        setTeacherName(result.teacherName);
+        setLessonsCount(result.lessonsCount ?? 0);
+        setTestsCount(result.testsCount ?? 0);
+        setStudentsCount(result.studentsCount ?? 0);
+        setTeachersCount(result.teachersCount ?? 0);
+        setAdminPlanCounts(result.adminPlanCounts ?? { basic: 0, standard: 0, school: 0, internal: 0 });
+        setAdminRevenueMonthly(result.adminRevenueMonthly ?? 0);
+        setRecentLessons(result.recentLessons ?? []);
+        setRecentTests(result.recentTests ?? []);
+        setRecentStudentActivity(result.recentStudentActivity ?? []);
+        setTeacherCapacity(result.teacherCapacity ?? []);
+        studentAccessCodeMapRef.current = new Map(
+          (result.studentAccessCodes ?? []).map((item) => [item.studentId, item.code ?? ""])
+        );
       } catch (err) {
         if (!isMounted) return;
         setFatalError(err instanceof Error ? err.message : "Unable to load dashboard.");
@@ -1256,7 +989,7 @@ export default function DashboardScreen() {
     return () => {
       isMounted = false;
     };
-  }, [PLAN_PRICE_MONTHLY, apiBaseUrl, isStudentMode, navigation, sessionId]);
+  }, [apiBaseUrl, isStudentMode, navigation, sessionId]);
  
   const animateDrawer = (toValue: number, onDone?: () => void) => {
     Animated.parallel([
@@ -2335,7 +2068,7 @@ export default function DashboardScreen() {
               <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>Joined {formatDateTime(item.created_at)}</Text>
+              <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted }]}>Last logged in {item.last_login ? formatDateTime(item.last_login) : "Never"}</Text>
             </View>
           </View>
           <View
@@ -2505,9 +2238,50 @@ export default function DashboardScreen() {
       {isAdmin || isPrincipal ? (
         <AnimatedSection delay={260}>
           <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-            <SectionHeader eyebrow="Teachers" title="Capacity and activity" subtitle="Animated load bars make team health easier to scan." />
+            <View style={{ marginBottom: 16 }}>
+              <SectionHeader eyebrow="Teachers" title="Capacity and activity" subtitle="Animated load bars make team health easier to scan." />
+              
+              {/* Last Login Sort Buttons */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 16 }}>
+                <TouchableOpacity
+                  onPress={() => setLastLoginSort(lastLoginSort === 'asc' ? null : 'asc')}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: lastLoginSort === 'asc' ? theme.colors.primarySoft : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.textMuted }}>Last Login ↑</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => setLastLoginSort(lastLoginSort === 'desc' ? null : 'desc')}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: lastLoginSort === 'desc' ? theme.colors.primarySoft : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.textMuted }}>Last Login ↓</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
             {teacherCapacity.length > 0 ? (
-              teacherCapacity.map((t) => <TeacherLoadRow key={t.id} item={t} />)
+              teacherCapacity
+                .sort((a, b) => {
+                  if (!lastLoginSort) return 0;
+                  const aDate = new Date(a.last_login || a.created_at || 0).getTime();
+                  const bDate = new Date(b.last_login || b.created_at || 0).getTime();
+                  return lastLoginSort === 'asc' ? aDate - bDate : bDate - aDate;
+                })
+                .map((t) => <TeacherLoadRow key={t.id} item={t} />)
             ) : (
               <View
                 style={{
@@ -2811,9 +2585,9 @@ export default function DashboardScreen() {
                     position: "absolute",
                     top: 12,
                     right: 12,
-                    height: 38,
-                    width: 38,
-                    borderRadius: 14,
+                    height: 34,
+                    width: 34,
+                    borderRadius: 12,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
                     backgroundColor: theme.colors.surfaceGlass,
@@ -2822,7 +2596,7 @@ export default function DashboardScreen() {
                     zIndex: 2,
                   }}
                 >
-                  <Ionicons name="chevron-back" size={18} color={theme.colors.textMuted} />
+                  <Ionicons name="chevron-back" size={16} color={theme.colors.textMuted} />
                 </TouchableOpacity>
  
                 <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
@@ -2855,7 +2629,7 @@ export default function DashboardScreen() {
 
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
                   <View style={{ flex: 1, flexDirection: "row", alignItems: "center", borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 7, paddingHorizontal: 10, gap: 6 }}>
-                    <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{isStudentMode ? "Lessons" : "Classes"}</Text>
+                    <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{isStudentMode ? "Lessons" : "Lessons"}</Text>
                     <Text style={[theme.typography.label, { color: theme.colors.border }]}>|</Text>
                     <Text style={[theme.typography.bodyStrong, { color: theme.colors.text }]}>{isStudentMode ? assignedLessonsIds.length : animatedLessonsCount}</Text>
                   </View>

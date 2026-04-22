@@ -31,13 +31,13 @@ import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules"
 
 type RootStackParamList = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
+  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
   Notifications: undefined;
   Subscription: undefined;
   Login: undefined;
 };
 
-type SettingsTab = "profile" | "security" | "notifications";
+type SettingsTab = "profile" | "security" | "terms" | "contact";
 
 type PlanInfo = {
   plan: string;
@@ -224,10 +224,33 @@ export default function SettingsScreen() {
   }, [route.params?.initialTab]);
 
   const tabs: { id: SettingsTab; label: string; icon: string; color: string }[] = [
-    { id: "profile",       label: "Profile",       icon: "person-outline",        color: "#3B5EDB" },
-    { id: "security",      label: "Security",      icon: "shield-outline",        color: "#D4462A" },
-    { id: "notifications", label: "Notifications", icon: "notifications-outline", color: "#3EA370" },
+    { id: "profile",  label: "Profile",  icon: "person-outline",        color: "#3B5EDB" },
+    { id: "security", label: "Security", icon: "shield-outline",        color: "#D4462A" },
+    { id: "terms",    label: "Terms",    icon: "document-text-outline", color: "#0F8A83" },
+    { id: "contact",  label: "Contact",  icon: "mail-outline",          color: "#7C3AED" },
   ];
+
+  const openExternalUrl = async (url: string, errorMessage: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) throw new Error("Unsupported URL");
+      await Linking.openURL(url);
+    } catch {
+      showToast(errorMessage, "danger");
+    }
+  };
+
+  const openTerms = () =>
+    openExternalUrl("https://www.eluency.com/terms", "Could not open Terms and Conditions.");
+
+  const openPrivacy = () =>
+    openExternalUrl("https://www.eluency.com/privacy", "Could not open Privacy Policy.");
+
+  const contactTeam = () =>
+    openExternalUrl(
+      "mailto:nathan@eluency.com?subject=Eluency%20Support",
+      "Could not open your email app."
+    );
 
   useEffect(() => {
     if (!tabBarWidth) return;
@@ -664,32 +687,6 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={16}>
-                  <TouchableOpacity
-                    onPress={() => Linking.openURL("https://www.eluency.com/privacy")}
-                    activeOpacity={0.7}
-                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Ionicons name="shield-outline" size={18} color={theme.colors.textMuted} />
-                      <Text style={[theme.typography.body, { color: theme.colors.text }]}>Privacy Policy</Text>
-                    </View>
-                    <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
-                  <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 12 }} />
-                  <TouchableOpacity
-                    onPress={() => Linking.openURL("https://www.eluency.com/terms")}
-                    activeOpacity={0.7}
-                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Ionicons name="document-text-outline" size={18} color={theme.colors.textMuted} />
-                      <Text style={[theme.typography.body, { color: theme.colors.text }]}>Terms of Service</Text>
-                    </View>
-                    <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
-                  </TouchableOpacity>
-                </GlassCard>
-
                 <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20} variant="strong">
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>Delete account and content created. This permanently removes your lessons, tests, students, and account.</Text>
                   <TouchableOpacity
@@ -723,18 +720,124 @@ export default function SettingsScreen() {
             )}
 
             {/* ── Notifications ── */}
-            {activeTab === "notifications" && (
-              <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={30}>
-                <View style={{ alignItems: "center", gap: 12 }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
-                    <Ionicons name="notifications-outline" size={28} color="#3EA370" />
-                  </View>
-                  <Text style={[theme.typography.bodyStrong, { fontSize: 16 }]}>Notifications</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center", maxWidth: 240 }]}>
-                    Notification preferences will be available in a future update.
+            {activeTab === "terms" && (
+              <ScreenReveal key="settings-terms" delay={40}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="hero">
+                  <SectionTitle icon="document-text-outline" label="Terms & Conditions" color="#0F8A83" />
+                  <Text style={[theme.typography.body, { color: theme.colors.textMuted, lineHeight: 22 }]}>
+                    Review the latest legal information for Eluency directly on our website, including the full terms and privacy policy.
                   </Text>
-                </View>
-              </GlassCard>
+
+                  <View style={{ gap: 12, marginTop: 18 }}>
+                    <TouchableOpacity
+                      onPress={openTerms}
+                      activeOpacity={0.82}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surfaceGlass,
+                        padding: 16,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
+                    >
+                      <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: "#0F8A8314", alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="document-text-outline" size={20} color="#0F8A83" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 15 }]}>Terms and Conditions</Text>
+                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                          Open the latest terms on eluency.com
+                        </Text>
+                      </View>
+                      <Ionicons name="open-outline" size={18} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={openPrivacy}
+                      activeOpacity={0.82}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.surfaceGlass,
+                        padding: 16,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                      }}
+                    >
+                      <View style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: "#3B5EDB14", alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="shield-outline" size={20} color="#3B5EDB" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 15 }]}>Privacy Policy</Text>
+                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                          View privacy and data handling details
+                        </Text>
+                      </View>
+                      <Ionicons name="open-outline" size={18} color={theme.colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                </GlassCard>
+              </ScreenReveal>
+            )}
+
+            {activeTab === "contact" && (
+              <ScreenReveal key="settings-contact" delay={40}>
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12 }} padding={20} variant="hero">
+                  <SectionTitle icon="mail-outline" label="Contact Us" color="#7C3AED" />
+                  <Text style={[theme.typography.body, { color: theme.colors.textMuted, lineHeight: 22 }]}>
+                    Reach the Eluency team for support, account help, billing questions, or feedback. We are happy to help.
+                  </Text>
+
+                  <View
+                    style={{
+                      marginTop: 18,
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surfaceGlass,
+                      padding: 18,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <View style={{ width: 44, height: 44, borderRadius: 15, backgroundColor: "#7C3AED14", alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="mail-open-outline" size={20} color="#7C3AED" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 15 }]}>Eluency Support</Text>
+                        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>nathan@eluency.com</Text>
+                      </View>
+                    </View>
+
+                    <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 16 }} />
+
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 20, marginBottom: 14 }]}>
+                      Send us an email with any relevant details and we will respond as quickly as possible.
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={contactTeam}
+                      activeOpacity={0.85}
+                      style={{
+                        borderRadius: 14,
+                        backgroundColor: "#7C3AED",
+                        paddingVertical: 13,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <Ionicons name="mail-outline" size={17} color="#fff" />
+                      <Text style={{ fontSize: 14, fontWeight: "800", color: "#fff" }}>Email our team</Text>
+                    </TouchableOpacity>
+                  </View>
+                </GlassCard>
+              </ScreenReveal>
             )}
           </>
         )}

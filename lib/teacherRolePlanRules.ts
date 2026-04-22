@@ -1,18 +1,18 @@
 /**
  * Matches Eluency web `rolePlanRules.ts` / DB check `teachers_role_plan_check`.
  * - admin     -> plan = 'Internal'
- * - principal -> plan = 'School'
+ * - principal -> plan = 'School/Organization'
  * - teacher   -> plan IN ('Basic', 'Standard')
  */
 export const PLANS_BY_ROLE: Record<string, string[]> = {
   admin: ["Internal"],
-  principal: ["School"],
+  principal: ["School/Organization"],
   teacher: ["Basic", "Standard"],
 };
 
 export const DEFAULT_PLAN_FOR_ROLE: Record<string, string> = {
   admin: "Internal",
-  principal: "School",
+  principal: "School/Organization",
   teacher: "Basic",
 };
 
@@ -37,7 +37,7 @@ export function coercePlanForRole(role: string, plan: string): string {
 export const STUDENT_LIMIT_BY_PLAN: Record<string, number> = {
   Basic: 1,
   Standard: 30,
-  School: 999,
+  "School/Organization": 999,
   Internal: 999,
 };
 
@@ -53,8 +53,12 @@ export function normalizePlanUi(plan: string | null | undefined): string {
   if (p === "standard") return "Standard";
   if (p === "teacher") return "Standard";
   if (p === "tutor") return "Standard";
-  if (p === "pro") return "School";
-  if (p === "school") return "School";
+  if (p === "pro") return "School/Organization";
+  if (p === "school") return "School/Organization";
+  if (p === "school/organization") return "School/Organization";
+  if (p === "school / organization") return "School/Organization";
+  if (p === "organization") return "School/Organization";
+  if (p === "organisation") return "School/Organization";
   if (p === "internal") return "Internal";
   return "Basic";
 }

@@ -27,6 +27,7 @@ export default function ScreenHeader({
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { spacing, radii } = theme;
 
   const handleBack = () => {
     if (onBack) {
@@ -44,12 +45,12 @@ export default function ScreenHeader({
         left: 0,
         right: 0,
         zIndex: 50,
-        backgroundColor: theme.isDark ? theme.colors.background : "#FFFFFF",
+        backgroundColor: theme.isDark ? theme.colors.background : "rgba(255,255,255,0.96)",
         borderBottomWidth: 1,
         borderBottomColor: theme.colors.border,
-        paddingHorizontal: 16,
+        paddingHorizontal: spacing.md,
         paddingTop: Math.max(insets.top, 8),
-        paddingBottom: 10,
+        paddingBottom: spacing.sm,
         flexDirection: "row",
         alignItems: "center",
       }}
@@ -61,7 +62,7 @@ export default function ScreenHeader({
           style={{
             height: 44,
             width: 44,
-            borderRadius: 12,
+            borderRadius: radii.md,
             borderWidth: 1,
             borderColor: theme.colors.border,
             backgroundColor: theme.colors.surfaceGlass,
@@ -75,14 +76,14 @@ export default function ScreenHeader({
         <View style={{ width: 44 }} />
       )}
 
-      <View style={{ flex: 1, paddingHorizontal: 10 }}>
+      <View style={{ flex: 1, paddingHorizontal: spacing.xs }}>
         {eyebrow ? (
           <Text style={theme.typography.label}>{eyebrow}</Text>
         ) : null}
         <Text
           style={[
             theme.typography.title,
-            { marginTop: eyebrow ? 2 : 0, fontSize: 18, lineHeight: 22 },
+            { marginTop: eyebrow ? 2 : 0, fontSize: 19, lineHeight: 24 },
           ]}
         >
           {title}

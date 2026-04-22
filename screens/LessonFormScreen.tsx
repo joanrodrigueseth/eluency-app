@@ -9,6 +9,7 @@ import { Alert,
   Easing,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Linking,
   Modal,
@@ -1531,13 +1532,14 @@ export default function LessonFormScreen() {
           </Text>
         </View>
 
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 48, gap: 16 }}
-        >
-          {/* ── Step 1: Cover + Title + Description ── */}
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={1} style={{ flex: 1 }}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 48, gap: 16 }}
+          >
+            {/* ── Step 1: Cover + Title + Description ── */}
           {wizardStep === 1 && (
             <>
               <TouchableOpacity onPress={pickCover} activeOpacity={0.9}>
@@ -1556,26 +1558,40 @@ export default function LessonFormScreen() {
               ) : null}
 
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
-                <TextInput
-                  value={title}
-                  onChangeText={setTitle}
-                  placeholder="Lesson title *"
-                  placeholderTextColor={placeholderColor}
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 22, fontWeight: "800", color: theme.colors.text }}
-                />
+                <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                    Create Lesson Title:
+                  </Text>
+                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput
+                      value={title}
+                      onChangeText={setTitle}
+                      placeholder=""
+                      placeholderTextColor={placeholderColor}
+                      returnKeyType="done"
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                      style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }}
+                    />
+                  </View>
+                </View>
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-                <TextInput
-                  value={description}
-                  onChangeText={setDescription}
-                  multiline
-                  blurOnSubmit
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                  placeholder="Description (optional)"
-                  placeholderTextColor={placeholderColor}
-                  style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }}
-                />
+                <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                    Description:
+                  </Text>
+                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput
+                      value={description}
+                      onChangeText={setDescription}
+                      multiline
+                      blurOnSubmit
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                      placeholder=""
+                      placeholderTextColor={placeholderColor}
+                      style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }}
+                    />
+                  </View>
+                </View>
               </View>
 
               <AppButton label="Continue →" onPress={advanceWizard} />
@@ -2060,7 +2076,8 @@ export default function LessonFormScreen() {
               <AppButton label="Create Lesson" onPress={save} loading={saving} />
             </>
           )}
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
         <FloatingToast {...toastProps} />
       </View>
     );
@@ -2126,9 +2143,13 @@ export default function LessonFormScreen() {
         </GlassCard>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
-        <TouchableOpacity activeOpacity={1} onPress={() => { Keyboard.dismiss(); closeAllDropdowns(); }}>
-          <View style={{ paddingBottom: 18 }}>
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => { Keyboard.dismiss(); closeAllDropdowns(); }}>
+            <View style={{ paddingBottom: 18 }}>
             <GlassCard style={{ marginBottom: 18, borderRadius: 30, overflow: "hidden" }} padding={0}>
               <View style={{ position: "relative", overflow: "hidden" }}>
                 <FloatingGlow size={180} color={theme.colors.primarySoft} top={-55} right={-25} translate={heroGlowOne} />
@@ -2158,9 +2179,23 @@ export default function LessonFormScreen() {
 
             <View style={{ paddingTop: 0, gap: 16 }}>
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
-                <TextInput value={title} onChangeText={setTitle} placeholder="Lesson title" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 24, fontWeight: "800", color: theme.colors.text }} />
+                <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                    Create Lesson Title:
+                  </Text>
+                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput value={title} onChangeText={setTitle} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+                  </View>
+                </View>
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-                <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
+                <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 }}>
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                    Description:
+                  </Text>
+                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+                  </View>
+                </View>
               </View>
 
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
@@ -2626,9 +2661,9 @@ export default function LessonFormScreen() {
 
               <AppButton label={isEdit ? "Save Lesson" : "Create Lesson"} onPress={save} loading={saving} />
             </View>
-          </View>
-        </TouchableOpacity>
-      </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </ScrollView>
       <FloatingToast {...toastProps} />
     </View>
   );

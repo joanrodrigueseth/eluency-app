@@ -39,11 +39,29 @@ export type AppTheme = {
   colors: AppColors;
   typography: {
     display: TextStyle;
+    sectionTitle: TextStyle;
     title: TextStyle;
     body: TextStyle;
     bodyStrong: TextStyle;
     label: TextStyle;
+    fieldLabel: TextStyle;
     caption: TextStyle;
+    helper: TextStyle;
+  };
+  spacing: {
+    xs: number;
+    sm: number;
+    md: number;
+    lg: number;
+    xl: number;
+    xxl: number;
+  };
+  radii: {
+    sm: number;
+    md: number;
+    lg: number;
+    xl: number;
+    pill: number;
   };
   cardShadow: ViewStyle;
   setMode: (mode: ThemeMode) => void;
@@ -196,10 +214,17 @@ export function useAppTheme(): AppTheme {
         fontWeight: "700",
         color: isDark ? colors.text : "#0F1115",
       },
+      sectionTitle: {
+        fontFamily: sharedFontFamily,
+        fontSize: 27,
+        lineHeight: 33,
+        fontWeight: "800",
+        color: isDark ? colors.text : "#0F1115",
+      },
       title: {
         fontFamily: sharedFontFamily,
-        fontSize: 23,
-        lineHeight: 29,
+        fontSize: 22,
+        lineHeight: 28,
         fontWeight: "800",
         color: isDark ? colors.text : "#0F1115",
       },
@@ -226,6 +251,15 @@ export function useAppTheme(): AppTheme {
         textTransform: "uppercase",
         color: colors.textSoft,
       },
+      fieldLabel: {
+        fontFamily: sharedFontFamily,
+        fontSize: 10,
+        lineHeight: 14,
+        fontWeight: "800",
+        letterSpacing: 1.3,
+        textTransform: "uppercase",
+        color: colors.textMuted,
+      },
       caption: {
         fontFamily: sharedFontFamily,
         fontSize: 13,
@@ -233,13 +267,35 @@ export function useAppTheme(): AppTheme {
         fontWeight: "600",
         color: colors.textSoft,
       },
+      helper: {
+        fontFamily: sharedFontFamily,
+        fontSize: 12,
+        lineHeight: 18,
+        fontWeight: "500",
+        color: colors.textSoft,
+      },
+    },
+    spacing: {
+      xs: 8,
+      sm: 12,
+      md: 16,
+      lg: 20,
+      xl: 24,
+      xxl: 32,
+    },
+    radii: {
+      sm: 12,
+      md: 16,
+      lg: 20,
+      xl: 24,
+      pill: 999,
     },
     cardShadow: {
       shadowColor: colors.shadow,
-      shadowOpacity: isDark ? 0.32 : 0.12,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 12 },
-      elevation: 8,
+      shadowOpacity: isDark ? 0.28 : 0.1,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 10 },
+      elevation: 6,
     },
   };
 }

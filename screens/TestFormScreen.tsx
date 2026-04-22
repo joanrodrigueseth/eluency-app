@@ -1334,9 +1334,23 @@ export default function TestFormScreen() {
 
                 {/* Name + Description */}
                 <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
-                  <TextInput value={name} onChangeText={setName} placeholder="Test name *" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 22, fontWeight: "800", color: theme.colors.text }} />
+                  <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                      Create Test Title:
+                    </Text>
+                    <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                      <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+                    </View>
+                  </View>
                   <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-                  <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
+                  <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 }}>
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                      Description:
+                    </Text>
+                    <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                      <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+                    </View>
+                  </View>
                 </View>
 
                 {/* Admin: teacher picker */}
@@ -1877,9 +1891,23 @@ export default function TestFormScreen() {
           ) : null}
 
           <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
-            <TextInput value={name} onChangeText={setName} placeholder="Test name" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 12, fontSize: 24, fontWeight: "800", color: theme.colors.text }} />
+            <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                Create Test Title:
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+              </View>
+            </View>
             <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-            <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="Description (optional)" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 20, paddingVertical: 16, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 82 }} />
+            <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 16 }}>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
+                Description:
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+              </View>
+            </View>
           </View>
 
         {isAdmin ? (
@@ -2808,4 +2836,3 @@ export default function TestFormScreen() {
     </View>
   );
 }
-

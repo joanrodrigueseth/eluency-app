@@ -20,22 +20,23 @@ export default function GlassCard({
   blurIntensity,
 }: GlassCardProps) {
   const theme = useAppTheme();
+  const radius = theme.radii.xl;
   const variantConfig =
     variant === "hero"
       ? {
           borderColor: theme.colors.borderStrong,
-          backgroundColor: theme.isDark ? "rgba(23,33,43,0.74)" : "rgba(255,255,255,0.84)",
+          backgroundColor: theme.isDark ? "rgba(23,33,43,0.76)" : "rgba(255,255,255,0.90)",
           intensity: 58,
         }
       : variant === "strong"
         ? {
             borderColor: theme.colors.borderStrong,
-            backgroundColor: theme.isDark ? "rgba(23,33,43,0.84)" : "rgba(252,250,246,0.88)",
+            backgroundColor: theme.isDark ? "rgba(23,33,43,0.84)" : "rgba(255,255,255,0.94)",
             intensity: 48,
           }
         : {
             borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surfaceGlass,
+            backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "rgba(255,255,255,0.88)",
             intensity: 34,
           };
 
@@ -44,7 +45,7 @@ export default function GlassCard({
       style={[
         {
           overflow: "hidden",
-          borderRadius: 28,
+          borderRadius: radius,
           borderWidth: 1,
           borderColor: variantConfig.borderColor,
           backgroundColor: variantConfig.backgroundColor,

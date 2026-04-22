@@ -28,20 +28,20 @@ type RootStackParamList = {
   Notifications: undefined;
 };
 
-const MONTHLY_PRICE = 14.99;
-const YEARLY_PRICE_PER_MONTH = 11.99;
-const YEARLY_TOTAL = 143.90;
-const YEARLY_SAVINGS = parseFloat((MONTHLY_PRICE * 12 - YEARLY_TOTAL).toFixed(2)); // $35.98
+const MONTHLY_PRICE = 19.99;
+const YEARLY_PRICE_PER_MONTH = 15.99;
+const YEARLY_TOTAL = 191.88;
+const YEARLY_SAVINGS = parseFloat((MONTHLY_PRICE * 12 - YEARLY_TOTAL).toFixed(2)); // $48.00
 
 const STANDARD_FEATURES = [
   { icon: "users", text: "Up to 30 students included" },
-  { icon: "book-open", text: "Access to 1,000+ lessons & AI tools" },
+  { icon: "book-open", text: "Access to 100+ lessons & AI tools" },
   { icon: "smartphone", text: "Full teacher & student app access" },
   { icon: "zap", text: "Instant feedback & grade tracking" },
 ];
 
 const BASIC_FEATURES = [
-  "Access to 1,000+ Lessons",
+  "Access to 100+ Lessons",
   "Create and Edit Lessons and Tests",
   "1 Student Seat",
   "No credit card required",
@@ -441,7 +441,7 @@ export default function SubscriptionScreen() {
                   ))}
                 </View>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, fontSize: 12 }]}>
-                  Trusted by 2,000+ teachers worldwide
+                  Trusted by 1,000+ teachers worldwide
                 </Text>
               </View>
             ) : null}

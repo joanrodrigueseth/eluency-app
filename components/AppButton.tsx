@@ -23,6 +23,7 @@ export default function AppButton({
   fullWidth = true,
 }: AppButtonProps) {
   const theme = useAppTheme();
+  const { spacing, radii } = theme;
   const isSecondary = variant === "secondary";
   const isDangerSoft = variant === "dangerSoft";
   const isDisabled = disabled || loading;
@@ -50,9 +51,9 @@ export default function AppButton({
       activeOpacity={0.9}
       style={{
         alignSelf: fullWidth ? "stretch" : "flex-start",
-        borderRadius: 999,
-        paddingHorizontal: 20,
-        paddingVertical: 16,
+        borderRadius: radii.pill,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
         backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
         borderWidth: 1,
         borderColor: isSecondary ? theme.colors.border : isDangerSoft ? "rgba(229, 91, 107, 0.28)" : "transparent",
@@ -69,7 +70,7 @@ export default function AppButton({
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
-          gap: 10,
+          gap: spacing.xs,
         }}
       >
         {loading ? (

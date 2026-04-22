@@ -85,7 +85,7 @@ type RootStackParamList = {
   Login: undefined;
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   StudyGame: { sessionId: string };
-  Settings: { initialTab?: "profile" | "security" | "notifications" } | undefined;
+  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
 };
 
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
