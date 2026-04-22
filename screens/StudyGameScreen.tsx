@@ -326,6 +326,10 @@ function getLevelInfo(totalXP: number) {
   return { current, next, xpInLevel, xpForLevel, progress };
 }
 
+function safeLength(value: unknown) {
+  return Array.isArray(value) || typeof value === "string" ? value.length : 0;
+}
+
 function reviewIssueLabel(kind: SessionIssue["kind"]) {
   if (kind === "correct") return "Correct";
   if (kind === "open_review") return "Review";
@@ -587,7 +591,7 @@ export default function StudyGameScreen() {
       setConjugationRowFeedback([]);
       return;
     }
-    const n = current.conjugationTable.entries.length;
+    const n = Array.isArray(current.conjugationTable.entries) ? current.conjugationTable.entries.length : 0;
     setConjugationInputs(Array.from({ length: n }, () => ""));
     setConjugationRowFeedback([]);
   }, [current?.id, idx]);
@@ -2213,7 +2217,7 @@ export default function StudyGameScreen() {
                       )}
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontWeight: "700", fontSize: 16, color: ui.text }}>{lesson.name}</Text>
-                        <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>{lesson.words.length} words</Text>
+                        <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>{safeLength(lesson.words)} words</Text>
                       </View>
                       <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}>
                         <Ionicons name="arrow-forward" size={17} color={ui.primary} />
@@ -2426,7 +2430,7 @@ export default function StudyGameScreen() {
                           )}
                           <View style={{ flex: 1, marginLeft: 12 }}>
                             <Text style={{ fontWeight: "700", color: ui.text, fontSize: 15 }}>{item.name}</Text>
-                            <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>{item.words.length} questions</Text>
+                            <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>{safeLength(item.words)} questions</Text>
                           </View>
                           <Ionicons name="arrow-forward" size={18} color={ui.primary} />
                         </TouchableOpacity>
@@ -2677,7 +2681,7 @@ export default function StudyGameScreen() {
                 )}
                 <View style={{ marginLeft: 12, flex: 1 }}>
                   <Text style={{ color: ui.text, fontWeight: "800", fontSize: 24 }}>{selectedLessonDetail.name}</Text>
-                  <Text style={{ color: ui.muted, marginTop: 4, fontSize: 14 }}>{selectedLessonDetail.words.length} words</Text>
+                  <Text style={{ color: ui.muted, marginTop: 4, fontSize: 14 }}>{safeLength(selectedLessonDetail.words)} words</Text>
                 </View>
               </View>
             </GlassCard>
@@ -2821,8 +2825,8 @@ export default function StudyGameScreen() {
               </View>
             </GlassCard>
 
-            <Text style={{ color: ui.muted, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>LESSON CONTENT ({selectedLessonDetail.words.length})</Text>
-            {selectedLessonDetail.words.map((word, index) => {
+            <Text style={{ color: ui.muted, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>LESSON CONTENT ({safeLength(selectedLessonDetail.words)})</Text>
+            {(Array.isArray(selectedLessonDetail.words) ? selectedLessonDetail.words : []).map((word, index) => {
               if (word.rowType === "conjugation") {
                 return (
                   <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
@@ -3045,8 +3049,8 @@ export default function StudyGameScreen() {
                   </Text>
                   <Text style={{ color: ui.muted, marginTop: 4, fontSize: 14 }}>
                     {selectedTestDetail.type === "test"
-                      ? `${selectedTestDetail.test.words.length} questions • No hints`
-                      : `${selectedTestDetail.lesson.words.length} words • No hints`}
+                      ? `${safeLength(selectedTestDetail.test.words)} questions • No hints`
+                      : `${safeLength(selectedTestDetail.lesson.words)} words • No hints`}
                   </Text>
                 </View>
               </View>
@@ -3081,12 +3085,12 @@ export default function StudyGameScreen() {
               STUDY MATERIAL (
               {selectedTestDetail.type === "test"
                 ? (selectedTestDetail.test.reviewVocabulary?.length ?? 0)
-                : selectedTestDetail.lesson.words.length}
+                : safeLength(selectedTestDetail.lesson.words)}
               )
             </Text>
             {(selectedTestDetail.type === "test"
               ? ((selectedTestDetail.test.reviewVocabulary ?? []) as any[])
-              : (selectedTestDetail.lesson.words as any[])
+              : ((Array.isArray(selectedTestDetail.lesson.words) ? selectedTestDetail.lesson.words : []) as any[])
             ).map((word, index) => (
               <GlassCard key={`study-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
