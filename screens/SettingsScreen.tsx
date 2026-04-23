@@ -53,6 +53,12 @@ const PLAN_COLORS: Record<string, { bg: string; text: string; border: string }> 
   school:   { bg: "#F5F0FF", text: "#7C3AED", border: "#C4B0F8" },
 };
 
+const PLAN_COLORS_DARK: Record<string, { bg: string; text: string; border: string }> = {
+  basic: { bg: "#1B2748", text: "#AFC5FF", border: "#4A63A8" },
+  standard: { bg: "#143227", text: "#86E0B5", border: "#2E7C5A" },
+  school: { bg: "#251A3D", text: "#C8B6FF", border: "#6F53B8" },
+};
+
 function FieldLabel({ label }: { label: string }) {
   const theme = useAppTheme();
   return (
@@ -348,6 +354,10 @@ export default function SettingsScreen() {
 
   const planKey = (planInfo?.plan ?? "basic").toLowerCase();
   const planColor = PLAN_COLORS[planKey] ?? PLAN_COLORS.basic;
+  const planColorDark = PLAN_COLORS_DARK[planKey] ?? PLAN_COLORS_DARK.basic;
+  const profilePlanPillBg = theme.isDark ? planColorDark.bg : planColor.bg;
+  const profilePlanPillBorder = theme.isDark ? planColorDark.border : planColor.border;
+  const profilePlanPillText = theme.isDark ? planColorDark.text : planColor.text;
   const effectiveStudentLimit =
     planKey === "basic" ? 1 : planKey === "standard" ? 30 : (planInfo?.student_limit ?? null);
   const planCtaLabel = planKey === "basic" ? "Upgrade Now!" : "View Plans";
@@ -366,6 +376,10 @@ export default function SettingsScreen() {
   const heroPlanButtonBg = theme.isDark ? "rgba(30,41,59,0.92)" : "#FFFFFFB8";
   const heroPlanButtonBorder = theme.isDark ? "rgba(255,255,255,0.10)" : planColor.text + "22";
   const heroPlanButtonText = theme.isDark ? theme.colors.text : planColor.text;
+  const deleteCardBorder = theme.isDark ? "rgba(220,38,38,0.45)" : "#FECACA";
+  const deleteButtonBorder = theme.isDark ? "#EF4444" : "#DC2626";
+  const deleteButtonBg = theme.isDark ? "rgba(220,38,38,0.16)" : (deletingAccount ? "#FEE2E2" : "#FEF2F2");
+  const deleteButtonText = theme.isDark ? "#FCA5A5" : "#DC2626";
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -435,8 +449,8 @@ export default function SettingsScreen() {
                   <Text style={[theme.typography.bodyStrong, { fontSize: 17 }]}>{profile.name || "—"}</Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>{profile.email}</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
-                    <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: planColor.bg, borderWidth: 1, borderColor: planColor.border }}>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: planColor.text }}>{planInfo?.plan ?? "Basic"}</Text>
+                    <View style={{ borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, backgroundColor: profilePlanPillBg, borderWidth: 1, borderColor: profilePlanPillBorder }}>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: profilePlanPillText }}>{planInfo?.plan ?? "Basic"}</Text>
                     </View>
                   </View>
                 </View>
@@ -687,7 +701,7 @@ export default function SettingsScreen() {
                   </View>
                 </GlassCard>
 
-                <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: "#FECACA", borderWidth: 1.5 }} padding={20} variant="strong">
+                <GlassCard style={{ borderRadius: 20, marginBottom: 12, borderColor: deleteCardBorder, borderWidth: 1.5 }} padding={20} variant="strong">
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 16 }]}>Delete account and content created. This permanently removes your lessons, tests, students, and account.</Text>
                   <TouchableOpacity
                     onPress={deleteAccountAndContent}
@@ -701,16 +715,16 @@ export default function SettingsScreen() {
                       paddingVertical: 13,
                       borderRadius: 14,
                       borderWidth: 1.5,
-                      borderColor: "#DC2626",
-                      backgroundColor: deletingAccount ? "#FEE2E2" : "#FEF2F2",
+                      borderColor: deleteButtonBorder,
+                      backgroundColor: deleteButtonBg,
                     }}
                   >
                     {deletingAccount ? (
-                      <ActivityIndicator size="small" color="#DC2626" />
+                      <ActivityIndicator size="small" color={deleteButtonText} />
                     ) : (
-                      <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                      <Ionicons name="trash-outline" size={16} color={deleteButtonText} />
                     )}
-                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#DC2626" }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: deleteButtonText }}>
                       {deletingAccount ? "Deleting account…" : "Delete account and content created"}
                     </Text>
                   </TouchableOpacity>

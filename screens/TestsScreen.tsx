@@ -70,6 +70,12 @@ const LINEN_CARD = "#FCFAF6";
 const AZULEJO_BLUE = "#9050E7";
 const AZULEJO_BLUE_SOFT = "#F3ECFF";
 const AZULEJO_BLUE_BORDER = "#D5B8FC";
+const DARK_ACTION_BG = "#1F3E5A";
+const DARK_ACTION_BORDER = "#2E5C82";
+const DARK_ACTION_TEXT = "#CFE6FF";
+const DARK_FILTER_BG = "#1A3147";
+const DARK_FILTER_BORDER = "#2E5C82";
+const DARK_FILTER_TEXT = "#CFE6FF";
 
 function GlowOrb({
   size,
@@ -485,9 +491,9 @@ export default function TestsScreen() {
                     <View style={{ flex: 1 }} />
                     {canManage ? (
                       <>
-                        <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
-                          <Ionicons name="pencil-outline" size={12} color={accentColor} />
-                          <Text style={{ fontSize: 11, fontWeight: "800", color: accentColor }}>Edit</Text>
+                        <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                          <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
                           {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
@@ -572,19 +578,21 @@ export default function TestsScreen() {
               paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 14,
-              backgroundColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+              backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE,
+              borderWidth: theme.isDark ? 1 : 0,
+              borderColor: theme.isDark ? DARK_ACTION_BORDER : "transparent",
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
-              shadowColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
-              shadowOpacity: 0.22,
-              shadowRadius: 12,
+              shadowColor: theme.isDark ? "#000" : AZULEJO_BLUE,
+              shadowOpacity: theme.isDark ? 0.08 : 0.22,
+              shadowRadius: theme.isDark ? 6 : 12,
               shadowOffset: { width: 0, height: 6 },
               elevation: 4,
             }}
           >
-            <Ionicons name="add" size={15} color="#FFFFFF" />
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
+            <Ionicons name="add" size={15} color={theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF"} />
+            <Text style={{ color: theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -670,16 +678,16 @@ export default function TestsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.surfaceGlass,
+                    borderColor: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_BORDER : AZULEJO_BLUE) : theme.colors.border,
+                    backgroundColor: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_BG : AZULEJO_BLUE) : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: teacherView === "mine" ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : "transparent",
-                    shadowOpacity: teacherView === "mine" ? 0.2 : 0,
-                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
+                    shadowColor: teacherView === "mine" ? (theme.isDark ? "#000" : AZULEJO_BLUE) : "transparent",
+                    shadowOpacity: teacherView === "mine" ? (theme.isDark ? 0.08 : 0.2) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
                   }}
                 >
-                  {teacherView === "mine" && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: teacherView === "mine" ? "#FFFFFF" : theme.colors.text }}>My tests</Text>
+                  {teacherView === "mine" && <Ionicons name="checkmark" size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>My tests</Text>
                 </AnimatedPressable>
                 <AnimatedPressable
                   onPress={() => setTeacherMenuOpen(true)}
@@ -688,16 +696,16 @@ export default function TestsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : theme.colors.surfaceGlass,
+                    borderColor: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_BORDER : AZULEJO_BLUE) : theme.colors.border,
+                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_BG : AZULEJO_BLUE) : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: viewingOtherTeacher ? (theme.isDark ? theme.colors.primary : AZULEJO_BLUE) : "transparent",
-                    shadowOpacity: viewingOtherTeacher ? 0.2 : 0,
-                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
+                    shadowColor: viewingOtherTeacher ? (theme.isDark ? "#000" : AZULEJO_BLUE) : "transparent",
+                    shadowOpacity: viewingOtherTeacher ? (theme.isDark ? 0.08 : 0.2) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
                   }}
                 >
-                  {viewingOtherTeacher && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? "#FFFFFF" : theme.colors.text }}>
+                  {viewingOtherTeacher && <Ionicons name="checkmark" size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>
                     {viewingOtherTeacher
                       ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
                       : "Other teacher…"}
@@ -730,7 +738,7 @@ export default function TestsScreen() {
               ] as const
             ).map(({ key, label }) => {
               const active = sortKey === key;
-              const activeColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
+              const activeColor = theme.isDark ? DARK_FILTER_TEXT : AZULEJO_BLUE;
               return (
                 <AnimatedPressable
                   key={key}
@@ -742,19 +750,19 @@ export default function TestsScreen() {
                     paddingVertical: 9,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: active ? activeColor : theme.colors.border,
-                    backgroundColor: active ? activeColor : theme.colors.surfaceGlass,
+                    borderColor: active ? (theme.isDark ? DARK_FILTER_BORDER : activeColor) : theme.colors.border,
+                    backgroundColor: active ? (theme.isDark ? DARK_FILTER_BG : activeColor) : theme.colors.surfaceGlass,
                     gap: 5,
-                    shadowColor: active ? activeColor : "transparent",
-                    shadowOpacity: active ? 0.2 : 0,
-                    shadowRadius: 8,
+                    shadowColor: active ? (theme.isDark ? "#000" : activeColor) : "transparent",
+                    shadowOpacity: active ? (theme.isDark ? 0.08 : 0.2) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8,
                     shadowOffset: { width: 0, height: 3 },
                     elevation: active ? 2 : 0,
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? "#FFFFFF" : theme.colors.text }}>{label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>{label}</Text>
                   {active ? (
-                    <Ionicons name={sortDir === "asc" ? "arrow-up" : "arrow-down"} size={13} color="#FFFFFF" />
+                    <Ionicons name={sortDir === "asc" ? "arrow-up" : "arrow-down"} size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />
                   ) : (
                     <Ionicons name="swap-vertical-outline" size={13} color={theme.colors.textMuted} />
                   )}
@@ -779,19 +787,21 @@ export default function TestsScreen() {
                       paddingHorizontal: 14,
                       paddingVertical: 11,
                       borderRadius: 14,
-                      backgroundColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
+                      backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE,
+                      borderWidth: theme.isDark ? 1 : 0,
+                      borderColor: theme.isDark ? DARK_ACTION_BORDER : "transparent",
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 6,
-                      shadowColor: theme.isDark ? theme.colors.primary : AZULEJO_BLUE,
-                      shadowOpacity: 0.18,
-                      shadowRadius: 10,
+                      shadowColor: theme.isDark ? "#000" : AZULEJO_BLUE,
+                      shadowOpacity: theme.isDark ? 0.08 : 0.18,
+                      shadowRadius: theme.isDark ? 6 : 10,
                       shadowOffset: { width: 0, height: 5 },
                       elevation: 3,
                     }}
                   >
-                    <Ionicons name="add-circle-outline" size={15} color="#FFFFFF" />
-                    <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13 }}>Create test</Text>
+                    <Ionicons name="add-circle-outline" size={15} color={theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF"} />
+                    <Text style={{ color: theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF", fontWeight: "800", fontSize: 13 }}>Create test</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setSearchTerm("")}
@@ -899,9 +909,9 @@ export default function TestsScreen() {
                               <View style={{ flex: 1 }} />
                               {canManage ? (
                                 <>
-                                  <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
-                                    <Ionicons name="pencil-outline" size={12} color={accentColor} />
-                                    <Text style={{ fontSize: 11, fontWeight: "800", color: accentColor }}>Edit</Text>
+                                  <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                                    <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
+                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
                                     {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}

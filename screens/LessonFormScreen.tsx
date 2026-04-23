@@ -521,66 +521,6 @@ function MiniDropdown({
   );
 }
 
-function InfoTooltip({
-  id,
-  visibleId,
-  setVisibleId,
-  text,
-}: {
-  id: string;
-  visibleId: string | null;
-  setVisibleId: React.Dispatch<React.SetStateAction<string | null>>;
-  text: string;
-}) {
-  const theme = useAppTheme();
-  const visible = visibleId === id;
-
-  return (
-    <View style={{ position: "relative" }}>
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => setVisibleId((prev) => (prev === id ? null : id))}
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: 9,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: theme.colors.surface,
-        }}
-      >
-        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>?</Text>
-      </TouchableOpacity>
-
-      {visible ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 24,
-            right: 0,
-            width: 220,
-            borderRadius: 12,
-            padding: 10,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surface,
-            shadowColor: "#000",
-            shadowOpacity: 0.12,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 6,
-            zIndex: 999,
-          }}
-        >
-          <Text style={{ fontSize: 12, lineHeight: 18, color: theme.colors.text }}>{text}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 function FloatingGlow({
   size,
   color,
@@ -700,6 +640,7 @@ export default function LessonFormScreen() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [aiSubject, setAiSubject] = useState("");
   const [category, setCategory] = useState<string>("Vocabulary");
   const [lessonCategory, setLessonCategory] = useState("");
   const [languageLevel, setLanguageLevel] = useState("");
@@ -714,7 +655,6 @@ export default function LessonFormScreen() {
   const [docName, setDocName] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [words, setWords] = useState<WordRow[]>([makeWord(LANGUAGE_PAIR_FALLBACK, "Portuguese (BR)", "vocab")]);
-  const [aiSubject, setAiSubject] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [extractLoading, setExtractLoading] = useState(false);
   const [uploadingWordIndex, setUploadingWordIndex] = useState<number | null>(null);
@@ -722,8 +662,6 @@ export default function LessonFormScreen() {
   const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
   const toggleAdvanced = (key: string) => { layoutSpring(); setAdvancedOpen((prev) => ({ ...prev, [key]: !prev[key] })); };
   const [openInlineDropdown, setOpenInlineDropdown] = useState<string | null>(null);
-  const [tooltipVisible, setTooltipVisible] = useState<string | null>(null);
-
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [levelOpen, setLevelOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -809,7 +747,6 @@ export default function LessonFormScreen() {
     setLanguageOpen(false);
     setLessonCategoryOpen(false);
     setOpenInlineDropdown(null);
-    setTooltipVisible(null);
   };
 
   const loadLesson = useCallback(async () => {
@@ -819,6 +756,7 @@ export default function LessonFormScreen() {
 
     setTitle(data.title ?? "");
     setDescription(data.description ?? "");
+    setAiSubject(data.title ?? "");
     const cfg = data.content_json && typeof data.content_json === "object" ? data.content_json : {};
     const inferredInstructionalCategory = String((cfg as any).instructional_category ?? data.grade_range ?? "Vocabulary");
     const storedLessonCategory = String((cfg as any).lesson_category ?? "");
@@ -1193,11 +1131,20 @@ export default function LessonFormScreen() {
   };
 
   const generateWithAI = async () => {
-    const subject = aiSubject.trim() || title.trim();
-    if (!subject) return Alert.alert("AI", "Enter a subject or title first.");
+    const titleText = title.trim();
+    const descriptionText = description.trim();
+    const subjectText = aiSubject.trim() || titleText;
+    if (!subjectText) return Alert.alert("AI", "Enter a subject first.");
+    const subject = descriptionText ? `${subjectText} - ${descriptionText}` : subjectText;
     setAiLoading(true);
     try {
-      const json = await authedJsonFetch("/api/ai/lessons/generate-vocabulary", { subject, language_pair: languagePair });
+      const json = await authedJsonFetch("/api/ai/lessons/generate-vocabulary", {
+        subject,
+        topic: subjectText,
+        description: descriptionText,
+        language_pair: languagePair,
+        lesson_language: languageForSave,
+      });
       const generated = Array.isArray(json.words) ? json.words : [];
       if (!generated.length) return Alert.alert("AI", "No words generated.");
       const rows = generated.map((w: any) => ({
@@ -1210,8 +1157,28 @@ export default function LessonFormScreen() {
         altB: Array.isArray(w.en_alt ?? w.alt_b) ? (w.en_alt ?? w.alt_b).join(", ") : "",
         image_url: String(w.image_url ?? ""),
       }));
-      setWords((prev) => [...prev, ...rows]);
-      if (!title.trim()) setTitle(subject);
+      setWords((prev) => {
+        const first = prev[0];
+        const firstIsBlankStarter =
+          prev.length === 1 &&
+          first?.rowType === "vocab" &&
+          !first.termA.trim() &&
+          !first.termB.trim() &&
+          !first.contextA.trim() &&
+          !first.contextB.trim() &&
+          !first.altA.trim() &&
+          !first.altB.trim() &&
+          !first.image_url.trim();
+
+        if (firstIsBlankStarter && rows.length > 0) {
+          const [firstGenerated, ...restGenerated] = rows;
+          return [{ ...firstGenerated, key: first.key }, ...restGenerated];
+        }
+
+        return [...prev, ...rows];
+      });
+      if (!titleText) setTitle(subjectText);
+      if (!aiSubject.trim()) setAiSubject(subjectText);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not generate";
       Alert.alert("AI Error", `${msg}\n\nIf this stays at 401 after re-login, the website AI route is rejecting mobile auth and needs a backend fix.`);
@@ -1562,7 +1529,7 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                     Create Lesson Title:
                   </Text>
-                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                  <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
                     <TextInput
                       value={title}
                       onChangeText={setTitle}
@@ -1570,7 +1537,7 @@ export default function LessonFormScreen() {
                       placeholderTextColor={placeholderColor}
                       returnKeyType="done"
                       onSubmitEditing={() => Keyboard.dismiss()}
-                      style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }}
+                      style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: theme.colors.text }}
                     />
                   </View>
                 </View>
@@ -1579,7 +1546,7 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                     Description:
                   </Text>
-                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
+                  <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
                     <TextInput
                       value={description}
                       onChangeText={setDescription}
@@ -1588,7 +1555,7 @@ export default function LessonFormScreen() {
                       onSubmitEditing={() => Keyboard.dismiss()}
                       placeholder=""
                       placeholderTextColor={placeholderColor}
-                      style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }}
+                      style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 58, textAlignVertical: "top" }}
                     />
                   </View>
                 </View>
@@ -1791,23 +1758,23 @@ export default function LessonFormScreen() {
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={() => { setBuildMethod("ai"); setWizardStep(4); }}
-                style={{ borderWidth: 1.5, borderColor: canUseAI ? "#EF4444" : theme.colors.border, borderRadius: 22, backgroundColor: canUseAI ? "#EF444411" : theme.colors.surfaceGlass, padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }}
+                style={{ borderWidth: 1.5, borderColor: canUseAI ? theme.colors.primary : theme.colors.border, borderRadius: 22, backgroundColor: canUseAI ? theme.colors.primarySoft : theme.colors.surfaceGlass, padding: 22, flexDirection: "row", alignItems: "center", gap: 16 }}
               >
-                <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: canUseAI ? "#EF4444" : theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
+                <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: canUseAI ? theme.colors.primary : theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center" }}>
                   <Ionicons name="sparkles-outline" size={24} color={canUseAI ? "#fff" : theme.colors.textMuted} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <Text style={{ fontSize: 16, fontWeight: "800", color: canUseAI ? "#EF4444" : theme.colors.text }}>Build with AI</Text>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: canUseAI ? theme.colors.primary : theme.colors.text }}>Build with AI</Text>
                     {canUseAI ? (
-                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: "#EF4444" }}>
+                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.primary }}>
                         <Text style={{ fontSize: 9, fontWeight: "800", color: "#fff" }}>AI enabled</Text>
                       </View>
                     ) : null}
                   </View>
                   <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Describe a topic or paste a word list — AI builds your vocab.</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={canUseAI ? "#EF4444" : theme.colors.textMuted} />
+                <Ionicons name="chevron-forward" size={18} color={canUseAI ? theme.colors.primary : theme.colors.textMuted} />
               </TouchableOpacity>
 
               {/* Create Manually — green */}
@@ -1833,32 +1800,44 @@ export default function LessonFormScreen() {
             <>
               {/* Build method pill */}
               {buildMethod === "ai" && (
-                <View style={{ borderWidth: 1.5, borderColor: "#EF4444", borderRadius: 20, backgroundColor: "#EF444411", overflow: "hidden" }}>
-                  <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#EF444433" }}>
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.primary, borderRadius: 20, backgroundColor: theme.colors.primarySoft, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.primary + "33" }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name="sparkles-outline" size={14} color="#EF4444" />
-                      <Text style={{ fontSize: 10, fontWeight: "800", color: "#EF4444", letterSpacing: 1.2, textTransform: "uppercase" }}>AI Lesson Generator</Text>
+                      <Ionicons name="sparkles-outline" size={14} color={theme.colors.primary} />
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.2, textTransform: "uppercase" }}>AI Lesson Generator</Text>
                     </View>
-                    <Text style={{ fontSize: 12, color: "#EF4444", opacity: 0.75, marginTop: 4, lineHeight: 16 }}>
-                      Describe the topic or paste a vocabulary list — AI will fill the builder below automatically.
+                    <Text style={{ fontSize: 12, color: theme.colors.primary, opacity: 0.75, marginTop: 4, lineHeight: 16 }}>
+                      AI uses your lesson title and description to fill the builder below automatically.
                     </Text>
                   </View>
                   <View style={{ padding: 14, gap: 10 }}>
-                    <TextInput
-                      value={aiSubject}
-                      onChangeText={setAiSubject}
-                      placeholder="e.g. Kitchen Vocab, B1 or paste a word here"
-                      placeholderTextColor={theme.colors.textMuted}
-                      multiline
-                      style={{ borderWidth: 1, borderColor: "#EF444444", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: theme.colors.text, backgroundColor: theme.colors.surface, fontSize: 14, minHeight: 72, textAlignVertical: "top" }}
-                    />
+                    <View>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
+                        Subject / AI Prompt
+                      </Text>
+                      <View style={{ marginTop: 8, borderWidth: 1, borderColor: theme.colors.primary + "66", borderRadius: 12, backgroundColor: theme.colors.surface, paddingHorizontal: 12, paddingVertical: 10 }}>
+                        <TextInput
+                          value={aiSubject}
+                          onChangeText={setAiSubject}
+                          placeholder="e.g. Travel essentials"
+                          placeholderTextColor={placeholderColor}
+                          style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 14, color: theme.colors.text }}
+                        />
+                      </View>
+                      <Text style={{ marginTop: 8, fontSize: 11, lineHeight: 16, color: theme.colors.textMuted }}>
+                        Describe the topic or paste a vocabulary list. E.g. "Kitchen vocabulary for B1 students", "Phrasal verbs with GET", or "Common verbs for a restaurant scenario". The more specific, the better the results.
+                      </Text>
+                    </View>
                     <TouchableOpacity
                       onPress={generateWithAI}
                       disabled={aiLoading || !canUseAI}
                       activeOpacity={0.85}
-                      style={{ paddingVertical: 12, borderRadius: 12, backgroundColor: "#EF4444", alignItems: "center", opacity: aiLoading || !canUseAI ? 0.6 : 1 }}
+                      style={{ paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.primary, alignItems: "center", opacity: aiLoading || !canUseAI ? 0.6 : 1 }}
                     >
-                      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
+                      <View style={{ alignItems: "center", gap: 2 }}>
+                        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
+                        <Text style={{ color: "#fff", fontSize: 11, opacity: 0.85 }}>Builds 10 words at a time.</Text>
+                      </View>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1895,6 +1874,16 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 16 }}>
                     Add vocabulary pairs, verb conjugations, and preposition drills — same structure as the web dashboard.
                   </Text>
+                  <TouchableOpacity
+                    onPress={generateAllImages}
+                    disabled={generatingAllImages || !canUseAI}
+                    activeOpacity={0.85}
+                    style={{ marginTop: 10, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: generatingAllImages || !canUseAI ? 0.6 : 1 }}
+                  >
+                    <View style={{ alignItems: "center" }}>
+                      <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 13 }}>{generatingAllImages ? "Generating images…" : "✦  AI Generate All Images"}</Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
@@ -1978,23 +1967,46 @@ export default function LessonFormScreen() {
                                     </View>
                                   </View>
                                   {w.image_url.trim() ? (
-                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface }} resizeMode="contain" />
                                   ) : null}
-                                  <View style={{ flexDirection: "row", gap: 8 }}>
-                                    <TouchableOpacity onPress={() => pickWordImage(i)} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }}>
-                                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>{uploadingWordIndex === i ? "Uploading…" : "Upload image"}</Text>
+                                  <View style={{ alignItems: "center" }}>
+                                    <TouchableOpacity
+                                      onPress={() => pickWordImage(i)}
+                                      style={{
+                                        width: "68%",
+                                        minWidth: 170,
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 10,
+                                        borderRadius: 10,
+                                        borderWidth: 1,
+                                        borderColor: theme.colors.border,
+                                        backgroundColor: theme.colors.surface,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
+                                        {uploadingWordIndex === i ? "Uploading…" : w.image_url.trim() ? "Change image" : "Upload image"}
+                                      </Text>
                                     </TouchableOpacity>
-                                    {canUseAI ? (
-                                      <>
-                                        <TouchableOpacity onPress={() => generateWordImageWithAI(i)} disabled={generatingImageIndex === i} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, opacity: generatingImageIndex === i ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
-                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>{generatingImageIndex === i ? "AI…" : "AI image"}</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity onPress={() => fillBlanksWithAI(i)} style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
-                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Fill AI</Text>
-                                        </TouchableOpacity>
-                                      </>
-                                    ) : null}
                                   </View>
+                                  {canUseAI ? (
+                                    <View style={{ flexDirection: "row", gap: 8 }}>
+                                      <TouchableOpacity
+                                        onPress={() => generateWordImageWithAI(i)}
+                                        disabled={generatingImageIndex === i}
+                                        style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, opacity: generatingImageIndex === i ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}
+                                      >
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>{generatingImageIndex === i ? "AI…" : "AI image"}</Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={() => fillBlanksWithAI(i)}
+                                        style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}
+                                      >
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.danger }}>Fill AI</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  ) : null}
                                 </View>
                               ) : null}
                             </>
@@ -2183,8 +2195,8 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                     Create Lesson Title:
                   </Text>
-                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                    <TextInput value={title} onChangeText={setTitle} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+                  <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput value={title} onChangeText={setTitle} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: theme.colors.text }} />
                   </View>
                 </View>
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} />
@@ -2192,8 +2204,8 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                     Description:
                   </Text>
-                  <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                    <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+                  <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                    <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 58, textAlignVertical: "top" }} />
                   </View>
                 </View>
               </View>
@@ -2259,19 +2271,19 @@ export default function LessonFormScreen() {
               </View>
 
               {/* AI Lesson Generator card (edit mode) */}
-              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
-                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.primary, borderRadius: 24, backgroundColor: theme.colors.primarySoft, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.primary + "33", backgroundColor: theme.colors.primarySoft }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <Ionicons name="sparkles-outline" size={16} color={theme.colors.primary} />
                     <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, textTransform: "uppercase" }}>AI Lesson Generator</Text>
                     {canUseAI ? (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: theme.colors.primarySoft }}>
-                        <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary }}>AI enabled</Text>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: theme.colors.primary }}>
+                        <Text style={{ fontSize: 10, fontWeight: "800", color: "#fff" }}>AI enabled</Text>
                       </View>
                     ) : null}
                   </View>
-                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>
-                    Upload a file or enter a subject/prompt below — AI will extract vocabulary pairs and fill the Vocabulary Builder in your selected language pair automatically.
+                  <Text style={{ fontSize: 12, color: theme.colors.primary, lineHeight: 17 }}>
+                    Upload a file or use your lesson title and description — AI will extract vocabulary pairs and fill the Vocabulary Builder in your selected language pair automatically.
                   </Text>
                 </View>
 
@@ -2283,27 +2295,29 @@ export default function LessonFormScreen() {
                       onPress={extractVocabularyFile}
                       disabled={extractLoading}
                       activeOpacity={0.85}
-                      style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.border, alignItems: "center", justifyContent: "center", gap: 6, opacity: extractLoading ? 0.7 : 1, backgroundColor: theme.colors.surfaceAlt }}
+                      style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderStyle: "dashed", borderColor: theme.colors.primary + "66", alignItems: "center", justifyContent: "center", gap: 6, opacity: extractLoading ? 0.7 : 1, backgroundColor: theme.colors.surface }}
                     >
                       <Ionicons name="cloud-upload-outline" size={22} color={theme.colors.primary} />
                       <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: "700" }}>{extractLoading ? "Extracting…" : "Choose PDF, Excel or CSV"}</Text>
                     </TouchableOpacity>
                   </View>
 
-                  {/* AI Prompt */}
                   <View>
-                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 }}>Subject / AI Prompt</Text>
-                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
+                      Subject / AI Prompt
+                    </Text>
+                    <View style={{ marginTop: 8, borderWidth: 1, borderColor: theme.colors.primary + "66", borderRadius: 12, backgroundColor: theme.colors.surface, paddingHorizontal: 12, paddingVertical: 10 }}>
+                      <TextInput
+                        value={aiSubject}
+                        onChangeText={setAiSubject}
+                        placeholder="e.g. Travel essentials"
+                        placeholderTextColor={placeholderColor}
+                        style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 14, color: theme.colors.text }}
+                      />
+                    </View>
+                    <Text style={{ marginTop: 8, fontSize: 11, lineHeight: 16, color: theme.colors.textMuted }}>
                       Describe the topic or paste a vocabulary list. E.g. "Kitchen vocabulary for B1 students", "Phrasal verbs with GET", or "Common verbs for a restaurant scenario". The more specific, the better the results.
                     </Text>
-                    <TextInput
-                      value={aiSubject}
-                      onChangeText={setAiSubject}
-                      placeholder="e.g. Kitchen vocabulary, B1 — or paste a word list here"
-                      placeholderTextColor={placeholderColor}
-                      multiline
-                      style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.text, backgroundColor: theme.colors.surfaceAlt, fontSize: 14, minHeight: 88, textAlignVertical: "top" }}
-                    />
                   </View>
 
                   <TouchableOpacity
@@ -2312,18 +2326,9 @@ export default function LessonFormScreen() {
                     activeOpacity={0.85}
                     style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: aiLoading || !canUseAI ? 0.6 : 1 }}
                   >
-                    <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={generateAllImages}
-                    disabled={generatingAllImages || !canUseAI}
-                    activeOpacity={0.85}
-                    style={{ paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: generatingAllImages || !canUseAI ? 0.6 : 1 }}
-                  >
-                    <View style={{ alignItems: "center", gap: 4 }}>
-                      <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 14 }}>{generatingAllImages ? "Generating images…" : "✦  AI Generate All Images"}</Text>
-                      <Text style={{ color: theme.colors.primary, fontSize: 11, opacity: 0.7 }}>Builds 10 words at a time.</Text>
+                    <View style={{ alignItems: "center", gap: 2 }}>
+                      <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 14 }}>{aiLoading ? "Building…" : "✦  Build Vocab with AI"}</Text>
+                      <Text style={{ color: theme.colors.primary, fontSize: 11, opacity: 0.75 }}>Builds 10 words at a time.</Text>
                     </View>
                   </TouchableOpacity>
                 </View>
@@ -2335,49 +2340,17 @@ export default function LessonFormScreen() {
                   <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginTop: 4, lineHeight: 16 }}>
                     Vocabulary rows, verb conjugations, and preposition drills — same structure as the web dashboard.
                   </Text>
+                  <TouchableOpacity
+                    onPress={generateAllImages}
+                    disabled={generatingAllImages || !canUseAI}
+                    activeOpacity={0.85}
+                    style={{ marginTop: 10, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, alignItems: "center", opacity: generatingAllImages || !canUseAI ? 0.6 : 1 }}
+                  >
+                    <View style={{ alignItems: "center" }}>
+                      <Text style={{ color: theme.colors.primary, fontWeight: "800", fontSize: 13 }}>{generatingAllImages ? "Generating images…" : "✦  AI Generate All Images"}</Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
-
-                {canUseAI ? (
-                  <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: 12, backgroundColor: theme.colors.surfaceAlt }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase" }}>AI Subject</Text>
-                      <InfoTooltip
-                        id="ai-subject-help"
-                        visibleId={tooltipVisible}
-                        setVisibleId={setTooltipVisible}
-                        text='When adding a subject and hitting this button, it will generate 5 words for the lesson at a time'
-                      />
-                    </View>
-
-                    <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-                      <TextInput
-                        value={aiSubject}
-                        onChangeText={setAiSubject}
-                        placeholder="AI subject (optional)"
-                        placeholderTextColor={placeholderColor}
-                        style={[inputStyle, { marginBottom: 0, flex: 1 }]}
-                      />
-                      <TouchableOpacity
-                        onPress={generateWithAI}
-                        disabled={aiLoading}
-                        style={{
-                          minWidth: 86,
-                          paddingHorizontal: 12,
-                          paddingVertical: 12,
-                          borderRadius: 12,
-                          borderWidth: 1,
-                          borderColor: theme.colors.primary,
-                          backgroundColor: theme.colors.primarySoft,
-                          opacity: aiLoading ? 0.6 : 1,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.primary }}>{aiLoading ? "AI..." : "✦ AI"}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : null}
 
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
                   {words.map((w, i) => {
@@ -2499,14 +2472,15 @@ export default function LessonFormScreen() {
                                   </View>
 
                                   {w.image_url.trim() ? (
-                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }} resizeMode="cover" />
+                                    <Image source={{ uri: w.image_url.trim() }} style={{ width: "100%", height: 150, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface }} resizeMode="contain" />
                                   ) : null}
 
-                                  <View style={{ flexDirection: "row", gap: 8 }}>
+                                  <View style={{ alignItems: "center" }}>
                                     <TouchableOpacity
                                       onPress={() => pickWordImage(i)}
                                       style={{
-                                        flex: 1,
+                                        width: "68%",
+                                        minWidth: 170,
                                         paddingHorizontal: 10,
                                         paddingVertical: 10,
                                         borderRadius: 10,
@@ -2518,51 +2492,51 @@ export default function LessonFormScreen() {
                                       }}
                                     >
                                       <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.text }}>
-                                        {uploadingWordIndex === i ? "Uploading..." : "Upload image"}
+                                        {uploadingWordIndex === i ? "Uploading..." : w.image_url.trim() ? "Change image" : "Upload image"}
                                       </Text>
                                     </TouchableOpacity>
-
-                                    {canUseAI ? (
-                                      <>
-                                        <TouchableOpacity
-                                          onPress={() => generateWordImageWithAI(i)}
-                                          disabled={generatingImageIndex === i}
-                                          style={{
-                                            flex: 1,
-                                            paddingHorizontal: 10,
-                                            paddingVertical: 10,
-                                            borderRadius: 10,
-                                            borderWidth: 1,
-                                            borderColor: theme.colors.primary,
-                                            backgroundColor: theme.colors.primarySoft,
-                                            opacity: generatingImageIndex === i ? 0.6 : 1,
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                          }}
-                                        >
-                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>
-                                            {generatingImageIndex === i ? "AI..." : "AI image"}
-                                          </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                          onPress={() => fillBlanksWithAI(i)}
-                                          style={{
-                                            flex: 1,
-                                            paddingHorizontal: 10,
-                                            paddingVertical: 10,
-                                            borderRadius: 10,
-                                            borderWidth: 1,
-                                            borderColor: theme.colors.primary,
-                                            backgroundColor: theme.colors.primarySoft,
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                          }}
-                                        >
-                                          <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>Fill AI</Text>
-                                        </TouchableOpacity>
-                                      </>
-                                    ) : null}
                                   </View>
+
+                                  {canUseAI ? (
+                                    <View style={{ flexDirection: "row", gap: 8 }}>
+                                      <TouchableOpacity
+                                        onPress={() => generateWordImageWithAI(i)}
+                                        disabled={generatingImageIndex === i}
+                                        style={{
+                                          flex: 1,
+                                          paddingHorizontal: 10,
+                                          paddingVertical: 10,
+                                          borderRadius: 10,
+                                          borderWidth: 1,
+                                          borderColor: theme.colors.primary,
+                                          backgroundColor: theme.colors.primarySoft,
+                                          opacity: generatingImageIndex === i ? 0.6 : 1,
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>
+                                          {generatingImageIndex === i ? "AI..." : "AI image"}
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={() => fillBlanksWithAI(i)}
+                                        style={{
+                                          flex: 1,
+                                          paddingHorizontal: 10,
+                                          paddingVertical: 10,
+                                          borderRadius: 10,
+                                          borderWidth: 1,
+                                          borderColor: theme.colors.danger,
+                                          backgroundColor: theme.colors.dangerSoft,
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.danger }}>Fill AI</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  ) : null}
                                 </View>
                               ) : null}
                             </>

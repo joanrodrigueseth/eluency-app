@@ -53,10 +53,20 @@ function formatTimeAgo(iso: string) {
   return date.toLocaleDateString();
 }
 
-function pickNotificationIcon(type: NotificationType) {
-  if (type === "lesson_completed") return { name: "book-outline", color: "#2D74BF", bg: "#EAF3FB", label: "Lesson" };
-  if (type === "test_completed") return { name: "clipboard-outline", color: "#8B4EE2", bg: "#F2EAFF", label: "Test" };
-  return { name: "megaphone-outline", color: "#E85D4A", bg: "#FFF0EE", label: "Announcement" };
+function pickNotificationIcon(type: NotificationType, isDark: boolean) {
+  if (type === "lesson_completed") {
+    return isDark
+      ? { name: "book-outline", color: "#7DD3FC", bg: "#112A37", label: "Lesson" }
+      : { name: "book-outline", color: "#2D74BF", bg: "#EAF3FB", label: "Lesson" };
+  }
+  if (type === "test_completed") {
+    return isDark
+      ? { name: "clipboard-outline", color: "#C4B5FD", bg: "#251A3D", label: "Test" }
+      : { name: "clipboard-outline", color: "#8B4EE2", bg: "#F2EAFF", label: "Test" };
+  }
+  return isDark
+    ? { name: "megaphone-outline", color: "#FCA5A5", bg: "#3B1A1A", label: "Announcement" }
+    : { name: "megaphone-outline", color: "#E85D4A", bg: "#FFF0EE", label: "Announcement" };
 }
 
 export default function NotificationsScreen() {
@@ -490,7 +500,7 @@ export default function NotificationsScreen() {
             </GlassCard>
           ) : (
             tabNotifications.map((notification) => {
-              const meta = pickNotificationIcon(notification.type);
+              const meta = pickNotificationIcon(notification.type, theme.isDark);
               const isSelected = selectedIds.has(notification.id);
               const hasReviewTarget =
                 typeof notification.metadata?.lesson_id === "string" ||

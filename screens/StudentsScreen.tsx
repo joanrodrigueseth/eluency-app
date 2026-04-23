@@ -70,6 +70,13 @@ type StudentRow = {
 type SortKey = "name" | "last_active" | "created_at";
 type SortDir = "asc" | "desc";
 
+const DARK_SUCCESS_ACTION_BG = "#1F4D39";
+const DARK_SUCCESS_ACTION_BORDER = "#2F7A5A";
+const DARK_SUCCESS_ACTION_TEXT = "#C6F6DF";
+const DARK_FILTER_BG = "#1A3147";
+const DARK_FILTER_BORDER = "#2E5C82";
+const DARK_FILTER_TEXT = "#CFE6FF";
+
 /**
  * Normalise per-question data into a single ActivityIssue shape.
  * Handles two formats:
@@ -1138,19 +1145,21 @@ export default function StudentsScreen() {
               paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 14,
-              backgroundColor: theme.colors.success,
+              backgroundColor: theme.isDark ? DARK_SUCCESS_ACTION_BG : theme.colors.success,
+              borderWidth: theme.isDark ? 1 : 0,
+              borderColor: theme.isDark ? DARK_SUCCESS_ACTION_BORDER : "transparent",
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
-              shadowColor: theme.colors.success,
-              shadowOpacity: 0.22,
-              shadowRadius: 12,
+              shadowColor: theme.isDark ? "#000" : theme.colors.success,
+              shadowOpacity: theme.isDark ? 0.08 : 0.22,
+              shadowRadius: theme.isDark ? 6 : 12,
               shadowOffset: { width: 0, height: 6 },
               elevation: 4,
             }}
           >
-            <Ionicons name="add" size={15} color={"#FFFFFF"} />
-            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
+            <Ionicons name="add" size={15} color={theme.isDark ? DARK_SUCCESS_ACTION_TEXT : "#FFFFFF"} />
+            <Text style={{ color: theme.isDark ? DARK_SUCCESS_ACTION_TEXT : "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -1242,16 +1251,16 @@ export default function StudentsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: teacherView === "mine" ? theme.colors.success : theme.colors.border,
-                    backgroundColor: teacherView === "mine" ? theme.colors.success : theme.colors.surfaceGlass,
+                    borderColor: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_BORDER : theme.colors.success) : theme.colors.border,
+                    backgroundColor: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_BG : theme.colors.success) : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: teacherView === "mine" ? theme.colors.success : "transparent",
-                    shadowOpacity: teacherView === "mine" ? 0.2 : 0,
-                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
+                    shadowColor: teacherView === "mine" ? (theme.isDark ? "#000" : theme.colors.success) : "transparent",
+                    shadowOpacity: teacherView === "mine" ? (theme.isDark ? 0.08 : 0.2) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8, shadowOffset: { width: 0, height: 3 }, elevation: teacherView === "mine" ? 2 : 0,
                   }}
                 >
-                  {teacherView === "mine" && <Ionicons name="checkmark" size={13} color={"#FFFFFF"} />}
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: teacherView === "mine" ? "#FFFFFF" : theme.colors.text }}>My students</Text>
+                  {teacherView === "mine" && <Ionicons name="checkmark" size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: teacherView === "mine" ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>My students</Text>
                 </AnimatedPressable>
                 <AnimatedPressable
                   onPress={() => setTeacherMenuOpen(true)}
@@ -1260,16 +1269,16 @@ export default function StudentsScreen() {
                     paddingVertical: 10,
                     borderRadius: 999,
                     borderWidth: 1,
-                    borderColor: viewingOtherTeacher ? theme.colors.success : theme.colors.border,
-                    backgroundColor: viewingOtherTeacher ? theme.colors.success : theme.colors.surfaceGlass,
+                    borderColor: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_BORDER : theme.colors.success) : theme.colors.border,
+                    backgroundColor: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_BG : theme.colors.success) : theme.colors.surfaceGlass,
                     flexDirection: "row", alignItems: "center", gap: 5,
-                    shadowColor: viewingOtherTeacher ? theme.colors.success : "transparent",
-                    shadowOpacity: viewingOtherTeacher ? 0.2 : 0,
-                    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
+                    shadowColor: viewingOtherTeacher ? (theme.isDark ? "#000" : theme.colors.success) : "transparent",
+                    shadowOpacity: viewingOtherTeacher ? (theme.isDark ? 0.08 : 0.2) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8, shadowOffset: { width: 0, height: 3 }, elevation: viewingOtherTeacher ? 2 : 0,
                   }}
                 >
-                  {viewingOtherTeacher && <Ionicons name="checkmark" size={13} color={"#FFFFFF"} />}
-                  <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? "#FFFFFF" : theme.colors.text }}>
+                  {viewingOtherTeacher && <Ionicons name="checkmark" size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />}
+                  <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>
                     {viewingOtherTeacher
                       ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
                       : "Other teacher…"}
@@ -1312,22 +1321,22 @@ export default function StudentsScreen() {
                     paddingVertical: 9,
                     borderRadius: 12,
                     borderWidth: 1,
-                    borderColor: active ? theme.colors.success : theme.colors.border,
-                    backgroundColor: active ? theme.colors.success : theme.colors.surfaceGlass,
+                    borderColor: active ? (theme.isDark ? DARK_FILTER_BORDER : theme.colors.success) : theme.colors.border,
+                    backgroundColor: active ? (theme.isDark ? DARK_FILTER_BG : theme.colors.success) : theme.colors.surfaceGlass,
                     gap: 5,
-                    shadowColor: active ? theme.colors.success : "transparent",
-                    shadowOpacity: active ? 0.18 : 0,
-                    shadowRadius: 8,
+                    shadowColor: active ? (theme.isDark ? "#000" : theme.colors.success) : "transparent",
+                    shadowOpacity: active ? (theme.isDark ? 0.08 : 0.18) : 0,
+                    shadowRadius: theme.isDark ? 5 : 8,
                     shadowOffset: { width: 0, height: 3 },
                     elevation: active ? 2 : 0,
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? "#FFFFFF" : theme.colors.text }}>{label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>{label}</Text>
                   {active ? (
                     <Ionicons
                       name={sortDir === "asc" ? "arrow-up" : "arrow-down"}
                       size={13}
-                      color={"#FFFFFF"}
+                      color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"}
                     />
                   ) : (
                     <Ionicons name="swap-vertical-outline" size={13} color={theme.colors.textMuted} />
@@ -1351,19 +1360,21 @@ export default function StudentsScreen() {
                       paddingHorizontal: 14,
                       paddingVertical: 11,
                       borderRadius: 14,
-                      backgroundColor: theme.colors.success,
+                      backgroundColor: theme.isDark ? DARK_SUCCESS_ACTION_BG : theme.colors.success,
+                      borderWidth: theme.isDark ? 1 : 0,
+                      borderColor: theme.isDark ? DARK_SUCCESS_ACTION_BORDER : "transparent",
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 6,
-                      shadowColor: theme.colors.success,
-                      shadowOpacity: 0.18,
-                      shadowRadius: 10,
+                      shadowColor: theme.isDark ? "#000" : theme.colors.success,
+                      shadowOpacity: theme.isDark ? 0.08 : 0.18,
+                      shadowRadius: theme.isDark ? 6 : 10,
                       shadowOffset: { width: 0, height: 5 },
                       elevation: 3,
                     }}
                   >
-                    <Ionicons name="person-add-outline" size={15} color={"#FFFFFF"} />
-                    <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13 }}>Add student</Text>
+                    <Ionicons name="person-add-outline" size={15} color={theme.isDark ? DARK_SUCCESS_ACTION_TEXT : "#FFFFFF"} />
+                    <Text style={{ color: theme.isDark ? DARK_SUCCESS_ACTION_TEXT : "#FFFFFF", fontWeight: "800", fontSize: 13 }}>Add student</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => {
@@ -1480,26 +1491,26 @@ export default function StudentsScreen() {
 
                           <View style={{
                             borderRadius: 999, borderWidth: 1,
-                            borderColor: "rgba(14,165,233,0.35)",
-                            backgroundColor: "#FFFFFF",
+                            borderColor: theme.isDark ? "#0EA5E9" : "rgba(14,165,233,0.35)",
+                            backgroundColor: theme.isDark ? "#112A37" : "#FFFFFF",
                             paddingHorizontal: 8, paddingVertical: 4,
                             flexDirection: "row", alignItems: "center", gap: 4,
                           }}>
-                            <Ionicons name="book-outline" size={10} color="#0284C7" />
-                            <Text style={{ fontSize: 10, fontWeight: "800", color: "#0284C7" }}>
+                            <Ionicons name="book-outline" size={10} color={theme.isDark ? "#7DD3FC" : "#0284C7"} />
+                            <Text style={{ fontSize: 10, fontWeight: "800", color: theme.isDark ? "#7DD3FC" : "#0284C7" }}>
                               {(student.assigned_lessons ?? []).length} lessons
                             </Text>
                           </View>
 
                           <View style={{
                             borderRadius: 999, borderWidth: 1,
-                            borderColor: "rgba(139,92,246,0.35)",
-                            backgroundColor: "#FFFFFF",
+                            borderColor: theme.isDark ? "#8B5CF6" : "rgba(139,92,246,0.35)",
+                            backgroundColor: theme.isDark ? "#251A3D" : "#FFFFFF",
                             paddingHorizontal: 8, paddingVertical: 4,
                             flexDirection: "row", alignItems: "center", gap: 4,
                           }}>
-                            <Ionicons name="clipboard-outline" size={10} color="#7C3AED" />
-                            <Text style={{ fontSize: 10, fontWeight: "800", color: "#7C3AED" }}>
+                            <Ionicons name="clipboard-outline" size={10} color={theme.isDark ? "#C4B5FD" : "#7C3AED"} />
+                            <Text style={{ fontSize: 10, fontWeight: "800", color: theme.isDark ? "#C4B5FD" : "#7C3AED" }}>
                               {(student.assigned_tests ?? []).length} tests
                             </Text>
                           </View>
@@ -1510,14 +1521,14 @@ export default function StudentsScreen() {
                             onPress={() => navigation.navigate("StudentForm", { studentId: student.id })}
                             style={{
                               borderRadius: 11,
-                              backgroundColor: theme.colors.successSoft,
-                              borderWidth: 1, borderColor: theme.colors.success,
+                              backgroundColor: theme.isDark ? DARK_SUCCESS_ACTION_BG : theme.colors.successSoft,
+                              borderWidth: 1, borderColor: theme.isDark ? DARK_SUCCESS_ACTION_BORDER : theme.colors.success,
                               paddingHorizontal: 14, paddingVertical: 8,
                               flexDirection: "row", alignItems: "center", gap: 5,
                             }}
                           >
-                            <Ionicons name="pencil-outline" size={13} color={theme.colors.success} />
-                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.success }}>Edit</Text>
+                            <Ionicons name="pencil-outline" size={13} color={theme.isDark ? DARK_SUCCESS_ACTION_TEXT : theme.colors.success} />
+                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_SUCCESS_ACTION_TEXT : theme.colors.success }}>Edit</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleDelete(student)}
@@ -1776,7 +1787,17 @@ export default function StudentsScreen() {
                         <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.success }}>RIGHT</Text>
                         <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.success, marginTop: 2 }}>{outcomeCounts.correct}</Text>
                       </View>
-                      <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: "#F3C679", backgroundColor: "#FFF5DA", paddingVertical: 10, alignItems: "center" }}>
+                      <View
+                        style={{
+                          flex: 1,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: theme.isDark ? "#D4943C" : "#F3C679",
+                          backgroundColor: theme.isDark ? "rgba(212,148,60,0.16)" : "#FFF5DA",
+                          paddingVertical: 10,
+                          alignItems: "center",
+                        }}
+                      >
                         <Text style={{ fontSize: 10, fontWeight: "800", color: "#D97706" }}>CLOSE</Text>
                         <Text style={{ fontSize: 18, fontWeight: "900", color: "#D97706", marginTop: 2 }}>{outcomeCounts.close}</Text>
                       </View>
