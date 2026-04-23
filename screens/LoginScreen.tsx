@@ -190,6 +190,7 @@ export default function LoginScreen() {
   const [teacherError, setTeacherError] = useState("");
   const [teacherLoading, setTeacherLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
+  const showAppleSignIn = Platform.OS === "ios";
 
   const isCodeComplete = useMemo(() => gameCode.trim().length === 6, [gameCode]);
 
@@ -472,31 +473,33 @@ export default function LoginScreen() {
                   <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Gmail</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => handleOAuthLogin("apple")}
-                  activeOpacity={0.85}
-                  disabled={!!oauthLoading}
-                  style={{
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surfaceAlt,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                    opacity: oauthLoading ? 0.7 : 1,
-                  }}
-                >
-                  {oauthLoading === "apple" ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  ) : (
-                    <Ionicons name="logo-apple" size={18} color={theme.colors.text} />
-                  )}
-                  <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Apple</Text>
-                </TouchableOpacity>
+                {showAppleSignIn ? (
+                  <TouchableOpacity
+                    onPress={() => handleOAuthLogin("apple")}
+                    activeOpacity={0.85}
+                    disabled={!!oauthLoading}
+                    style={{
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surfaceAlt,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 10,
+                      opacity: oauthLoading ? 0.7 : 1,
+                    }}
+                  >
+                    {oauthLoading === "apple" ? (
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    ) : (
+                      <Ionicons name="logo-apple" size={18} color={theme.colors.text} />
+                    )}
+                    <Text style={[theme.typography.body, { fontWeight: "700" }]}>Sign in by Apple</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               <View

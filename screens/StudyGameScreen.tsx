@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -21,7 +22,6 @@ import {
 } from "react-native";
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Asset } from "expo-asset";
 import Constants from "expo-constants";
 import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,7 +29,7 @@ import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Speech from "expo-speech";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
-import Svg, { Circle, SvgUri } from "react-native-svg";
+import Svg, { Circle } from "react-native-svg";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
@@ -391,8 +391,6 @@ export default function StudyGameScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, "StudyGame">>();
   const sessionId = route.params?.sessionId;
-  const tinyLogoUri = useMemo(() => Asset.fromModule(require("../assets/tiny.png")).uri, []);
-
   /** Login persists the canonical session id; route params can lag behind (e.g. Stack initialParams). */
   useEffect(() => {
     let cancelled = false;
@@ -1865,7 +1863,7 @@ export default function StudyGameScreen() {
             }}
           >
             <View style={{ width: 44, height: 44, marginRight: 12, alignItems: "center", justifyContent: "center" }}>
-              <SvgUri width="88%" height="88%" uri={tinyLogoUri} />
+              <Image source={require("../assets/tiny.png")} style={{ width: "88%", height: "88%" }} resizeMode="contain" />
             </View>
             <View style={{ flex: 1 }}>
               <Text
