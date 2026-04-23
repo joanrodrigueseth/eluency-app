@@ -1385,6 +1385,15 @@ export default function DashboardScreen() {
  
   const CountPill = ({ label, value }: { label: string; value: number }) => {
     const isQuestion = label.toUpperCase() === "Q";
+    const pillBorder = isQuestion
+      ? (theme.isDark ? "rgba(250,204,21,0.40)" : "#E6D39A")
+      : (theme.isDark ? "rgba(125,211,252,0.45)" : "#B7D0E8");
+    const pillBg = isQuestion
+      ? (theme.isDark ? "rgba(161,98,7,0.24)" : "#FFF5DA")
+      : (theme.isDark ? "rgba(14,116,144,0.26)" : "#EAF3FB");
+    const pillText = isQuestion
+      ? (theme.isDark ? "#FDE68A" : "#B88400")
+      : (theme.isDark ? "#BAE6FD" : "#2E7ABF");
     return (
       <View
         style={{
@@ -1393,11 +1402,11 @@ export default function DashboardScreen() {
           paddingVertical: 4,
           borderRadius: 999,
           borderWidth: 1,
-          borderColor: isQuestion ? "#E6D39A" : "#B7D0E8",
-          backgroundColor: isQuestion ? "#FFF5DA" : "#EAF3FB",
+          borderColor: pillBorder,
+          backgroundColor: pillBg,
         }}
       >
-        <Text style={{ color: isQuestion ? "#B88400" : "#2E7ABF", fontSize: 10, lineHeight: 12, fontWeight: "900" }}>
+        <Text style={{ color: pillText, fontSize: 10, lineHeight: 12, fontWeight: "900" }}>
           {value}
           {label}
         </Text>
@@ -1422,9 +1431,15 @@ export default function DashboardScreen() {
         const active = activityTab === tab;
         const colors =
           tab === "lessons"
-            ? { bg: "#EAF6FF", border: "#A9D8F7", text: "#0284C7" }
+            ? theme.isDark
+              ? { bg: "#112A37", border: "#0EA5E9", text: "#7DD3FC" }
+              : { bg: "#EAF6FF", border: "#A9D8F7", text: "#0284C7" }
             : tab === "tests"
-            ? { bg: "#F5F0FF", border: "#C4B0F8", text: "#7C3AED" }
+            ? theme.isDark
+              ? { bg: "#251A3D", border: "#8B5CF6", text: "#C4B5FD" }
+              : { bg: "#F5F0FF", border: "#C4B0F8", text: "#7C3AED" }
+            : theme.isDark
+            ? { bg: "rgba(62,163,112,0.20)", border: "rgba(86,214,150,0.55)", text: "#9EE6C1" }
             : { bg: "#EBF8F0", border: "#A8DFC0", text: "#2F855A" };
         return (
           <TouchableOpacity
@@ -1773,11 +1788,11 @@ export default function DashboardScreen() {
                             paddingVertical: 4,
                             borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
-                            backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                            borderColor: item.isTest ? (theme.isDark ? "#8B5CF6" : "#C4B0F8") : (theme.isDark ? "#0EA5E9" : "#A9D8F7"),
+                            backgroundColor: item.isTest ? (theme.isDark ? "#251A3D" : "#F5F0FF") : (theme.isDark ? "#112A37" : "#EAF6FF"),
                           }}
                         >
-                          <Text style={{ fontSize: 10, fontWeight: "800", color: item.isTest ? "#7C3AED" : "#0284C7" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: item.isTest ? (theme.isDark ? "#C4B5FD" : "#7C3AED") : (theme.isDark ? "#7DD3FC" : "#0284C7") }}>
                             {item.isTest ? "T" : "L"}
                           </Text>
                         </View>
@@ -1866,12 +1881,12 @@ export default function DashboardScreen() {
                             paddingVertical: 4,
                             borderRadius: 999,
                             borderWidth: 1,
-                            borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
-                            backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                            borderColor: item.isTest ? (theme.isDark ? "#8B5CF6" : "#C4B0F8") : (theme.isDark ? "#0EA5E9" : "#A9D8F7"),
+                            backgroundColor: item.isTest ? (theme.isDark ? "#251A3D" : "#F5F0FF") : (theme.isDark ? "#112A37" : "#EAF6FF"),
                             flexShrink: 0,
                           }}
                         >
-                          <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
+                          <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? (theme.isDark ? "#C4B5FD" : "#7C3AED") : (theme.isDark ? "#7DD3FC" : "#0284C7")} />
                         </View>
 
                         <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
@@ -1924,12 +1939,12 @@ export default function DashboardScreen() {
                           paddingVertical: 4,
                           borderRadius: 999,
                           borderWidth: 1,
-                          borderColor: item.isTest ? "#C4B0F8" : "#A9D8F7",
-                          backgroundColor: item.isTest ? "#F5F0FF" : "#EAF6FF",
+                          borderColor: item.isTest ? (theme.isDark ? "#8B5CF6" : "#C4B0F8") : (theme.isDark ? "#0EA5E9" : "#A9D8F7"),
+                          backgroundColor: item.isTest ? (theme.isDark ? "#251A3D" : "#F5F0FF") : (theme.isDark ? "#112A37" : "#EAF6FF"),
                           flexShrink: 0,
                         }}
                       >
-                        <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? "#7C3AED" : "#0284C7"} />
+                        <Ionicons name={item.isTest ? "clipboard-outline" : "book-outline"} size={9} color={item.isTest ? (theme.isDark ? "#C4B5FD" : "#7C3AED") : (theme.isDark ? "#7DD3FC" : "#0284C7")} />
                       </View>
 
                       <Text style={[theme.typography.bodyStrong, { flex: 1, fontSize: 12, color: theme.colors.text }]} numberOfLines={1}>
@@ -2452,7 +2467,17 @@ export default function DashboardScreen() {
                           <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.success }}>RIGHT</Text>
                           <Text style={{ fontSize: 18, fontWeight: "900", color: theme.colors.success, marginTop: 2 }}>{outcomeCounts.correct}</Text>
                         </View>
-                        <View style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: "#F3C679", backgroundColor: "#FFF5DA", paddingVertical: 10, alignItems: "center" }}>
+                        <View
+                          style={{
+                            flex: 1,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: theme.isDark ? "#D4943C" : "#F3C679",
+                            backgroundColor: theme.isDark ? "rgba(212,148,60,0.16)" : "#FFF5DA",
+                            paddingVertical: 10,
+                            alignItems: "center",
+                          }}
+                        >
                           <Text style={{ fontSize: 10, fontWeight: "800", color: "#D97706" }}>CLOSE</Text>
                           <Text style={{ fontSize: 18, fontWeight: "900", color: "#D97706", marginTop: 2 }}>{outcomeCounts.close}</Text>
                         </View>

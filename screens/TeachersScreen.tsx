@@ -68,7 +68,7 @@ const apiBaseUrl =
   Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
 const PLAN_TYPES = [
-  { id: "basic" as const, label: "Basic", icon: "person-outline" as const },
+  { id: "basic" as const, label: "Basic (Free)", icon: "person-outline" as const },
   { id: "standard" as const, label: "Standard", icon: "star-outline" as const },
   { id: "school" as const, label: "School", icon: "school-outline" as const },
   { id: "internal" as const, label: "Internal", icon: "settings-outline" as const },
@@ -86,12 +86,27 @@ const PLAN_TO_LIMIT: Record<string, number> = {
 function planUiIdToDbPlan(uiId: string): string {
   const id = (uiId ?? "basic").toLowerCase().trim();
   const map: Record<string, string> = {
-    basic: "Basic",
+    basic: "Free",
     standard: "Standard",
     school: "School/Organization",
     internal: "Internal",
   };
-  return map[id] ?? "Basic";
+  return map[id] ?? "Free";
+}
+
+function planUiIdToDbPlanKey(uiId: string): string {
+  const id = (uiId ?? "basic").toLowerCase().trim();
+  const map: Record<string, string> = {
+    basic: "Free",
+    standard: "standard",
+    school: "school",
+    internal: "internal",
+  };
+  return map[id] ?? "Free";
+}
+
+function planUiIdToUiPlanLabel(uiId: string): string {
+  return normalizePlanUi(planUiIdToDbPlan(uiId));
 }
 
 function dbPlanToUiId(plan: string | null | undefined): string {
@@ -100,6 +115,34 @@ function dbPlanToUiId(plan: string | null | undefined): string {
   if (normalized === "school/organization") return "school";
   if (normalized === "internal") return "internal";
   return "basic";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return values.filter((value, index) => value.length > 0 && values.indexOf(value) === index);
+}
+
+function getPlanSaveCandidates(plan: string): string[] {
+  const uiId = dbPlanToUiId(plan);
+  const key = planUiIdToDbPlanKey(uiId);
+  const label = planUiIdToDbPlan(uiId);
+
+  if (uiId === "basic") return uniqueStrings(["Free", key, label, "free", "Basic", "New Account"]);
+  if (uiId === "standard") return uniqueStrings([key, label, "teacher", "tutor"]);
+  if (uiId === "school") return uniqueStrings([key, "school/organization", label]);
+  return uniqueStrings([key, label]);
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "";
+}
+
+function isPlanConstraintMessage(message: string): boolean {
+  return /(teacher|teachers)_plan_check|violates check constraint.+plan|plan_check/i.test(message);
 }
 
 const ROLE_OPTIONS = [
@@ -138,6 +181,8 @@ export default function TeachersScreen() {
   const [currentTeacher, setCurrentTeacher] = useState<TeacherRow | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [timeFilter, setTimeFilter] = useState<"last_active" | "joined" | null>(null);
+  const [timeSortDirection, setTimeSortDirection] = useState<"desc" | "asc">("desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTeacher, setEditingTeacher] = useState<TeacherRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -293,9 +338,9 @@ export default function TeachersScreen() {
   useEffect(() => {
     if (!editingTeacher || !isAdmin) return;
     const validPlans = getValidPlansForRole(editRole);
-    const selectedDb = planUiIdToDbPlan(editPlan);
-    if (!validPlans.includes(selectedDb)) {
-      setEditPlan(validPlans[0].toLowerCase());
+    const selectedUiLabel = planUiIdToUiPlanLabel(editPlan);
+    if (!validPlans.includes(selectedUiLabel)) {
+      setEditPlan(dbPlanToUiId(validPlans[0]));
     }
   }, [editRole, editPlan, editingTeacher?.id, isAdmin]);
 
@@ -308,7 +353,7 @@ export default function TeachersScreen() {
 
   useEffect(() => {
     if (!addModalVisible || !isAdmin) return;
-    setAddPlanUi(getDefaultPlanForRole(addAccountRole).toLowerCase());
+    setAddPlanUi(dbPlanToUiId(getDefaultPlanForRole(addAccountRole)));
     if (addAccountRole === "principal") setAddPrincipalUserId("");
   }, [addAccountRole, addModalVisible, isAdmin]);
 
@@ -391,13 +436,40 @@ export default function TeachersScreen() {
 
   const searchedTeachers = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return filteredTeachers;
-    return filteredTeachers.filter(
+    const searched = !q
+      ? filteredTeachers
+      : filteredTeachers.filter(
       (t) =>
         (t.name ?? "").toLowerCase().includes(q) ||
         (t.email ?? "").toLowerCase().includes(q)
     );
-  }, [filteredTeachers, searchTerm]);
+
+    if (!timeFilter) return searched;
+
+    const getSortTs = (teacher: TeacherRow) => {
+      const sourceDate =
+        timeFilter === "joined"
+          ? teacher.created_at
+          : teacher.last_sign_in_at ?? teacher.created_at;
+      const ts = sourceDate ? new Date(sourceDate).getTime() : 0;
+      return Number.isNaN(ts) ? 0 : ts;
+    };
+
+    return [...searched].sort((a, b) => {
+      const aTs = getSortTs(a);
+      const bTs = getSortTs(b);
+      return timeSortDirection === "desc" ? bTs - aTs : aTs - bTs;
+    });
+  }, [filteredTeachers, searchTerm, timeFilter, timeSortDirection]);
+
+  const toggleTimeFilter = (nextFilter: "last_active" | "joined") => {
+    if (timeFilter === nextFilter) {
+      setTimeSortDirection((prev) => (prev === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setTimeFilter(nextFilter);
+    setTimeSortDirection("desc");
+  };
 
   const planTotal =
     stats.basic + stats.standard + stats.school + stats.internal;
@@ -457,7 +529,7 @@ export default function TeachersScreen() {
       } else {
         // Principal creating a teacher - must still include a valid plan
         body.role = "teacher";
-        body.plan = "Basic"; // Default plan for new teachers created by principals
+        body.plan = "Free"; // Default plan for new teachers created by principals
       }
 
       const res = await fetch(`${base}/api/admin/teachers/create`, {
@@ -510,7 +582,7 @@ export default function TeachersScreen() {
     setSavingEdit(true);
     try {
       if (isAdmin) {
-        // Same flow as Eluency web: PATCH /api/admin/teachers/:id (service role; correct plan + limits).
+        // Save directly first so mobile is not blocked by a deployed API with older plan casing.
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -521,13 +593,35 @@ export default function TeachersScreen() {
 
         const plan = coercePlanForRole(editRole, planUiIdToDbPlan(editPlan));
         const student_limit = getStudentLimitForPlan(plan);
+        const planCandidates = getPlanSaveCandidates(plan);
 
-        const updatePayload = {
+        const directBasePayload = {
           name: trimmedName,
           role: editRole,
-          plan,
           active: editActive,
           student_limit,
+        };
+
+        let directError: unknown = null;
+        for (const planCandidate of planCandidates) {
+          const { error } = await (supabase.from("teachers") as any)
+            .update({ ...directBasePayload, plan: planCandidate })
+            .eq("user_id", editingTeacher.id);
+
+          if (!error) {
+            await fetchTeachers();
+            setEditingTeacher(null);
+            Alert.alert("Saved", "Teacher information updated.");
+            return;
+          }
+
+          directError = error;
+          if (!isPlanConstraintMessage(getErrorMessage(error))) break;
+        }
+
+        const updatePayload = {
+          ...directBasePayload,
+          plan: planCandidates[0] ?? plan,
         };
 
         const base = apiBaseUrl.replace(/\/$/, "");
@@ -542,7 +636,9 @@ export default function TeachersScreen() {
 
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data?.error ?? `Failed to update (${res.status})`);
+          const message = data?.error ?? `Failed to update (${res.status})`;
+
+          throw new Error(message || getErrorMessage(directError) || "Failed to update teacher.");
         }
       } else {
         // Principal / others: same payload shape as web non-admin (name + student_limit from coerced plan).
@@ -571,6 +667,68 @@ export default function TeachersScreen() {
     }
   };
 
+  const executeDeleteTeacher = async (teacher: TeacherRow) => {
+    setDeletingId(teacher.id);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error("Not authenticated.");
+
+      // Remove teacher-owned rows first so account deletion does not fail on FK constraints.
+      const { error: deleteStudentsError } = await (supabase.from("students") as any)
+        .delete()
+        .eq("teacher_id", teacher.id);
+      if (deleteStudentsError) throw deleteStudentsError;
+
+      const { error: deleteTestsError } = await (supabase.from("tests") as any)
+        .delete()
+        .eq("teacher_id", teacher.id);
+      if (deleteTestsError) throw deleteTestsError;
+
+      const { error: deleteLessonsError } = await (supabase.from("lessons") as any)
+        .delete()
+        .eq("teacher_id", teacher.id);
+      if (deleteLessonsError) throw deleteLessonsError;
+
+      const base = apiBaseUrl.replace(/\/$/, "");
+      const res = await fetch(`${base}/api/admin/teachers/${teacher.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data?.error ?? `Failed to delete (${res.status})`);
+
+      await fetchTeachers();
+      Alert.alert("Done", "Teacher account and login removed.");
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : "Delete failed.";
+      const normalizedMsg = rawMsg.replace(/delting/gi, "deleting");
+      const isDeleteDbIssue = /database error deleting user|foreign key|violates|constraint/i.test(normalizedMsg);
+
+      if (isDeleteDbIssue) {
+        try {
+          const { error: deactivateError } = await (supabase.from("teachers") as any)
+            .update({ active: false })
+            .eq("user_id", teacher.id);
+          if (deactivateError) throw deactivateError;
+
+          await fetchTeachers();
+          Alert.alert("Could not fully delete", "The account could not be fully deleted, so it was deactivated.");
+        } catch {
+          Alert.alert("Error", normalizedMsg);
+        }
+      } else {
+        Alert.alert("Error", normalizedMsg);
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleDelete = (teacher: TeacherRow) => {
     if (teacher.id === currentUserId) {
       Alert.alert("Not allowed", "You cannot delete your own account.");
@@ -587,35 +745,25 @@ export default function TeachersScreen() {
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Continue",
           style: "destructive",
-          onPress: async () => {
-            setDeletingId(teacher.id);
-            try {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
-              const accessToken = session?.access_token;
-              if (!accessToken) throw new Error("Not authenticated.");
-
-              const base = apiBaseUrl.replace(/\/$/, "");
-              const res = await fetch(`${base}/api/admin/teachers/${teacher.id}`, {
-                method: "DELETE",
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
+          onPress: () => {
+            Alert.alert(
+              "Confirm deletion",
+              `Delete ${teacher.name ?? "this teacher"} now?`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Confirm delete",
+                  style: "destructive",
+                  onPress: () => {
+                    executeDeleteTeacher(teacher).catch(() => {
+                      // Handled inside executeDeleteTeacher.
+                    });
+                  },
                 },
-              });
-              const data = (await res.json().catch(() => ({}))) as { error?: string };
-              if (!res.ok) throw new Error(data?.error ?? `Failed to delete (${res.status})`);
-
-              await fetchTeachers();
-              Alert.alert("Done", "Teacher account and login removed.");
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : "Delete failed.";
-              Alert.alert("Error", msg);
-            } finally {
-              setDeletingId(null);
-            }
+              ]
+            );
           },
         },
       ]
@@ -710,12 +858,14 @@ export default function TeachersScreen() {
               height: 44,
               width: 44,
               borderRadius: 12,
-              backgroundColor: theme.colors.primary,
+              backgroundColor: theme.isDark ? "#1F3E5A" : theme.colors.primary,
+              borderWidth: theme.isDark ? 1 : 0,
+              borderColor: theme.isDark ? "#2E5C82" : "transparent",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="add" size={26} color={theme.colors.primaryText} />
+            <Ionicons name="add" size={26} color={theme.isDark ? "#CFE6FF" : theme.colors.primaryText} />
           </TouchableOpacity>
         )}
       </View>
@@ -987,6 +1137,109 @@ export default function TeachersScreen() {
                   }}
                 />
               </View>
+              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => toggleTimeFilter("last_active")}
+                  activeOpacity={0.8}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor:
+                      timeFilter === "last_active"
+                        ? theme.isDark
+                          ? "#2E5C82"
+                          : theme.colors.primary
+                        : theme.colors.border,
+                    backgroundColor:
+                      timeFilter === "last_active"
+                        ? theme.isDark
+                          ? "#1A3147"
+                          : theme.colors.primarySoft
+                        : theme.colors.surfaceAlt,
+                    flexDirection: "row",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: "800",
+                      color:
+                        timeFilter === "last_active"
+                          ? theme.isDark
+                            ? "#CFE6FF"
+                            : theme.colors.primary
+                          : theme.colors.text,
+                    }}
+                  >
+                    Last active
+                  </Text>
+                  {timeFilter === "last_active" ? (
+                    <Ionicons
+                      name={timeSortDirection === "desc" ? "arrow-down" : "arrow-up"}
+                      size={12}
+                      color={theme.isDark ? "#CFE6FF" : theme.colors.primary}
+                      style={{ marginLeft: 6 }}
+                    />
+                  ) : null}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => toggleTimeFilter("joined")}
+                  activeOpacity={0.8}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor:
+                      timeFilter === "joined"
+                        ? theme.isDark
+                          ? "#2E5C82"
+                          : theme.colors.primary
+                        : theme.colors.border,
+                    backgroundColor:
+                      timeFilter === "joined"
+                        ? theme.isDark
+                          ? "#1A3147"
+                          : theme.colors.primarySoft
+                        : theme.colors.surfaceAlt,
+                    flexDirection: "row",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: "800",
+                      color:
+                        timeFilter === "joined"
+                          ? theme.isDark
+                            ? "#CFE6FF"
+                            : theme.colors.primary
+                          : theme.colors.text,
+                    }}
+                  >
+                    Joined
+                  </Text>
+                  {timeFilter === "joined" ? (
+                    <Ionicons
+                      name={timeSortDirection === "desc" ? "arrow-down" : "arrow-up"}
+                      size={12}
+                      color={theme.isDark ? "#CFE6FF" : theme.colors.primary}
+                      style={{ marginLeft: 6 }}
+                    />
+                  ) : null}
+                </TouchableOpacity>
+
+                {timeFilter ? (
+                  <TouchableOpacity onPress={() => setTimeFilter(null)} activeOpacity={0.7} style={{ marginLeft: "auto" }}>
+                    <Text style={{ color: theme.colors.danger, fontWeight: "700", fontSize: 12 }}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </GlassCard>
 
             {isPrincipal && !isAdmin && principalTeacherCount === 0 && (
@@ -1039,11 +1292,27 @@ export default function TeachersScreen() {
                   <GlassCard key={t.id} style={{ borderRadius: 12, marginBottom: 8 }} padding={12}>
                     {/* Row 1: Name | Plan | Joined */}
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[theme.typography.bodyStrong, { fontSize: 16, fontWeight: "800" }]} numberOfLines={1}>
+                      <TouchableOpacity
+                        onPress={() => openEditTeacher(t)}
+                        activeOpacity={0.8}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                          backgroundColor: theme.colors.surfaceAlt,
+                          paddingHorizontal: 10,
+                          paddingVertical: 7,
+                        }}
+                      >
+                        <Ionicons name="person-circle-outline" size={15} color={theme.colors.textMuted} style={{ marginRight: 6 }} />
+                        <Text style={[theme.typography.bodyStrong, { fontSize: 14, fontWeight: "800", flex: 1 }]} numberOfLines={1}>
                           {t.name ?? "—"}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                       
                       <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: theme.colors.primarySoft }}>
                         <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.primary }}>
@@ -1358,7 +1627,7 @@ export default function TeachersScreen() {
                       <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Plan</Text>
                       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginTop: 10 }}>
                         {PLAN_TYPES.filter((p) =>
-                          getValidPlansForRole(editRole).includes(planUiIdToDbPlan(p.id))
+                          getValidPlansForRole(editRole).includes(planUiIdToUiPlanLabel(p.id))
                         ).map((plan) => {
                           const active = editPlan === plan.id;
                           return (
@@ -1656,7 +1925,7 @@ export default function TeachersScreen() {
                         }}
                       >
                         {PLAN_TYPES.filter((p) =>
-                          getValidPlansForRole(addAccountRole).includes(planUiIdToDbPlan(p.id))
+                          getValidPlansForRole(addAccountRole).includes(planUiIdToUiPlanLabel(p.id))
                         ).map((plan) => {
                           const active = addPlanUi === plan.id;
                           return (

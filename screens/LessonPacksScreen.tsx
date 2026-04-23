@@ -77,6 +77,9 @@ const SORT_OPTIONS = ["default", "alpha", "words"] as const;
 type SortBy = (typeof SORT_OPTIONS)[number];
 
 const EXCLUDED_LANGUAGE_FILTERS = new Set(["english", "en-fr"]);
+const DARK_ACTION_BG = "#1F3E5A";
+const DARK_ACTION_BORDER = "#2E5C82";
+const DARK_ACTION_TEXT = "#CFE6FF";
 
 const LANGUAGE_PILL_COLORS: Record<string, { inactive: { bg: string; text: string; border: string }; active: { bg: string; text: string; border: string } }> = {
   "Portuguese (BR)": { inactive: { bg: "rgba(34,197,94,0.10)", text: "#15803D", border: "rgba(34,197,94,0.30)" }, active: { bg: "#16A34A", text: "#fff", border: "#15803D" } },
@@ -1007,7 +1010,7 @@ export default function LessonPacksScreen() {
                 alignItems: "center",
               }}
             >
-              <Text style={{ fontSize: 11, fontWeight: "800" }}>VIEW</Text>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.text }}>VIEW</Text>
             </TouchableOpacity>
             {canManage ? (
               <TouchableOpacity
@@ -1017,11 +1020,12 @@ export default function LessonPacksScreen() {
                   paddingVertical: 10,
                   borderRadius: 10,
                   borderWidth: 1,
-                  borderColor: theme.colors.border,
+                  borderColor: theme.isDark ? DARK_ACTION_BORDER : theme.colors.border,
+                  backgroundColor: theme.isDark ? DARK_ACTION_BG : "transparent",
                   alignItems: "center",
                 }}
               >
-                <Text style={{ fontSize: 11, fontWeight: "800" }}>EDIT</Text>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : theme.colors.text }}>EDIT</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -1385,10 +1389,12 @@ export default function LessonPacksScreen() {
               paddingHorizontal: 14,
               paddingVertical: 10,
               borderRadius: 12,
-              backgroundColor: theme.colors.primary,
+              backgroundColor: theme.isDark ? DARK_ACTION_BG : theme.colors.primary,
+              borderWidth: theme.isDark ? 1 : 0,
+              borderColor: theme.isDark ? DARK_ACTION_BORDER : "transparent",
             }}
           >
-            <Text style={{ color: theme.colors.primaryText, fontWeight: "800", fontSize: 12 }}>NEW</Text>
+            <Text style={{ color: theme.isDark ? DARK_ACTION_TEXT : theme.colors.primaryText, fontWeight: "800", fontSize: 12 }}>NEW</Text>
           </TouchableOpacity>
         ) : null}
       </View>

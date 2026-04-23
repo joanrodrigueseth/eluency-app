@@ -26,7 +26,11 @@ export default function AppButton({
   const { spacing, radii } = theme;
   const isSecondary = variant === "secondary";
   const isDangerSoft = variant === "dangerSoft";
+  const isPrimary = !isSecondary && !isDangerSoft && variant !== "violet";
   const isDisabled = disabled || loading;
+  const darkPrimaryBg = "#1F3E5A";
+  const darkPrimaryBorder = "#2E5C82";
+  const darkPrimaryText = "#CFE6FF";
 
   const backgroundColor =
     isSecondary
@@ -37,9 +41,17 @@ export default function AppButton({
           : "rgba(229, 91, 107, 0.12)"
       : variant === "violet"
         ? theme.colors.violet
-        : theme.colors.primary;
+        : theme.isDark
+          ? darkPrimaryBg
+          : theme.colors.primary;
 
-  const textColor = isSecondary ? theme.colors.text : isDangerSoft ? theme.colors.danger : theme.colors.primaryText;
+  const textColor = isSecondary
+    ? theme.colors.text
+    : isDangerSoft
+      ? theme.colors.danger
+      : isPrimary && theme.isDark
+        ? darkPrimaryText
+        : theme.colors.primaryText;
 
   return (
     <TouchableOpacity
@@ -56,13 +68,19 @@ export default function AppButton({
         paddingVertical: spacing.md,
         backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
         borderWidth: 1,
-        borderColor: isSecondary ? theme.colors.border : isDangerSoft ? "rgba(229, 91, 107, 0.28)" : "transparent",
+        borderColor: isSecondary
+          ? theme.colors.border
+          : isDangerSoft
+            ? "rgba(229, 91, 107, 0.28)"
+            : isPrimary && theme.isDark
+              ? darkPrimaryBorder
+              : "transparent",
         minHeight: 56,
-        shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.colors.shadow,
-        shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.28 : 0.18,
-        shadowRadius: 20,
+        shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.isDark ? "#000" : theme.colors.shadow,
+        shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.08 : 0.18,
+        shadowRadius: theme.isDark ? 10 : 20,
         shadowOffset: { width: 0, height: 12 },
-        elevation: isSecondary || isDangerSoft || isDisabled ? 0 : 6,
+        elevation: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 3 : 6,
       }}
     >
       <View

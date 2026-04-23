@@ -277,6 +277,9 @@ export default function TestFormScreen() {
   const accentPurple = theme.isDark ? theme.colors.primary : "#9050E7";
   const accentPurpleSoft = theme.isDark ? theme.colors.primarySoft : "#F3ECFF";
   const accentPurpleBorder = theme.isDark ? theme.colors.border : "#D5B8FC";
+  const continueButtonBg = theme.isDark ? "#1F3E5A" : accentPurple;
+  const continueButtonBorder = theme.isDark ? "#2E5C82" : "transparent";
+  const continueButtonText = theme.isDark ? "#CFE6FF" : "#fff";
   const insets = useSafeAreaInsets();
   const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
   const navigation = useNavigation<NavigationProp<RootTestsStackParams>>();
@@ -335,6 +338,22 @@ export default function TestFormScreen() {
   const [vocabOpen, setVocabOpen] = useState<Record<string, boolean>>({});
   const [vocabSectionOpen, setVocabSectionOpen] = useState(false);
   const [questionOpen, setQuestionOpen] = useState<Record<string, boolean>>({});
+
+  const confirmRemoveVocabWord = useCallback((word: WordRow & { sp: string; se: string }, index: number) => {
+    const label = word.en.trim() || word.pt.trim() || `Word ${index + 1}`;
+    Alert.alert(
+      "Delete vocabulary word",
+      `Remove \"${label}\" from this test?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => setWords((prev) => prev.filter((x) => x.key !== word.key)),
+        },
+      ]
+    );
+  }, []);
   const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
   const [dropdownOpen, setDropdownOpen] = useState<Record<string, "prompt" | "answer" | null>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1338,8 +1357,8 @@ export default function TestFormScreen() {
                     <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                       Create Test Title:
                     </Text>
-                    <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                      <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+                    <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                      <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: theme.colors.text }} />
                     </View>
                   </View>
                   <View style={{ height: 1, backgroundColor: theme.colors.border }} />
@@ -1347,8 +1366,8 @@ export default function TestFormScreen() {
                     <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                       Description:
                     </Text>
-                    <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                      <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+                    <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                      <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 58, textAlignVertical: "top" }} />
                     </View>
                   </View>
                 </View>
@@ -1364,8 +1383,8 @@ export default function TestFormScreen() {
                   </View>
                 ) : null}
 
-                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
-                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, borderWidth: 1, borderColor: continueButtonBorder, backgroundColor: continueButtonBg, alignItems: "center" }}>
+                  <Text style={{ color: continueButtonText, fontSize: 15, fontWeight: "800" }}>Continue →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1453,8 +1472,8 @@ export default function TestFormScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
-                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, borderWidth: 1, borderColor: continueButtonBorder, backgroundColor: continueButtonBg, alignItems: "center" }}>
+                  <Text style={{ color: continueButtonText, fontSize: 15, fontWeight: "800" }}>Continue →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1538,14 +1557,22 @@ export default function TestFormScreen() {
                               <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 1 }} numberOfLines={1}>{w.pt || "Target"}</Text>
                             </View>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              {words.length > 1 && !isOpen && <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}><Ionicons name="trash-outline" size={13} color={theme.colors.danger} /></TouchableOpacity>}
-                              <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.textMuted} />
+                              {words.length > 1 && !isOpen && (
+                                <TouchableOpacity onPress={() => confirmRemoveVocabWord(w, i)} style={{ marginRight: 8 }}>
+                                  <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                                </TouchableOpacity>
+                              )}
+                              <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.colors.textMuted} />
                             </View>
                           </TouchableOpacity>
                           {isOpen && (
                             <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 10, gap: 8 }}>
                               <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-                                {words.length > 1 && <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}><Ionicons name="trash-outline" size={15} color={theme.colors.danger} /></TouchableOpacity>}
+                                {words.length > 1 && (
+                                  <TouchableOpacity onPress={() => confirmRemoveVocabWord(w, i)} style={{ marginRight: 8 }}>
+                                    <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                                  </TouchableOpacity>
+                                )}
                               </View>
                               {[["English", "en", "English term"] as const, ["Target language", "pt", "Portuguese (or target)"] as const, ["Context (target)", "sp", "Example sentence"] as const, ["Context (English)", "se", "Example sentence"] as const].map(([label, field, ph]) => (
                                 <View key={field}>
@@ -1561,8 +1588,8 @@ export default function TestFormScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, backgroundColor: accentPurple, alignItems: "center" }}>
-                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Continue →</Text>
+                <TouchableOpacity onPress={advanceWizard} style={{ paddingVertical: 16, borderRadius: 16, borderWidth: 1, borderColor: continueButtonBorder, backgroundColor: continueButtonBg, alignItems: "center" }}>
+                  <Text style={{ color: continueButtonText, fontSize: 15, fontWeight: "800" }}>Continue →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1895,8 +1922,8 @@ export default function TestFormScreen() {
               <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                 Create Test Title:
               </Text>
-              <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: "#111827" }} />
+              <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                <TextInput value={name} onChangeText={setName} placeholder="" placeholderTextColor={placeholderColor} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontSize: 16, fontWeight: "600", color: theme.colors.text }} />
               </View>
             </View>
             <View style={{ height: 1, backgroundColor: theme.colors.border }} />
@@ -1904,8 +1931,8 @@ export default function TestFormScreen() {
               <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
                 Description:
               </Text>
-              <View style={{ borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12 }}>
-                <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: "#111827", minHeight: 58, textAlignVertical: "top" }} />
+              <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingVertical: 12 }}>
+                <TextInput value={description} onChangeText={setDescription} multiline blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} placeholder="" placeholderTextColor={placeholderColor} style={{ paddingHorizontal: 0, paddingVertical: 0, fontSize: 15, lineHeight: 22, color: theme.colors.text, minHeight: 58, textAlignVertical: "top" }} />
               </View>
             </View>
           </View>
@@ -2184,19 +2211,19 @@ export default function TestFormScreen() {
                     </View>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       {words.length > 1 && !isOpen ? (
-                        <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
-                          <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />
+                        <TouchableOpacity onPress={() => confirmRemoveVocabWord(w, i)} style={{ marginRight: 8 }}>
+                          <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                         </TouchableOpacity>
                       ) : null}
-                      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={13} color={theme.colors.textMuted} />
+                      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={18} color={theme.colors.textMuted} />
                     </View>
                   </TouchableOpacity>
                   {isOpen ? (
                     <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, padding: 10, gap: 8 }}>
                       <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
                         {words.length > 1 ? (
-                          <TouchableOpacity onPress={() => setWords((prev) => prev.filter((x) => x.key !== w.key))}>
-                            <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                          <TouchableOpacity onPress={() => confirmRemoveVocabWord(w, i)} style={{ marginRight: 8 }}>
+                            <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
