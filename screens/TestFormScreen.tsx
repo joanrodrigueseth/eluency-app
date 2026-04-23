@@ -95,7 +95,12 @@ type QRow = {
   teacher_reference_answer: string;
   fill_blank_character_count?: number;
 };
-type LessonOpt = { id: string; title: string };
+type LessonOpt = {
+  id: string;
+  title: string;
+  language?: string | null;
+  content_json?: { language_pair?: string | null } | null;
+};
 type TeacherOpt = { id: string; name: string };
 type TestSettings = {
   time_limit_minutes: number | null;
@@ -122,6 +127,75 @@ type LinkedLessonWordRow = {
 const AI_ELIGIBLE_PLANS = ["basic", "standard", "school", "internal"];
 const AI_RED = "#D94343";
 const AI_RED_SOFT = "#FDEDED";
+const TEST_LANGUAGE_PAIR_FALLBACK = "en-pt";
+const TEST_LANGUAGE_PAIR_CODES = ["en-pt", "en-es", "en-en", "en-fr", "en-de", "en-it", "en-ja", "en-ko", "en-zh", "en-ar", "pt-es"] as const;
+const TEST_LANGUAGES = ["Portuguese (BR)", "Spanish", "English", "French", "German", "Italian", "Japanese", "Korean", "Chinese (Mandarin)", "Arabic"] as const;
+const flag = (...codePoints: number[]) => String.fromCodePoint(...codePoints);
+const LANGUAGE_GLOBE_FALLBACK = flag(0x1f310);
+const TEST_LANGUAGE_FLAGS: Record<string, string> = {
+  "Portuguese (BR)": flag(0x1f1e7, 0x1f1f7),
+  Spanish: flag(0x1f1ea, 0x1f1f8),
+  English: flag(0x1f1ec, 0x1f1e7),
+  French: flag(0x1f1eb, 0x1f1f7),
+  German: flag(0x1f1e9, 0x1f1ea),
+  Italian: flag(0x1f1ee, 0x1f1f9),
+  Japanese: flag(0x1f1ef, 0x1f1f5),
+  Korean: flag(0x1f1f0, 0x1f1f7),
+  "Chinese (Mandarin)": flag(0x1f1e8, 0x1f1f3),
+  Arabic: flag(0x1f1f8, 0x1f1e6),
+};
+const LESSON_LANGUAGE_DEFAULT_PAIR: Record<string, string> = {
+  "Portuguese (BR)": "en-pt",
+  Spanish: "en-es",
+  English: "en-en",
+  French: "en-fr",
+  German: "en-de",
+  Italian: "en-it",
+  Japanese: "en-ja",
+  Korean: "en-ko",
+  "Chinese (Mandarin)": "en-zh",
+  Arabic: "en-ar",
+};
+const TEST_LANGUAGE_BY_PAIR: Record<string, string> = {
+  "en-pt": "Portuguese (BR)",
+  "en-es": "Spanish",
+  "en-en": "English",
+  "en-fr": "French",
+  "en-de": "German",
+  "en-it": "Italian",
+  "en-ja": "Japanese",
+  "en-ko": "Korean",
+  "en-zh": "Chinese (Mandarin)",
+  "en-ar": "Arabic",
+};
+
+function normalizeTestLanguagePair(code: string | null | undefined) {
+  const value = typeof code === "string" ? code.trim() : "";
+  return TEST_LANGUAGE_PAIR_CODES.includes(value as (typeof TEST_LANGUAGE_PAIR_CODES)[number]) ? value : TEST_LANGUAGE_PAIR_FALLBACK;
+}
+
+function pairForTestLanguage(language: string | null | undefined, fallback = TEST_LANGUAGE_PAIR_FALLBACK) {
+  const value = typeof language === "string" ? language.trim() : "";
+  return LESSON_LANGUAGE_DEFAULT_PAIR[value] ?? fallback;
+}
+
+function getTestLanguageFromPair(code: string | null | undefined) {
+  const normalized = normalizeTestLanguagePair(code);
+  return TEST_LANGUAGE_BY_PAIR[normalized] ?? "Portuguese (BR)";
+}
+
+function resolveLessonLanguagePair(lesson: LessonOpt | null | undefined) {
+  if (!lesson) return TEST_LANGUAGE_PAIR_FALLBACK;
+  const fromConfig =
+    lesson.content_json && typeof lesson.content_json === "object"
+      ? normalizeTestLanguagePair((lesson.content_json as Record<string, unknown>).language_pair as string | undefined)
+      : TEST_LANGUAGE_PAIR_FALLBACK;
+  if (fromConfig !== TEST_LANGUAGE_PAIR_FALLBACK || (lesson.content_json as { language_pair?: string } | null)?.language_pair) {
+    return fromConfig;
+  }
+  return normalizeTestLanguagePair(LESSON_LANGUAGE_DEFAULT_PAIR[lesson.language ?? ""]);
+}
+
 const base64ByteSize = (base64: string) => {
   const len = base64.length;
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
@@ -191,6 +265,187 @@ const TEMPLATE_ICON_PALETTE = [
   { background: "#FFEFF3", border: "#F7C2D0", icon: "#C63A61" },
   { background: "#EAFBFA", border: "#BCE7E2", icon: "#157F7A" },
 ];
+
+const QUESTION_PROMPT_FORMAT_OPTIONS = [
+  {
+    value: "text",
+    label: "Text",
+    description: "A written prompt students read and answer directly.",
+    icon: "chatbubble-ellipses-outline",
+  },
+  {
+    value: "fill_blank",
+    label: "Fill in the Blank",
+    description: "Students complete a missing word or phrase in a sentence.",
+    icon: "remove-circle-outline",
+  },
+  {
+    value: "audio",
+    label: "Audio",
+    description: "Play audio first, then ask students to respond from listening.",
+    icon: "musical-notes-outline",
+  },
+  {
+    value: "image",
+    label: "Image",
+    description: "Use an image as the main cue for the question.",
+    icon: "image-outline",
+  },
+] as const satisfies ReadonlyArray<{
+  value: Exclude<QRow["prompt_format"], "video">;
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}>;
+
+const QUESTION_ANSWER_FORMAT_OPTIONS = [
+  {
+    value: "specific",
+    label: "Specific",
+    description: "Best when there is one expected answer with optional alternatives.",
+    icon: "checkmark-circle-outline",
+  },
+  {
+    value: "open",
+    label: "Open",
+    description: "Students write a longer response that teachers can review with a reference answer.",
+    icon: "create-outline",
+  },
+  {
+    value: "mcq",
+    label: "Multiple Choice",
+    description: "Students pick from options and you mark the correct choice.",
+    icon: "list-outline",
+  },
+] as const satisfies ReadonlyArray<{
+  value: QRow["answer_format"];
+  label: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}>;
+
+const PROMPT_FORMAT_LABELS: Record<Exclude<QRow["prompt_format"], "video">, string> = Object.fromEntries(
+  QUESTION_PROMPT_FORMAT_OPTIONS.map((option) => [option.value, option.label])
+) as Record<Exclude<QRow["prompt_format"], "video">, string>;
+
+const ANSWER_FORMAT_LABELS: Record<QRow["answer_format"], string> = Object.fromEntries(
+  QUESTION_ANSWER_FORMAT_OPTIONS.map((option) => [option.value, option.label])
+) as Record<QRow["answer_format"], string>;
+
+function findPromptFormatOption(value: QRow["prompt_format"]) {
+  return QUESTION_PROMPT_FORMAT_OPTIONS.find((option) => option.value === value) ?? QUESTION_PROMPT_FORMAT_OPTIONS[0];
+}
+
+function findAnswerFormatOption(value: QRow["answer_format"]) {
+  return QUESTION_ANSWER_FORMAT_OPTIONS.find((option) => option.value === value) ?? QUESTION_ANSWER_FORMAT_OPTIONS[0];
+}
+
+function QuestionFormatPickerModal({
+  visible,
+  title,
+  description,
+  options,
+  selectedValue,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  description: string;
+  options: ReadonlyArray<{
+    value: string;
+    label: string;
+    description: string;
+    icon: keyof typeof Ionicons.glyphMap;
+  }>;
+  selectedValue: string | null;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+}) {
+  const theme = useAppTheme();
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.58)", justifyContent: "center", paddingHorizontal: 16, paddingTop: 24, paddingBottom: "10%" }}
+      >
+        <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+          <View
+            style={{
+              backgroundColor: theme.colors.surface,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: 0.16,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 8 },
+              elevation: 10,
+            }}
+          >
+            <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.primarySoft, borderWidth: 1, borderColor: theme.colors.border }}>
+                  <Ionicons name="albums-outline" size={18} color={theme.colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={theme.typography.title}>{title}</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>{description}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={onClose}
+                style={{ width: 34, height: 34, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" }}
+              >
+                <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ padding: 12, gap: 10 }} keyboardShouldPersistTaps="handled">
+              {options.map((option, idx) => {
+                const selected = option.value === selectedValue;
+                const iconColors = TEMPLATE_ICON_PALETTE[idx % TEMPLATE_ICON_PALETTE.length];
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    onPress={() => {
+                      onSelect(option.value);
+                      onClose();
+                    }}
+                    style={{
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: selected ? theme.colors.primary : theme.colors.border,
+                      backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surfaceAlt,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <View style={{ width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: iconColors.background, borderWidth: 1, borderColor: iconColors.border }}>
+                      <Ionicons name={option.icon} size={14} color={iconColors.icon} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: "800", color: theme.colors.text }}>{option.label}</Text>
+                      <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 3 }}>
+                        {option.description}
+                      </Text>
+                    </View>
+                    {selected ? <Ionicons name="checkmark-circle" size={18} color={theme.colors.primary} /> : <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
 
 function FloatingGlow({
   size,
@@ -297,6 +552,8 @@ export default function TestFormScreen() {
   const [type, setType] = useState<string>("Vocabulary");
   const [customCategory, setCustomCategory] = useState("");
   const [description, setDescription] = useState("");
+  const [testLanguage, setTestLanguage] = useState("");
+  const [testLanguagePair, setTestLanguagePair] = useState(TEST_LANGUAGE_PAIR_FALLBACK);
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
@@ -334,6 +591,7 @@ export default function TestFormScreen() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [lessonPickerOpen, setLessonPickerOpen] = useState(false);
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [attemptsPickerOpen, setAttemptsPickerOpen] = useState(false);
   const [vocabOpen, setVocabOpen] = useState<Record<string, boolean>>({});
   const [vocabSectionOpen, setVocabSectionOpen] = useState(false);
@@ -355,7 +613,10 @@ export default function TestFormScreen() {
     );
   }, []);
   const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
-  const [dropdownOpen, setDropdownOpen] = useState<Record<string, "prompt" | "answer" | null>>({});
+  const [formatPicker, setFormatPicker] = useState<{ questionKey: string | null; kind: "prompt" | "answer" | null }>({
+    questionKey: null,
+    kind: null,
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [linkedLessonsOpen, setLinkedLessonsOpen] = useState(false);
   const [helpBubble, setHelpBubble] = useState<"vocab" | "questions" | null>(null);
@@ -453,14 +714,21 @@ export default function TestFormScreen() {
         .in("id", lessonIds);
       if (error) throw error;
 
-      const linkedWords = buildLinkedLessonWordRows((data ?? []) as { id: string; content_json?: unknown }[]);
+      const matchingLessons = ((data ?? []) as { id: string; content_json?: unknown }[]).filter((lesson) => {
+        const cfg =
+          lesson.content_json && typeof lesson.content_json === "object"
+            ? (lesson.content_json as Record<string, unknown>)
+            : {};
+        return normalizeTestLanguagePair(cfg.language_pair as string | undefined) === testLanguagePair;
+      });
+      const linkedWords = buildLinkedLessonWordRows(matchingLessons);
       setWords((prev) => {
         const manualWords = prev.filter((w) => !w.sourceLessonId);
         const nextWords = [...manualWords, ...linkedWords];
         return nextWords;
       });
     },
-    [buildLinkedLessonWordRows]
+    [buildLinkedLessonWordRows, testLanguagePair]
   );
 
   const loadLessonsForTeacher = useCallback(async (tid: string) => {
@@ -470,7 +738,7 @@ export default function TestFormScreen() {
     }
     const { data } = await supabase
       .from("lessons")
-      .select("id, title")
+      .select("id, title, language, content_json")
       .eq("status", "published")
       .eq("created_by", tid)
       .order("created_at", { ascending: false });
@@ -529,6 +797,9 @@ export default function TestFormScreen() {
           setTeacherId(row.teacher_id ?? user.id);
 
           const cfg = row.config_json && typeof row.config_json === "object" ? row.config_json : {};
+          const savedLanguagePair = normalizeTestLanguagePair((cfg as any).language_pair);
+          setTestLanguagePair(savedLanguagePair);
+          setTestLanguage(getTestLanguageFromPair(savedLanguagePair));
           const w = Array.isArray((cfg as any).words) ? (cfg as any).words : [];
           setWords(
             w.length
@@ -567,6 +838,8 @@ export default function TestFormScreen() {
           setType("Vocabulary");
           setCustomCategory("");
           setDescription("");
+          setTestLanguage("");
+          setTestLanguagePair(TEST_LANGUAGE_PAIR_FALLBACK);
           setCoverImageUrl("");
           setWords([]);
           setQuestions([mapQuestion(ensureQuestionDefaults(null))]);
@@ -602,6 +875,17 @@ export default function TestFormScreen() {
   }, [isAdmin, teacherId, loadLessonsForTeacher]);
 
   useEffect(() => {
+    if (bootLoading || lessons.length === 0) return;
+    setLinkedLessonIds((prev) => {
+      const next = prev.filter((id) => {
+        const lesson = lessons.find((item) => item.id === id);
+        return lesson ? resolveLessonLanguagePair(lesson) === testLanguagePair : true;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [bootLoading, lessons, testLanguagePair]);
+
+  useEffect(() => {
     if (bootLoading) return;
     syncLinkedLessonWords(linkedLessonIds).catch((e) => {
       Alert.alert("Linked lessons", e instanceof Error ? e.message : "Could not sync linked lesson vocabulary");
@@ -609,8 +893,13 @@ export default function TestFormScreen() {
   }, [bootLoading, linkedLessonIds, syncLinkedLessonWords]);
 
   const filteredTeachers = teachers.filter((t) => t.name.toLowerCase().includes(teacherSearch.toLowerCase()));
+  const hasSelectedTestLanguage = !!testLanguage.trim();
   const filteredLinkableLessons = lessons.filter(
-    (l) => !linkedLessonIds.includes(l.id) && l.title.toLowerCase().includes(lessonSearch.toLowerCase())
+    (l) =>
+      hasSelectedTestLanguage &&
+      resolveLessonLanguagePair(l) === testLanguagePair &&
+      !linkedLessonIds.includes(l.id) &&
+      l.title.toLowerCase().includes(lessonSearch.toLowerCase())
   );
   const selectedAttemptsCount =
     typeof testSettings.attempts_allowed === "number"
@@ -635,6 +924,39 @@ export default function TestFormScreen() {
       : "Using default test settings";
   const heroDescription =
     description.trim() || "Shape the test flow, link lessons when needed, and turn vocabulary into a cleaner, richer assessment experience.";
+  const requireTestLanguage = (message = "Choose a language before continuing.") => {
+    if (hasSelectedTestLanguage) return true;
+    showToast(message, "danger");
+    return false;
+  };
+  const activeFormatQuestion = formatPicker.questionKey ? questions.find((q) => q.key === formatPicker.questionKey) ?? null : null;
+  const activeFormatOptions = formatPicker.kind === "prompt" ? QUESTION_PROMPT_FORMAT_OPTIONS : QUESTION_ANSWER_FORMAT_OPTIONS;
+  const activeFormatValue =
+    formatPicker.kind === "prompt"
+      ? activeFormatQuestion?.prompt_format ?? null
+      : formatPicker.kind === "answer"
+        ? activeFormatQuestion?.answer_format ?? null
+        : null;
+
+  const openFormatPicker = useCallback((questionKey: string, kind: "prompt" | "answer") => {
+    setFormatPicker({ questionKey, kind });
+  }, []);
+
+  const closeFormatPicker = useCallback(() => {
+    setFormatPicker({ questionKey: null, kind: null });
+  }, []);
+
+  const handleSelectFormatOption = useCallback(
+    (value: string) => {
+      if (!formatPicker.questionKey || !formatPicker.kind) return;
+      if (formatPicker.kind === "prompt") {
+        replaceQuestion(formatPicker.questionKey, (cur) => ({ ...cur, prompt_format: value as QRow["prompt_format"] }));
+        return;
+      }
+      replaceQuestion(formatPicker.questionKey, (cur) => ({ ...cur, answer_format: value as QRow["answer_format"] }));
+    },
+    [formatPicker]
+  );
 
   useEffect(() => {
     const loopOne = Animated.loop(
@@ -746,6 +1068,7 @@ export default function TestFormScreen() {
     );
 
     return {
+      language_pair: testLanguagePair,
       words: wordObjs,
       tests: builtTests,
       test_settings: ensureTestSettings(testSettings),
@@ -774,6 +1097,9 @@ export default function TestFormScreen() {
   };
 
   const handleEnrichVocabularyWithAI = async () => {
+    if (!requireTestLanguage("Choose a language before using AI vocabulary tools.")) {
+      return;
+    }
     const source = words.filter((w) => w.en.trim() || w.pt.trim()).map((w) => ({ en: w.en, pt: w.pt, sp: w.sp, se: w.se }));
     if (!source.length) {
       Alert.alert("AI", "Add some vocabulary first.");
@@ -781,7 +1107,10 @@ export default function TestFormScreen() {
     }
     setAiVocabLoading(true);
     try {
-      const json = await authedJsonFetch("/api/ai/tests/enrich-vocabulary", { words: source });
+      const json = await authedJsonFetch("/api/ai/tests/enrich-vocabulary", {
+        words: source,
+        language_pair: testLanguagePair,
+      });
       const enriched = Array.isArray(json.words) ? json.words : [];
       if (!enriched.length) {
         Alert.alert("AI", "No enrichment returned.");
@@ -804,6 +1133,9 @@ export default function TestFormScreen() {
   };
 
   const handleGenerateQuestionsFromVocabulary = async () => {
+    if (!requireTestLanguage("Choose a language before generating AI questions.")) {
+      return;
+    }
     const source = words.filter((w) => w.en.trim() || w.pt.trim()).map((w) => ({ en: w.en, pt: w.pt, sp: w.sp, se: w.se }));
     if (!source.length) {
       Alert.alert("AI", "Add vocabulary first.");
@@ -811,7 +1143,10 @@ export default function TestFormScreen() {
     }
     setAiQuestionsLoading(true);
     try {
-      const json = await authedJsonFetch("/api/ai/tests/generate-questions-from-vocabulary", { words: source });
+      const json = await authedJsonFetch("/api/ai/tests/generate-questions-from-vocabulary", {
+        words: source,
+        language_pair: testLanguagePair,
+      });
       const generated = Array.isArray(json.tests) ? json.tests : [];
       if (!generated.length) {
         Alert.alert("AI", "No questions generated.");
@@ -982,6 +1317,9 @@ export default function TestFormScreen() {
       showToast("Test name is required.", "danger");
       return;
     }
+    if (!requireTestLanguage("Test language is required.")) {
+      return;
+    }
     const config_json = buildConfigJson();
     const fillErr = (config_json.tests as Record<string, unknown>[]).find((t) => {
       if (t.prompt_format !== "fill_blank") return false;
@@ -1075,6 +1413,9 @@ export default function TestFormScreen() {
       showToast("Please add a test name first.", "danger");
       return;
     }
+    if (wizardStep === 3 && !requireTestLanguage("Please choose a language before continuing.")) {
+      return;
+    }
     Keyboard.dismiss();
     setWizardStep((s) => Math.min(s + 1, 4));
   };
@@ -1084,7 +1425,7 @@ export default function TestFormScreen() {
     "",
     "Give your test a name, cover image, and description so students know exactly what to expect.",
     "Configure how students experience this test — timing, attempts, and question order.",
-    "Connect lessons to pull vocabulary automatically, or add words manually.",
+    "Choose the test language, then connect lessons or add vocabulary manually.",
     "Build the questions students will answer. Use templates or let AI generate from your vocabulary.",
   ];
 
@@ -1154,6 +1495,40 @@ export default function TestFormScreen() {
                     <TouchableOpacity key={opt} activeOpacity={0.8} onPress={() => { setType(opt); setCategoryPickerOpen(false); }}
                       style={{ paddingHorizontal: 20, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: selected ? accentPurpleSoft : "transparent", borderBottomWidth: idx === TEST_CATEGORIES.length - 1 ? 0 : 1, borderBottomColor: theme.colors.border }}>
                       <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{opt}</Text>
+                      {selected && <Ionicons name="checkmark" size={18} color={accentPurple} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal visible={languagePickerOpen} transparent animationType="fade" onRequestClose={() => setLanguagePickerOpen(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => setLanguagePickerOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 }}>
+            <TouchableOpacity activeOpacity={1} onPress={() => undefined} style={{ width: "100%", maxWidth: 400, borderRadius: 24, backgroundColor: theme.colors.surface, overflow: "hidden", maxHeight: 500 }}>
+              <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.text }}>Language</Text>
+                <TouchableOpacity onPress={() => setLanguagePickerOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Ionicons name="close" size={22} color={theme.colors.textMuted} /></TouchableOpacity>
+              </View>
+              <ScrollView>
+                {TEST_LANGUAGES.map((opt, idx) => {
+                  const selected = opt === testLanguage;
+                  return (
+                    <TouchableOpacity
+                      key={opt}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setTestLanguage(opt);
+                        setTestLanguagePair(pairForTestLanguage(opt, testLanguagePair));
+                        setLanguagePickerOpen(false);
+                      }}
+                      style={{ paddingHorizontal: 20, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: selected ? accentPurpleSoft : "transparent", borderBottomWidth: idx === TEST_LANGUAGES.length - 1 ? 0 : 1, borderBottomColor: theme.colors.border }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                        <Text style={{ fontSize: 24 }}>{TEST_LANGUAGE_FLAGS[opt] ?? LANGUAGE_GLOBE_FALLBACK}</Text>
+                        <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{opt}</Text>
+                      </View>
                       {selected && <Ionicons name="checkmark" size={18} color={accentPurple} />}
                     </TouchableOpacity>
                   );
@@ -1303,6 +1678,20 @@ export default function TestFormScreen() {
             </TouchableOpacity>
           </TouchableOpacity>
         </Modal>
+
+        <QuestionFormatPickerModal
+          visible={formatPicker.kind !== null}
+          title={formatPicker.kind === "prompt" ? "Prompt Format" : "Answer Format"}
+          description={
+            formatPicker.kind === "prompt"
+              ? "Choose how the question is presented to the student."
+              : "Choose how students respond and how the answer is checked."
+          }
+          options={activeFormatOptions}
+          selectedValue={activeFormatValue}
+          onSelect={handleSelectFormatOption}
+          onClose={closeFormatPicker}
+        />
 
         {/* ── Wizard header ── */}
         <View style={{ paddingTop: Math.max(insets.top, 8), paddingHorizontal: 16, paddingBottom: 12 }}>
@@ -1481,6 +1870,29 @@ export default function TestFormScreen() {
             {/* ── Step 3: Lessons & Vocabulary ── */}
             {wizardStep === 3 && (
               <>
+                <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple, letterSpacing: 1.5, textTransform: "uppercase" }}>Language</Text>
+                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: hasSelectedTestLanguage ? accentPurpleSoft : AI_RED_SOFT }}>
+                        <Text style={{ fontSize: 10, fontWeight: "800", color: hasSelectedTestLanguage ? accentPurple : AI_RED }}>Required</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Choose the language first. Linked lessons and AI tools will follow this selection.</Text>
+                  </View>
+                  <TouchableOpacity activeOpacity={0.8} onPress={() => setLanguagePickerOpen(true)} style={{ margin: 14, borderWidth: 1, borderColor: hasSelectedTestLanguage ? theme.colors.border : AI_RED, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: theme.colors.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    {hasSelectedTestLanguage ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <Text style={{ fontSize: 20 }}>{TEST_LANGUAGE_FLAGS[testLanguage] ?? LANGUAGE_GLOBE_FALLBACK}</Text>
+                        <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: "600" }}>{testLanguage}</Text>
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 15, color: AI_RED, fontWeight: "700" }}>Choose language</Text>
+                    )}
+                    <Ionicons name="chevron-down" size={16} color={hasSelectedTestLanguage ? theme.colors.textMuted : AI_RED} />
+                  </TouchableOpacity>
+                </View>
+
                 {/* Linked lessons */}
                 <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                   <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -1495,7 +1907,7 @@ export default function TestFormScreen() {
                     <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17 }}>Link lessons to automatically pull their vocabulary into this test. Students see the linked lesson on their study screen.</Text>
                   </View>
                   <View style={{ padding: 14, gap: 8 }}>
-                    <TouchableOpacity onPress={() => { setLessonSearch(""); setLessonPickerOpen(true); }} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                    <TouchableOpacity onPress={() => { if (!requireTestLanguage("Choose a language before linking lessons.")) return; setLessonSearch(""); setLessonPickerOpen(true); }} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
                       <Text style={{ color: theme.colors.textMuted, fontSize: 13 }}>Search and add a lesson...</Text>
                       <Ionicons name="chevron-down" size={14} color={theme.colors.textMuted} />
                     </TouchableOpacity>
@@ -1635,9 +2047,8 @@ export default function TestFormScreen() {
                       const i = Math.max(0, getIndex?.() ?? questions.findIndex((x) => x.key === q.key));
                       const isOpen = !!questionOpen[q.key];
                       const isAdvOpen = !!advancedOpen[q.key];
-                      const PROMPT_FORMAT_LABELS: Record<string, string> = { text: "Text", fill_blank: "Fill in Blank", audio: "Audio", image: "Image" };
-                      const ANSWER_FORMAT_LABELS: Record<string, string> = { specific: "Specific", open: "Open", mcq: "Multiple Choice" };
-                      const qDropdown = dropdownOpen[q.key] ?? null;
+                      const promptFormat = findPromptFormatOption(q.prompt_format);
+                      const answerFormat = findAnswerFormatOption(q.answer_format);
                       return (
                         <View style={{ marginBottom: 10 }}>
                           <View style={{ borderWidth: 1.5, borderColor: isActive ? accentPurple : theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt }}>
@@ -1663,35 +2074,25 @@ export default function TestFormScreen() {
                                 <View style={{ flexDirection: "row", gap: 8 }}>
                                   <View style={{ flex: 1 }}>
                                     <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Prompt format</Text>
-                                    <TouchableOpacity onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "prompt" ? null : "prompt" }))} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
-                                      <Text style={{ fontSize: 13, color: theme.colors.text }}>{PROMPT_FORMAT_LABELS[q.prompt_format]}</Text>
-                                      <Ionicons name={qDropdown === "prompt" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
-                                    </TouchableOpacity>
-                                    {qDropdown === "prompt" && (
-                                      <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
-                                        {(["text", "fill_blank", "audio", "image"] as const).map((pf, idx) => (
-                                          <TouchableOpacity key={pf} onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }} style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}>
-                                            <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? accentPurple : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
-                                          </TouchableOpacity>
-                                        ))}
+                                    <TouchableOpacity onPress={() => openFormatPicker(q.key, "prompt")} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                                        <Ionicons name={promptFormat.icon} size={15} color={accentPurple} />
+                                        <Text style={{ fontSize: 13, color: theme.colors.text }}>{promptFormat.label}</Text>
                                       </View>
-                                    )}
+                                      <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                                    </TouchableOpacity>
+                                    <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 4, lineHeight: 14 }}>{promptFormat.description}</Text>
                                   </View>
                                   <View style={{ flex: 1 }}>
                                     <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Answer format</Text>
-                                    <TouchableOpacity onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "answer" ? null : "answer" }))} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
-                                      <Text style={{ fontSize: 13, color: theme.colors.text }}>{ANSWER_FORMAT_LABELS[q.answer_format]}</Text>
-                                      <Ionicons name={qDropdown === "answer" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
-                                    </TouchableOpacity>
-                                    {qDropdown === "answer" && (
-                                      <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
-                                        {(["specific", "open", "mcq"] as const).map((af, idx) => (
-                                          <TouchableOpacity key={af} onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }} style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}>
-                                            <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? accentPurple : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
-                                          </TouchableOpacity>
-                                        ))}
+                                    <TouchableOpacity onPress={() => openFormatPicker(q.key, "answer")} style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                                        <Ionicons name={answerFormat.icon} size={15} color={accentPurple} />
+                                        <Text style={{ fontSize: 13, color: theme.colors.text }}>{answerFormat.label}</Text>
                                       </View>
-                                    )}
+                                      <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                                    </TouchableOpacity>
+                                    <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 4, lineHeight: 14 }}>{answerFormat.description}</Text>
                                   </View>
                                 </View>
                                 <TouchableOpacity onPress={() => replaceQuestion(q.key, (cur) => ({ ...cur, required: !cur.required }))}>
@@ -2073,10 +2474,36 @@ export default function TestFormScreen() {
         </View>
 
         <View style={sectionCardStyle}>
+          <View style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3A. Language</Text>
+              <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: hasSelectedTestLanguage ? accentPurpleSoft : AI_RED_SOFT }}>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: hasSelectedTestLanguage ? accentPurple : AI_RED }}>Required</Text>
+              </View>
+            </View>
+            <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textMuted }}>Choose the test language before linking lessons or generating AI content.</Text>
+            <TouchableOpacity
+              onPress={() => setLanguagePickerOpen(true)}
+              style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10, borderColor: hasSelectedTestLanguage ? theme.colors.border : AI_RED }]}
+            >
+              {hasSelectedTestLanguage ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Text style={{ fontSize: 20 }}>{TEST_LANGUAGE_FLAGS[testLanguage] ?? LANGUAGE_GLOBE_FALLBACK}</Text>
+                  <Text style={{ color: theme.colors.text }}>{testLanguage}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: AI_RED, fontWeight: "700" }}>Choose language</Text>
+              )}
+              <Ionicons name="chevron-down" size={18} color={hasSelectedTestLanguage ? theme.colors.textMuted : AI_RED} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={sectionCardStyle}>
           <TouchableOpacity onPress={() => setLinkedLessonsOpen((v) => !v)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: linkedLessonsOpen ? 1 : 0, borderBottomColor: theme.colors.border }}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>2B. Linked lessons</Text>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3B. Linked lessons</Text>
                 {linkedLessonIds.length > 0 ? (
                   <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: accentPurpleSoft }}>
                     <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple }}>{linkedLessonIds.length}</Text>
@@ -2093,6 +2520,7 @@ export default function TestFormScreen() {
             <View style={{ padding: 14, gap: 8 }}>
               <TouchableOpacity
                 onPress={() => {
+                  if (!requireTestLanguage("Choose a language before linking lessons.")) return;
                   setLessonSearch("");
                   setLessonPickerOpen(true);
                 }}
@@ -2141,7 +2569,7 @@ export default function TestFormScreen() {
           >
             <View style={{ flex: 1, paddingRight: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3. Vocabulary</Text>
+                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>3C. Vocabulary</Text>
                 <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: accentPurpleSoft }}>
                   <Text style={{ fontSize: 10, fontWeight: "800", color: accentPurple }}>{words.length}</Text>
                 </View>
@@ -2299,9 +2727,8 @@ export default function TestFormScreen() {
             const i = Math.max(0, getIndex?.() ?? questions.findIndex((x) => x.key === q.key));
             const isOpen = !!questionOpen[q.key];
             const isAdvOpen = !!advancedOpen[q.key];
-            const PROMPT_FORMAT_LABELS: Record<string, string> = { text: "Text", fill_blank: "Fill in Blank", audio: "Audio", image: "Image" };
-            const ANSWER_FORMAT_LABELS: Record<string, string> = { specific: "Specific", open: "Open", mcq: "Multiple Choice" };
-            const qDropdown = dropdownOpen[q.key] ?? null;
+            const promptFormat = findPromptFormatOption(q.prompt_format);
+            const answerFormat = findAnswerFormatOption(q.answer_format);
             return (
               <View style={{ marginBottom: 10 }}>
                 <View style={{ borderWidth: 1.5, borderColor: isActive ? accentPurple : theme.colors.border, borderRadius: 14, overflow: "hidden", backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt }}>
@@ -2356,49 +2783,31 @@ export default function TestFormScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Prompt format</Text>
                         <TouchableOpacity
-                          onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "prompt" ? null : "prompt" }))}
+                          onPress={() => openFormatPicker(q.key, "prompt")}
                           style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
                         >
-                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{PROMPT_FORMAT_LABELS[q.prompt_format]}</Text>
-                          <Ionicons name={qDropdown === "prompt" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
-                        </TouchableOpacity>
-                        {qDropdown === "prompt" ? (
-                          <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
-                            {(["text", "fill_blank", "audio", "image"] as const).map((pf, idx) => (
-                              <TouchableOpacity
-                                key={pf}
-                                onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, prompt_format: pf })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
-                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.prompt_format === pf ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 3 ? 1 : 0, borderBottomColor: theme.colors.border }}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: q.prompt_format === pf ? "700" : "400", color: q.prompt_format === pf ? accentPurple : theme.colors.text }}>{PROMPT_FORMAT_LABELS[pf]}</Text>
-                              </TouchableOpacity>
-                            ))}
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                            <Ionicons name={promptFormat.icon} size={15} color={accentPurple} />
+                            <Text style={{ fontSize: 13, color: theme.colors.text }}>{promptFormat.label}</Text>
                           </View>
-                        ) : null}
+                          <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 4, lineHeight: 14 }}>{promptFormat.description}</Text>
                       </View>
                       {/* Answer format */}
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 9, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Answer format</Text>
                         <TouchableOpacity
-                          onPress={() => setDropdownOpen((prev) => ({ ...prev, [q.key]: qDropdown === "answer" ? null : "answer" }))}
+                          onPress={() => openFormatPicker(q.key, "answer")}
                           style={[inputStyle, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
                         >
-                          <Text style={{ fontSize: 13, color: theme.colors.text }}>{ANSWER_FORMAT_LABELS[q.answer_format]}</Text>
-                          <Ionicons name={qDropdown === "answer" ? "chevron-up" : "chevron-down"} size={14} color={theme.colors.textMuted} />
-                        </TouchableOpacity>
-                        {qDropdown === "answer" ? (
-                          <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, marginTop: 4, overflow: "hidden", backgroundColor: theme.colors.surface }}>
-                            {(["specific", "open", "mcq"] as const).map((af, idx) => (
-                              <TouchableOpacity
-                                key={af}
-                                onPress={() => { replaceQuestion(q.key, (cur) => ({ ...cur, answer_format: af })); setDropdownOpen((prev) => ({ ...prev, [q.key]: null })); }}
-                                style={{ paddingVertical: 9, paddingHorizontal: 12, backgroundColor: q.answer_format === af ? accentPurpleSoft : "transparent", borderBottomWidth: idx < 2 ? 1 : 0, borderBottomColor: theme.colors.border }}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: q.answer_format === af ? "700" : "400", color: q.answer_format === af ? accentPurple : theme.colors.text }}>{ANSWER_FORMAT_LABELS[af]}</Text>
-                              </TouchableOpacity>
-                            ))}
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                            <Ionicons name={answerFormat.icon} size={15} color={accentPurple} />
+                            <Text style={{ fontSize: 13, color: theme.colors.text }}>{answerFormat.label}</Text>
                           </View>
-                        ) : null}
+                          <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 4, lineHeight: 14 }}>{answerFormat.description}</Text>
                       </View>
                     </View>
 
@@ -2615,6 +3024,20 @@ export default function TestFormScreen() {
 
       </ScrollView>
 
+      <QuestionFormatPickerModal
+        visible={formatPicker.kind !== null}
+        title={formatPicker.kind === "prompt" ? "Prompt Format" : "Answer Format"}
+        description={
+          formatPicker.kind === "prompt"
+            ? "Choose how the question is presented to the student."
+            : "Choose how students respond and how the answer is checked."
+        }
+        options={activeFormatOptions}
+        selectedValue={activeFormatValue}
+        onSelect={handleSelectFormatOption}
+        onClose={closeFormatPicker}
+      />
+
       <Modal visible={lessonPickerOpen} animationType="fade" transparent onRequestClose={() => setLessonPickerOpen(false)}>
         <TouchableOpacity style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingVertical: 32 }} activeOpacity={1} onPress={() => setLessonPickerOpen(false)}>
           <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 500 }}>
@@ -2671,6 +3094,40 @@ export default function TestFormScreen() {
                 </ScrollView>
               </View>
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={languagePickerOpen} transparent animationType="fade" onRequestClose={() => setLanguagePickerOpen(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setLanguagePickerOpen(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", paddingHorizontal: 24 }}>
+          <TouchableOpacity activeOpacity={1} onPress={() => undefined} style={{ width: "100%", maxWidth: 400, borderRadius: 24, backgroundColor: theme.colors.surface, overflow: "hidden", maxHeight: 500 }}>
+            <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: theme.colors.text }}>Language</Text>
+              <TouchableOpacity onPress={() => setLanguagePickerOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Ionicons name="close" size={22} color={theme.colors.textMuted} /></TouchableOpacity>
+            </View>
+            <ScrollView>
+              {TEST_LANGUAGES.map((opt, idx) => {
+                const selected = opt === testLanguage;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setTestLanguage(opt);
+                      setTestLanguagePair(pairForTestLanguage(opt, testLanguagePair));
+                      setLanguagePickerOpen(false);
+                    }}
+                    style={{ paddingHorizontal: 20, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: selected ? accentPurpleSoft : "transparent", borderBottomWidth: idx === TEST_LANGUAGES.length - 1 ? 0 : 1, borderBottomColor: theme.colors.border }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                      <Text style={{ fontSize: 24 }}>{TEST_LANGUAGE_FLAGS[opt] ?? LANGUAGE_GLOBE_FALLBACK}</Text>
+                      <Text style={{ fontSize: 15, color: theme.colors.text, fontWeight: selected ? "700" : "400" }}>{opt}</Text>
+                    </View>
+                    {selected && <Ionicons name="checkmark" size={18} color={accentPurple} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

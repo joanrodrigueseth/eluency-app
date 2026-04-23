@@ -28,7 +28,7 @@ export type LessonGamePayload = {
   gradeRange?: string;
   /** ISO timestamp from DB — used to bust image cache when lesson (or assets) change. */
   updated_at?: string;
-  cover_image_url?: string;
+  cover_image_url?: string | null;
   /** Teacher-selected lesson language from dashboard (e.g. German); refines display labels with language_pair. */
   language?: string | null;
   /** e.g. en-pt, en-es — controls display labels (pt column = lang A, en column = lang B). */
@@ -62,7 +62,7 @@ export type TestGamePayload = {
   name: string;
   /** ISO timestamp — busts cover / word image cache after edits. */
   updated_at?: string;
-  cover_image_url?: string;
+  cover_image_url?: string | null;
   words: Array<{
     pt?: string;
     en?: string;

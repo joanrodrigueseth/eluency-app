@@ -678,6 +678,11 @@ export default function StudyGameScreen() {
             : showMcq
               ? "Multiple Choice"
               : "Translate";
+  const hidePromptHeaderForImageMode =
+    sessionMode === "image" &&
+    sessionType !== "test" &&
+    !isConjugationTable &&
+    !isConjugationDrill;
 
   const getWordStat = useCallback(
     (word: GameWord) => {
@@ -3425,7 +3430,7 @@ export default function StudyGameScreen() {
                       />
                     </View>
                   </>
-                ) : (
+                ) : hidePromptHeaderForImageMode ? null : (
                   <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 10, paddingHorizontal: 4 }}>
                     <Text
                       style={{
