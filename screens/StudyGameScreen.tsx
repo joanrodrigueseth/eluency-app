@@ -23,6 +23,7 @@ import {
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { Asset } from "expo-asset";
 import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
