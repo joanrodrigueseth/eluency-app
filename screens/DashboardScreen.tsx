@@ -9,6 +9,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Linking,
   Modal,
   ScrollView,
   Text,
@@ -152,6 +153,22 @@ type DashboardSummaryResponse = {
   teacherCapacity: TeacherCapacityItem[];
   studentAccessCodes: { studentId: string; code: string }[];
   error?: string;
+};
+
+type DashboardAnnouncement = {
+  id: string;
+  title: string;
+  body: string;
+  audience: "teachers" | "principals" | "all";
+  pdf_url: string | null;
+  cta_url: string | null;
+  cta_label: string;
+  status: "draft" | "active" | "scheduled" | "expired";
+  priority: "normal" | "high";
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
  
 function formatDateTime(dateIso?: string | null) {
@@ -652,18 +669,34 @@ export default function DashboardScreen() {
   const headerTranslateY = useRef(new Animated.Value(0)).current;
  
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [dashboardAnnouncements, setDashboardAnnouncements] = useState<DashboardAnnouncement[]>([]);
+  const [sessionClosedAnnouncementIds, setSessionClosedAnnouncementIds] = useState<string[]>([]);
+  const [announcementModalBusy, setAnnouncementModalBusy] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      (supabase.from("teacher_notifications") as any)
-        .select("id", { count: "exact", head: true })
-        .is("read_at", null)
-        .then(({ count }: { count: number | null }) => {
-          if (active) setUnreadNotifCount(count ?? 0);
-        });
+      (async () => {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) return;
+          const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/notifications`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+            },
+          });
+          const result = (await response.json().catch(() => ({}))) as { unreadCount?: number };
+          if (active) setUnreadNotifCount(result.unreadCount ?? 0);
+        } catch {
+          if (active) setUnreadNotifCount(0);
+        }
+      })();
       return () => { active = false; };
-    }, [])
+    }, [apiBaseUrl])
   );
 
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
@@ -700,6 +733,10 @@ export default function DashboardScreen() {
   const isCompactPhone = drawerWidth < 420;
  
   const isStudentMode = !!sessionId;
+  const visibleDashboardAnnouncement = useMemo(
+    () => dashboardAnnouncements.find((announcement) => !sessionClosedAnnouncementIds.includes(announcement.id)) ?? null,
+    [dashboardAnnouncements, sessionClosedAnnouncementIds]
+  );
 
   const animatedLessonsCount = useCountUp(lessonsCount);
   const animatedTestsCount = useCountUp(testsCount);
@@ -990,7 +1027,87 @@ export default function DashboardScreen() {
       isMounted = false;
     };
   }, [apiBaseUrl, isStudentMode, navigation, sessionId]);
- 
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAnnouncements() {
+      if (isStudentMode || loading || fatalError) return;
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+
+        const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/announcements`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache",
+          },
+        });
+        const result = (await response.json().catch(() => ({}))) as {
+          announcements?: DashboardAnnouncement[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error || "Unable to load announcements.");
+        if (!active) return;
+        setDashboardAnnouncements(Array.isArray(result.announcements) ? result.announcements : []);
+        setSessionClosedAnnouncementIds([]);
+      } catch {
+        if (!active) return;
+        setDashboardAnnouncements([]);
+      }
+    }
+
+    loadAnnouncements();
+    return () => {
+      active = false;
+    };
+  }, [apiBaseUrl, fatalError, isStudentMode, loading]);
+
+  const dismissAnnouncement = useCallback(
+    async (announcementId: string, dismissalType: "close_session" | "do_not_show_again") => {
+      if (!announcementId || announcementModalBusy) return;
+      setAnnouncementModalBusy(true);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/announcements/${announcementId}/dismiss`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ dismissal_type: dismissalType }),
+          }).catch(() => {});
+        }
+
+        if (dismissalType === "do_not_show_again") {
+          setDashboardAnnouncements((prev) => prev.filter((announcement) => announcement.id !== announcementId));
+        } else {
+          setSessionClosedAnnouncementIds((prev) => (prev.includes(announcementId) ? prev : [...prev, announcementId]));
+        }
+      } finally {
+        setAnnouncementModalBusy(false);
+      }
+    },
+    [announcementModalBusy, apiBaseUrl]
+  );
+
+  const openAnnouncementUrl = useCallback(async (url: string | null | undefined) => {
+    const target = typeof url === "string" ? url.trim() : "";
+    if (!target) return;
+    try {
+      await Linking.openURL(target);
+    } catch {
+      Alert.alert("Link", target);
+    }
+  }, []);
+
   const animateDrawer = (toValue: number, onDone?: () => void) => {
     Animated.parallel([
       Animated.spring(drawerAnim, {
@@ -2554,6 +2671,148 @@ export default function DashboardScreen() {
                   );
                 })()}
               </GlassCard>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        visible={!isStudentMode && !!visibleDashboardAnnouncement}
+        animationType="fade"
+        onRequestClose={() => {
+          if (visibleDashboardAnnouncement) dismissAnnouncement(visibleDashboardAnnouncement.id, "close_session");
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.52)", justifyContent: "center", paddingHorizontal: 20 }}>
+          <View
+            style={{
+              borderRadius: 28,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              backgroundColor: theme.colors.surface,
+              overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: 0.18,
+              shadowRadius: 22,
+              shadowOffset: { width: 0, height: 12 },
+              elevation: 10,
+            }}
+          >
+            <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="megaphone-outline" size={20} color={theme.colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
+                      {visibleDashboardAnnouncement?.priority === "high" ? "High Priority" : "Announcement"}
+                    </Text>
+                    <Text style={[theme.typography.title, { marginTop: 4, fontSize: 22, lineHeight: 28 }]}>
+                      {visibleDashboardAnnouncement?.title}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => visibleDashboardAnnouncement && dismissAnnouncement(visibleDashboardAnnouncement.id, "close_session")}
+                  style={{ width: 34, height: 34, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <Text style={[theme.typography.body, { marginTop: 14, color: theme.colors.textMuted, lineHeight: 22 }]}>
+                {visibleDashboardAnnouncement?.body}
+              </Text>
+            </View>
+
+            <View style={{ padding: 20, gap: 12 }}>
+              {visibleDashboardAnnouncement?.pdf_url ? (
+                <TouchableOpacity
+                  onPress={() => openAnnouncementUrl(visibleDashboardAnnouncement.pdf_url)}
+                  activeOpacity={0.85}
+                  style={{
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    paddingHorizontal: 14,
+                    paddingVertical: 14,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                    <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name="document-text-outline" size={18} color={theme.colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]}>View attachment</Text>
+                      <Text style={[theme.typography.caption, { marginTop: 2, color: theme.colors.textMuted }]}>Open PDF</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="open-outline" size={16} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              ) : null}
+
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <TouchableOpacity
+                  onPress={() => visibleDashboardAnnouncement && dismissAnnouncement(visibleDashboardAnnouncement.id, "close_session")}
+                  disabled={announcementModalBusy}
+                  style={{
+                    flex: 1,
+                    minWidth: 120,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 13,
+                    opacity: announcementModalBusy ? 0.7 : 1,
+                  }}
+                >
+                  <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]}>Close</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => visibleDashboardAnnouncement && dismissAnnouncement(visibleDashboardAnnouncement.id, "do_not_show_again")}
+                  disabled={announcementModalBusy}
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceAlt,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 13,
+                    opacity: announcementModalBusy ? 0.7 : 1,
+                  }}
+                >
+                  <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]}>Do not show again</Text>
+                </TouchableOpacity>
+
+                {visibleDashboardAnnouncement?.cta_url ? (
+                  <TouchableOpacity
+                    onPress={() => openAnnouncementUrl(visibleDashboardAnnouncement.cta_url)}
+                    style={{
+                      flexBasis: "100%",
+                      borderRadius: 14,
+                      backgroundColor: theme.colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingVertical: 14,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.primaryText, fontSize: 15, fontWeight: "800" }}>
+                      {visibleDashboardAnnouncement.cta_label?.trim() || "Go to offer"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           </View>
         </View>

@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
+import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -73,6 +74,7 @@ export default function NotificationsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
 
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -100,15 +102,29 @@ export default function NotificationsScreen() {
 
   const allTabSelected = tabNotifications.length > 0 && tabNotifications.every((n) => selectedIds.has(n.id));
 
+  const authedFetch = async (path: string, init?: RequestInit) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error("Not authenticated.");
+    return fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  };
+
   const loadNotifications = async () => {
     setLoading(true);
     try {
-      const { data, error } = await (supabase.from("teacher_notifications") as any)
-        .select("id, type, title, body, metadata, read_at, created_at")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      setNotifications((data ?? []) as NotificationRow[]);
+      const response = await authedFetch("/api/notifications");
+      const result = (await response.json().catch(() => ({}))) as { notifications?: NotificationRow[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Failed to load notifications.");
+      setNotifications((result.notifications ?? []) as NotificationRow[]);
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to load notifications.");
     } finally {
@@ -145,10 +161,9 @@ export default function NotificationsScreen() {
   const markRead = async (id: string) => {
     try {
       const now = new Date().toISOString();
-      const { error } = await (supabase.from("teacher_notifications") as any)
-        .update({ read_at: now })
-        .eq("id", id);
-      if (error) throw error;
+      const response = await authedFetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Failed to mark as read.");
       setNotifications((prev) => prev.map((item) => (item.id === id ? { ...item, read_at: now } : item)));
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to mark as read.");
@@ -162,10 +177,9 @@ export default function NotificationsScreen() {
     setWorking(true);
     try {
       const now = new Date().toISOString();
-      const { error } = await (supabase.from("teacher_notifications") as any)
-        .update({ read_at: now })
-        .in("id", unreadIds);
-      if (error) throw error;
+      const response = await authedFetch("/api/notifications", { method: "PATCH" });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Failed to mark all as read.");
       setNotifications((prev) => prev.map((item) => ({ ...item, read_at: item.read_at ?? now })));
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to mark all as read.");
@@ -177,8 +191,12 @@ export default function NotificationsScreen() {
   const deleteNotification = async (id: string) => {
     setDeletingId(id);
     try {
-      const { error } = await (supabase.from("teacher_notifications") as any).delete().eq("id", id);
-      if (error) throw error;
+      const response = await authedFetch("/api/notifications", {
+        method: "DELETE",
+        body: JSON.stringify({ ids: [id] }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Failed to delete notification.");
       setNotifications((prev) => prev.filter((item) => item.id !== id));
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to delete notification.");
@@ -201,8 +219,12 @@ export default function NotificationsScreen() {
             setWorking(true);
             try {
               const ids = Array.from(selectedIds);
-              const { error } = await (supabase.from("teacher_notifications") as any).delete().in("id", ids);
-              if (error) throw error;
+              const response = await authedFetch("/api/notifications", {
+                method: "DELETE",
+                body: JSON.stringify({ ids }),
+              });
+              const result = (await response.json().catch(() => ({}))) as { error?: string };
+              if (!response.ok) throw new Error(result.error || "Failed to delete.");
               setNotifications((prev) => prev.filter((n) => !selectedIds.has(n.id)));
               setSelectedIds(new Set());
               setSelectMode(false);
