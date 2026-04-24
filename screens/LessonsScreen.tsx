@@ -1953,6 +1953,11 @@ export default function LessonsScreen() {
                   const packEntries = packMap[lesson.id] ?? [];
                   const packNames = packEntries.map((pack) => pack.title);
                   const showSelectedCategory = packFilter !== "all";
+                  const lessonCategories = categoryMap[lesson.id] ?? [];
+                  const categoryLabel = showSelectedCategory
+                    ? packFilter
+                    : lessonCategories[0] ?? null;
+                  const createdLabel = formatDate(lesson.created_at);
                   const isSelected = selectedLessonIds.includes(lesson.id);
                   return viewMode === "list" ? (
                     <FadeInSection key={lesson.id} delay={210 + index * 35}>
@@ -1981,18 +1986,92 @@ export default function LessonsScreen() {
                             >
                               {lesson.title ?? "Untitled"}
                             </Text>
-                            {showSelectedCategory ? (
-                              <Text
+                            {(categoryLabel || languageBadge || createdLabel) ? (
+                              <View
                                 style={{
-                                  marginTop: 4,
-                                  fontSize: 12,
-                                  lineHeight: 16,
-                                  color: theme.colors.textMuted,
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  marginTop: 6,
                                 }}
-                                numberOfLines={1}
                               >
-                                {packFilter}
-                              </Text>
+                                {categoryLabel ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT,
+                                      borderWidth: 1,
+                                      borderColor: theme.isDark ? theme.colors.border : "#F4DB88",
+                                      marginRight: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "800",
+                                        color: theme.isDark ? theme.colors.text : "#9A7400",
+                                      }}
+                                      numberOfLines={1}
+                                    >
+                                      {categoryLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
+                                {languageBadge ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      borderWidth: 1,
+                                      borderColor: languagePillColors.borderColor,
+                                      backgroundColor: languagePillColors.backgroundColor,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      marginRight: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "900",
+                                        color: languagePillColors.textColor,
+                                        letterSpacing: 0.2,
+                                      }}
+                                    >
+                                      {languageBadge}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
+                                {createdLabel ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      backgroundColor: theme.colors.surfaceAlt,
+                                      borderWidth: 1,
+                                      borderColor: theme.colors.border,
+                                      marginRight: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "700",
+                                        color: theme.colors.textMuted,
+                                      }}
+                                    >
+                                      {createdLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
                             ) : null}
                           </View>
 
@@ -2184,6 +2263,40 @@ export default function LessonsScreen() {
                                 >
                                   {lesson.title ?? "Untitled"}
                                 </Text>
+                              </View>
+
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  marginTop: 4,
+                                }}
+                              >
+                                {categoryLabel ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT,
+                                      borderWidth: 1,
+                                      borderColor: theme.isDark ? theme.colors.border : "#F4DB88",
+                                      marginRight: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "800",
+                                        color: theme.isDark ? theme.colors.text : "#9A7400",
+                                      }}
+                                    >
+                                      {categoryLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
 
                                 {languageBadge ? (
                                   <View
@@ -2193,7 +2306,9 @@ export default function LessonsScreen() {
                                       borderColor: languagePillColors.borderColor,
                                       backgroundColor: languagePillColors.backgroundColor,
                                       paddingHorizontal: 9,
-                                      paddingVertical: 5,
+                                      paddingVertical: 4,
+                                      marginRight: 8,
+                                      marginBottom: 4,
                                     }}
                                   >
                                     <Text
@@ -2208,16 +2323,32 @@ export default function LessonsScreen() {
                                     </Text>
                                   </View>
                                 ) : null}
-                              </View>
 
-                              <View
-                                style={{
-                                  flexDirection: "row",
-                                  alignItems: "center",
-                                  flexWrap: "wrap",
-                                  marginTop: 4,
-                                }}
-                              >
+                                {createdLabel ? (
+                                  <View
+                                    style={{
+                                      borderRadius: 999,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 4,
+                                      backgroundColor: theme.colors.surfaceAlt,
+                                      borderWidth: 1,
+                                      borderColor: theme.colors.border,
+                                      marginRight: 8,
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: "700",
+                                        color: theme.colors.textMuted,
+                                      }}
+                                    >
+                                      {createdLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
                                 {lesson.language_level ? (
                                   <View
                                     style={{

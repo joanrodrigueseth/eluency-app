@@ -102,6 +102,16 @@ export default function NotificationsScreen() {
 
   const allTabSelected = tabNotifications.length > 0 && tabNotifications.every((n) => selectedIds.has(n.id));
 
+  useEffect(() => {
+    if (systemUnread > 0 && activeTab !== "system") {
+      setActiveTab("system");
+      return;
+    }
+    if (studentNotifications.length === 0 && systemNotifications.length > 0 && activeTab !== "system") {
+      setActiveTab("system");
+    }
+  }, [activeTab, studentNotifications.length, systemNotifications.length, systemUnread]);
+
   const authedFetch = async (path: string, init?: RequestInit) => {
     const {
       data: { session },

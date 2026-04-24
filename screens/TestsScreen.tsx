@@ -52,6 +52,7 @@ type TestRow = {
   id: string;
   name: string | null;
   type: string | null;
+  created_at?: string | null;
   cover_image_url?: string | null;
   status?: string | null;
   description?: string | null;
@@ -76,6 +77,17 @@ const DARK_ACTION_TEXT = "#CFE6FF";
 const DARK_FILTER_BG = "#1A3147";
 const DARK_FILTER_BORDER = "#2E5C82";
 const DARK_FILTER_TEXT = "#CFE6FF";
+
+function formatCreatedDate(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 function GlowOrb({
   size,
@@ -250,8 +262,8 @@ export default function TestsScreen() {
       setPlanRaw((teacherRow as { plan?: string | null } | null)?.plan ?? null);
 
       const select = admin
-        ? "id, name, type, cover_image_url, status, description, teacher_id, config_json, teachers(name)"
-        : "id, name, type, cover_image_url, status, description, teacher_id, config_json";
+        ? "id, name, type, created_at, cover_image_url, status, description, teacher_id, config_json, teachers(name)"
+        : "id, name, type, created_at, cover_image_url, status, description, teacher_id, config_json";
       let query = (supabase.from("tests") as any).select(select).order("created_at", { ascending: false });
       if (!admin) {
         query = query.eq("teacher_id", user.id);
@@ -432,6 +444,7 @@ export default function TestsScreen() {
       const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
       const busy = actionLoadingId === test.id;
       const accentColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
+      const createdLabel = formatCreatedDate(test.created_at);
 
       return (
         <ScreenReveal key={test.id} delay={index * 45}>
@@ -478,9 +491,16 @@ export default function TestsScreen() {
                 )}
 
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={{ fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
-                    {test.name ?? "Untitled"}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ flex: 1, fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                      {test.name ?? "Untitled"}
+                    </Text>
+                    {createdLabel ? (
+                      <Text style={{ fontSize: 10, color: theme.colors.textMuted }} numberOfLines={1}>
+                        {createdLabel}
+                      </Text>
+                    ) : null}
+                  </View>
                   <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
                     <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, paddingHorizontal: 7, paddingVertical: 3 }}>
                       <Text style={{ fontSize: 9, fontWeight: "900", color: accentColor }}>{wordCount}W</Text>
@@ -489,22 +509,24 @@ export default function TestsScreen() {
                       <Text style={{ fontSize: 9, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
                     </View>
                     <View style={{ flex: 1 }} />
-                    {canManage ? (
-                      <>
-                        <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
-                          <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
-                          <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {canManage ? (
+                        <>
+                          <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                            <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
+                            <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
+                            {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
-                          {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                        <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
-                      </TouchableOpacity>
-                    )}
+                      )}
+                    </View>
                   </View>
                 </View>
               </View>
@@ -855,6 +877,7 @@ export default function TestsScreen() {
                 const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
                 const busy = actionLoadingId === test.id;
                 const accentColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
+                const createdLabel = formatCreatedDate(test.created_at);
 
                 return (
                   <ScreenReveal key={test.id} delay={index * 45}>
@@ -896,9 +919,16 @@ export default function TestsScreen() {
                           )}
 
                           <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={{ fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
-                              {test.name ?? "Untitled"}
-                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <Text style={{ flex: 1, fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
+                                {test.name ?? "Untitled"}
+                              </Text>
+                              {createdLabel ? (
+                                <Text style={{ fontSize: 10, color: theme.colors.textMuted }} numberOfLines={1}>
+                                  {createdLabel}
+                                </Text>
+                              ) : null}
+                            </View>
                             <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
                               <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, paddingHorizontal: 7, paddingVertical: 3 }}>
                                 <Text style={{ fontSize: 9, fontWeight: "900", color: accentColor }}>{wordCount}W</Text>
@@ -907,22 +937,24 @@ export default function TestsScreen() {
                                 <Text style={{ fontSize: 9, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
                               </View>
                               <View style={{ flex: 1 }} />
-                              {canManage ? (
-                                <>
-                                  <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
-                                    <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
-                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                {canManage ? (
+                                  <>
+                                    <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
+                                      <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
+                                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
+                                      {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
+                                    </TouchableOpacity>
+                                  </>
+                                ) : (
+                                  <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                                    <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
+                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
                                   </TouchableOpacity>
-                                  <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
-                                    {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
-                                  </TouchableOpacity>
-                                </>
-                              ) : (
-                                <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                                  <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
-                                  <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
-                                </TouchableOpacity>
-                              )}
+                                )}
+                              </View>
                             </View>
                           </View>
                         </View>
