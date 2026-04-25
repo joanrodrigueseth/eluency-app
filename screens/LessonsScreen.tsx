@@ -9,11 +9,13 @@ import {
   Alert,
   Animated,
   Easing,
+  FlatList,
   Image,
   LayoutAnimation,
   Linking,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -40,7 +42,8 @@ import { useAppTheme } from "../lib/theme";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ThemeToggleButton from "../components/ThemeToggleButton";
-import SkeletonLoader from "../components/SkeletonLoader";
+import { SkeletonBox } from "../components/SkeletonLoader";
+import ScreenHeader, { useScreenHeaderHeight } from "../components/ScreenHeader";
 
 export type RootLessonsStackParams = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
@@ -238,6 +241,7 @@ function FadeInSection({
 }
 
 function GlowOrb({ size, color, top, left, right, bottom, translate }: { size: number; color: string; top?: number; left?: number; right?: number; bottom?: number; translate: Animated.Value }) {
+  return null;
   return (
     <Animated.View
       pointerEvents="none"
@@ -315,10 +319,11 @@ function FilterPickerModal({
         style={{
           flex: 1,
           backgroundColor: "rgba(0,0,0,0.45)",
-          justifyContent: "center",
+          justifyContent: "flex-end",
           alignItems: "center",
           paddingHorizontal: 20,
-          paddingVertical: 28,
+          paddingTop: 28,
+          paddingBottom: 18,
         }}
         activeOpacity={1}
         onPress={onClose}
@@ -326,7 +331,10 @@ function FilterPickerModal({
         <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 620 }}>
           <View style={{
             backgroundColor: theme.colors.surface,
-            borderRadius: 24,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            borderBottomLeftRadius: 18,
+            borderBottomRightRadius: 18,
             paddingBottom: 16,
             borderWidth: 1,
             borderColor: theme.colors.border,
@@ -427,7 +435,6 @@ export default function LessonsScreen() {
   const [categoryMap, setCategoryMap] = useState<Record<string, string[]>>({});
   const [allPacks, setAllPacks] = useState<{ id: string; title: string }[]>([]);
   const [languageFilter, setLanguageFilter] = useState("all");
-  const [packFilter, setPackFilter] = useState("all");
   const [levelFilters, setLevelFilters] = useState<string[]>([]);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
   const [duplicateLoadingId, setDuplicateLoadingId] = useState<string | null>(null);
@@ -441,11 +448,12 @@ export default function LessonsScreen() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
-  const [packPickerOpen, setPackPickerOpen] = useState(false);
   const [levelPickerOpen, setLevelPickerOpen] = useState(false);
   const [bulkTeacherPickerOpen, setBulkTeacherPickerOpen] = useState(false);
   const [bulkLanguagePickerOpen, setBulkLanguagePickerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const heroGlow = useRef(new Animated.Value(0.7)).current;
@@ -453,6 +461,7 @@ export default function LessonsScreen() {
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const modalScale = useRef(new Animated.Value(0.96)).current;
+  const sharedHeaderHeight = useScreenHeaderHeight();
 
   const canManage = useMemo(() => {
     const r = role.toLowerCase().trim();
@@ -672,6 +681,15 @@ export default function LessonsScreen() {
     }
   }, []);
 
+  const refreshLessons = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadLessons();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadLessons]);
+
   useFocusEffect(
     useCallback(() => {
       loadLessons();
@@ -736,15 +754,11 @@ export default function LessonsScreen() {
         languageFilter === "all" ||
         (lesson.language ?? "").trim() === languageFilter;
 
-      const matchesPack =
-        packFilter === "all" ||
-        (categoryMap[lesson.id] ?? []).includes(packFilter);
-
       const matchesLevel =
         levelFilters.length === 0 ||
         levelFilters.includes((lesson.language_level ?? "").trim());
 
-      return matchesSearch && matchesLanguage && matchesPack && matchesLevel;
+      return matchesSearch && matchesLanguage && matchesLevel;
     });
 
     return filteredLessons.sort((a, b) => {
@@ -754,11 +768,11 @@ export default function LessonsScreen() {
       if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
       return 0;
     });
-  }, [languageFilter, packFilter, levelFilters, categoryMap, packMap, lessonsForView, searchTerm, sortDirection, sortKey]);
+  }, [languageFilter, levelFilters, packMap, lessonsForView, searchTerm, sortDirection, sortKey]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, teacherView, languageFilter, packFilter, levelFilters, lessonsForView.length]);
+  }, [searchTerm, teacherView, languageFilter, levelFilters, lessonsForView.length]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -1015,12 +1029,75 @@ export default function LessonsScreen() {
     );
   };
 
-  const topBarHeight = Math.max(insets.top, 8) + 62;
+  const topBarHeight = sharedHeaderHeight;
 
   if (loading && lessons.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LIGHT_BG }}>
-        <SkeletonLoader count={6} />
+        <ScreenHeader
+          title="Lessons"
+          eyebrow="Library"
+          showBack
+          onBack={() => navigation.navigate("Dashboard", { openDrawer: true })}
+          rightElement={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <ThemeToggleButton />
+              <View style={{ height: 42, width: 42, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }} />
+              {canManage ? (
+                <View style={{ height: 42, width: 68, borderRadius: 12, backgroundColor: theme.isDark ? darkActionBg : PRIMARY }} />
+              ) : null}
+            </View>
+          }
+        />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingTop: topBarHeight + 14,
+            paddingHorizontal: 20,
+            paddingBottom: 42,
+          }}
+        >
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <SkeletonBox width={38} height={38} radius={10} />
+              <View style={{ flex: 1 }}>
+                <SkeletonBox width="46%" height={18} radius={9} />
+                <SkeletonBox width="72%" height={11} radius={6} style={{ marginTop: 8 }} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+              {[0, 1, 2].map((item) => (
+                <SkeletonBox key={`lesson-skeleton-stat-${item}`} width="31%" height={58} radius={14} style={{ flex: 1 }} />
+              ))}
+            </View>
+          </GlassCard>
+
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
+            <SkeletonBox width="100%" height={44} radius={12} />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+            </View>
+          </GlassCard>
+
+          {[0, 1, 2, 3].map((item) => (
+            <GlassCard key={`lesson-skeleton-row-${item}`} style={{ borderRadius: 16, marginBottom: 10 }} padding={10}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <SkeletonBox width={58} height={58} radius={14} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <SkeletonBox width="66%" height={16} radius={8} />
+                  <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
+                    <SkeletonBox width={68} height={22} radius={11} />
+                    <SkeletonBox width={82} height={22} radius={11} />
+                    <SkeletonBox width={44} height={22} radius={11} />
+                  </View>
+                </View>
+                <SkeletonBox width={36} height={36} radius={12} style={{ marginLeft: 8 }} />
+              </View>
+            </GlassCard>
+          ))}
+        </ScrollView>
       </View>
     );
   }
@@ -1033,6 +1110,7 @@ export default function LessonsScreen() {
     >
       <Animated.View
         style={{
+          display: "none",
           position: "absolute",
           top: 12,
           right: -70,
@@ -1047,6 +1125,7 @@ export default function LessonsScreen() {
       />
       <Animated.View
         style={{
+          display: "none",
           position: "absolute",
           bottom: 90,
           left: -70,
@@ -1060,7 +1139,57 @@ export default function LessonsScreen() {
         pointerEvents="none"
       />
 
-      <Animated.View
+      <ScreenHeader
+        title="Lessons"
+        eyebrow="Library"
+        showBack
+        onBack={() => navigation.navigate("Dashboard", { openDrawer: true })}
+        rightElement={
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <ThemeToggleButton />
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Notifications")}
+              activeOpacity={0.85}
+              style={{
+                height: 42,
+                width: 42,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.surfaceGlass,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+            {canManage ? (
+              <PressableScale
+                onPress={() => navigation.navigate("LessonForm")}
+                style={{
+                  height: 42,
+                  borderRadius: 12,
+                  backgroundColor: theme.isDark ? darkActionBg : PRIMARY,
+                  borderWidth: theme.isDark ? 1 : 0,
+                  borderColor: theme.isDark ? darkActionBorder : "transparent",
+                  paddingHorizontal: 12,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexDirection: "row",
+                  gap: 5,
+                }}
+              >
+                <Ionicons name="add" size={15} color={theme.isDark ? darkActionText : theme.colors.primaryText} />
+                <Text style={{ color: theme.isDark ? darkActionText : theme.colors.primaryText, fontWeight: "900", fontSize: 12 }}>
+                  New
+                </Text>
+              </PressableScale>
+            ) : null}
+          </View>
+        }
+      />
+
+      {false ? <Animated.View
         style={{
           opacity: headerOpacity,
           position: "absolute",
@@ -1156,21 +1285,27 @@ export default function LessonsScreen() {
             </Text>
           </PressableScale>
         ) : null}
-      </Animated.View>
+      </Animated.View> : null}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshLessons}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
         contentContainerStyle={{
           paddingTop: topBarHeight + 14,
           paddingHorizontal: 20,
-          paddingBottom: 42,
+          paddingBottom: isAdmin && showBulkActions ? 150 : 42,
         }}
       >
         <FadeInSection delay={20}>
           <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16}>
             <View style={{ position: "relative", overflow: "hidden" }}>
-              <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT} top={-50} right={-18} translate={heroGlowOne} />
-              <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <IconTile icon="library-outline" size={38} iconSize={20} radius={10} backgroundColor={theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT} borderColor={theme.isDark ? theme.colors.primary : PRIMARY_BORDER} color={theme.isDark ? theme.colors.primary : PRIMARY} />
                 <View style={{ flex: 1 }}>
@@ -1378,7 +1513,7 @@ export default function LessonsScreen() {
               </View>
             ) : null}
 
-            {isAdmin && showBulkActions ? (
+            {false && isAdmin && showBulkActions ? (
               <View
                 style={{
                   marginBottom: 14,
@@ -1628,7 +1763,7 @@ export default function LessonsScreen() {
             <View style={{ flexDirection: "row", gap: 8 }}>
               {/* Language picker trigger */}
               <TouchableOpacity
-                onPress={() => setLanguagePickerOpen(true)}
+                onPress={() => setFilterSheetOpen(true)}
                 activeOpacity={0.8}
                 style={{
                   flex: 1,
@@ -1649,32 +1784,9 @@ export default function LessonsScreen() {
                 <Ionicons name="chevron-down" size={12} color={languageFilter !== "all" ? (theme.isDark ? darkFilterText : theme.colors.primary) : theme.colors.textMuted} />
               </TouchableOpacity>
 
-              {/* Category picker trigger */}
-              <TouchableOpacity
-                onPress={() => setPackPickerOpen(true)}
-                activeOpacity={0.8}
-                style={{
-                  flex: 1,
-                  paddingHorizontal: 10,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: packFilter !== "all" ? (theme.isDark ? darkFilterBorder : theme.colors.primary) : theme.colors.border,
-                  backgroundColor: packFilter !== "all" ? (theme.isDark ? darkFilterBg : theme.colors.primarySoft) : theme.colors.surfaceAlt,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "700", color: packFilter !== "all" ? (theme.isDark ? darkFilterText : theme.colors.primary) : theme.colors.text, flex: 1 }} numberOfLines={1}>
-                  {packFilter === "all" ? "Category" : packFilter}
-                </Text>
-                <Ionicons name="chevron-down" size={12} color={packFilter !== "all" ? (theme.isDark ? darkFilterText : theme.colors.primary) : theme.colors.textMuted} />
-              </TouchableOpacity>
-
               {/* Level/sort picker trigger */}
               <TouchableOpacity
-                onPress={() => setLevelPickerOpen(true)}
+                onPress={() => setFilterSheetOpen(true)}
                 activeOpacity={0.8}
                 style={{
                   flex: 1,
@@ -1942,43 +2054,105 @@ export default function LessonsScreen() {
                   </View>
                 </View>
 
-                {pagedLessons.map((lesson, index) => {
+                <FlatList
+                  data={pagedLessons}
+                  scrollEnabled={false}
+                  keyExtractor={(lesson) => lesson.id}
+                  renderItem={({ item: lesson, index }) => {
                   const accent = getLessonAccent(index);
                   const languageBadge = getLanguageBadge(lesson.language);
                   const languageBadgeColors = getLanguageBadgeColors(languageBadge);
                   const languagePillColors = theme.isDark
                     ? getDarkLanguagePillColors(languageBadge, theme)
                     : languageBadgeColors;
-                  const descriptionPreview = truncate(lesson.description, 112);
-                  const packEntries = packMap[lesson.id] ?? [];
-                  const packNames = packEntries.map((pack) => pack.title);
-                  const showSelectedCategory = packFilter !== "all";
-                  const lessonCategories = categoryMap[lesson.id] ?? [];
-                  const categoryLabel = showSelectedCategory
-                    ? packFilter
-                    : lessonCategories[0] ?? null;
                   const createdLabel = formatDate(lesson.created_at);
+                  const levelLabel = (lesson.language_level ?? "").trim().toUpperCase();
+                  const gradeLabel = (lesson.grade_range ?? "").trim();
+                  const languageLabel = languageBadge || (lesson.language ?? "").trim();
                   const isSelected = selectedLessonIds.includes(lesson.id);
                   return viewMode === "list" ? (
                     <FadeInSection key={lesson.id} delay={210 + index * 35}>
-                      <View
+                      <PressableScale
+                        onPress={() =>
+                          navigation.navigate("LessonForm", {
+                            lessonId: lesson.id,
+                          })
+                        }
                         style={{
                           marginBottom: 10,
                           borderRadius: 16,
                           borderWidth: 1,
                           borderColor: theme.colors.border,
                           backgroundColor: theme.isDark ? theme.colors.surface : theme.colors.surfaceAlt,
-                          paddingHorizontal: 12,
-                          paddingVertical: 12,
+                          padding: 10,
                           opacity: deleteLoadingId === lesson.id || duplicateLoadingId === lesson.id ? 0.7 : 1,
                         }}
                       >
                         <View style={{ flexDirection: "row", alignItems: "center" }}>
-                          <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                          {isAdmin && showBulkActions ? (
+                            <TouchableOpacity
+                              onPress={() => toggleLessonSelection(lesson.id)}
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY) : theme.colors.border,
+                                backgroundColor: isSelected ? (theme.isDark ? theme.colors.primarySoft : PRIMARY_SOFT) : theme.colors.surfaceAlt,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginRight: 10,
+                              }}
+                            >
+                              <Ionicons
+                                name={isSelected ? "checkmark" : "add"}
+                                size={15}
+                                color={isSelected ? (theme.isDark ? theme.colors.primary : PRIMARY) : theme.colors.textMuted}
+                              />
+                            </TouchableOpacity>
+                          ) : null}
+
+                          {lesson.cover_image_url?.trim() ? (
+                            <Image
+                              source={{ uri: lesson.cover_image_url.trim() }}
+                              style={{
+                                width: 58,
+                                height: 58,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: theme.isDark ? theme.colors.borderStrong : accent.border,
+                                backgroundColor: theme.colors.surfaceAlt,
+                                marginRight: 12,
+                              }}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View
+                              style={{
+                                width: 58,
+                                height: 58,
+                                borderRadius: 14,
+                                borderWidth: 1,
+                                borderColor: theme.isDark ? theme.colors.borderStrong : accent.border,
+                                backgroundColor: theme.isDark ? theme.colors.surfaceAlt : accent.bg,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginRight: 12,
+                              }}
+                            >
+                              <Ionicons
+                                name="book-outline"
+                                size={22}
+                                color={theme.isDark ? theme.colors.primary : accent.icon}
+                              />
+                            </View>
+                          )}
+
+                          <View style={{ flex: 1, minWidth: 0 }}>
                             <Text
                               style={{
-                                fontSize: 14,
-                                lineHeight: 18,
+                                fontSize: 15,
+                                lineHeight: 19,
                                 fontWeight: "900",
                                 color: theme.colors.text,
                               }}
@@ -1986,156 +2160,128 @@ export default function LessonsScreen() {
                             >
                               {lesson.title ?? "Untitled"}
                             </Text>
-                            {(categoryLabel || languageBadge || createdLabel) ? (
+
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                              marginTop: 7,
+                            }}
+                          >
+                            {languageLabel ? (
                               <View
                                 style={{
-                                  flexDirection: "row",
-                                  alignItems: "center",
-                                  flexWrap: "wrap",
-                                  marginTop: 6,
+                                  borderRadius: 999,
+                                  borderWidth: 1,
+                                  borderColor: languagePillColors.borderColor,
+                                  backgroundColor: languagePillColors.backgroundColor,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  marginRight: 6,
+                                  marginBottom: 4,
                                 }}
                               >
-                                {categoryLabel ? (
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT,
-                                      borderWidth: 1,
-                                      borderColor: theme.isDark ? theme.colors.border : "#F4DB88",
-                                      marginRight: 8,
-                                      marginBottom: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: "800",
-                                        color: theme.isDark ? theme.colors.text : "#9A7400",
-                                      }}
-                                      numberOfLines={1}
-                                    >
-                                      {categoryLabel}
-                                    </Text>
-                                  </View>
-                                ) : null}
+                                <Text style={{ fontSize: 10, fontWeight: "900", color: languagePillColors.textColor }}>
+                                  {languageLabel}
+                                </Text>
+                              </View>
+                            ) : null}
 
-                                {languageBadge ? (
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      borderWidth: 1,
-                                      borderColor: languagePillColors.borderColor,
-                                      backgroundColor: languagePillColors.backgroundColor,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      marginRight: 8,
-                                      marginBottom: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: "900",
-                                        color: languagePillColors.textColor,
-                                        letterSpacing: 0.2,
-                                      }}
-                                    >
-                                      {languageBadge}
-                                    </Text>
-                                  </View>
-                                ) : null}
+                            {createdLabel ? (
+                              <View
+                                style={{
+                                  borderRadius: 999,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  backgroundColor: theme.colors.surfaceAlt,
+                                  borderWidth: 1,
+                                  borderColor: theme.colors.border,
+                                  marginRight: 6,
+                                  marginBottom: 4,
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted }}>
+                                  {createdLabel}
+                                </Text>
+                              </View>
+                            ) : null}
 
-                                {createdLabel ? (
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: theme.colors.surfaceAlt,
-                                      borderWidth: 1,
-                                      borderColor: theme.colors.border,
-                                      marginRight: 8,
-                                      marginBottom: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: "700",
-                                        color: theme.colors.textMuted,
-                                      }}
-                                    >
-                                      {createdLabel}
-                                    </Text>
-                                  </View>
-                                ) : null}
+                            {levelLabel ? (
+                              <View
+                                style={{
+                                  borderRadius: 999,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  backgroundColor: theme.isDark ? theme.colors.surfaceAlt : "#F6F4FF",
+                                  borderWidth: 1,
+                                  borderColor: theme.colors.border,
+                                  marginRight: 6,
+                                  marginBottom: 4,
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: "900", color: theme.isDark ? theme.colors.text : VIOLET }}>
+                                  {levelLabel}
+                                </Text>
                               </View>
                             ) : null}
                           </View>
+                        </View>
 
-                          <PressableScale
-                            onPress={() =>
-                              navigation.navigate("LessonForm", {
-                                lessonId: lesson.id,
-                              })
-                            }
-                            style={{
-                              marginRight: 8,
-                              minWidth: 58,
-                              borderRadius: 10,
-                              backgroundColor: theme.isDark ? darkActionBg : PRIMARY,
-                              borderWidth: theme.isDark ? 1 : 0,
-                              borderColor: theme.isDark ? darkActionBorder : "transparent",
-                              paddingHorizontal: 12,
-                              paddingVertical: 9,
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                fontWeight: "900",
-                                color: theme.isDark ? darkActionText : theme.colors.primaryText,
-                              }}
-                            >
-                              Edit
-                            </Text>
-                          </PressableScale>
-
-                          <PressableScale
-                            disabled={deleteLoadingId === lesson.id}
-                            onPress={() => deleteLesson(lesson)}
-                            style={{
-                              borderRadius: 10,
-                              borderWidth: 1,
-                              borderColor: theme.colors.danger,
-                              backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : DANGER_SOFT,
-                              width: 38,
-                              height: 38,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              opacity: deleteLoadingId === lesson.id ? 0.6 : 1,
-                            }}
-                          >
-                            {deleteLoadingId === lesson.id ? (
-                              <Text
+                          {canManage ? (
+                            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8 }}>
+                              <PressableScale
+                                onPress={() =>
+                                  navigation.navigate("LessonForm", {
+                                    lessonId: lesson.id,
+                                  })
+                                }
                                 style={{
-                                  fontSize: 11,
-                                  fontWeight: "900",
-                                  color: theme.colors.danger,
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 12,
+                                  backgroundColor: theme.isDark ? darkActionBg : PRIMARY,
+                                  borderWidth: theme.isDark ? 1 : 0,
+                                  borderColor: theme.isDark ? darkActionBorder : "transparent",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  marginRight: 8,
                                 }}
                               >
-                                ...
-                              </Text>
-                            ) : (
-                              <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-                            )}
-                          </PressableScale>
+                                <Ionicons
+                                  name="create-outline"
+                                  size={16}
+                                  color={theme.isDark ? darkActionText : theme.colors.primaryText}
+                                />
+                              </PressableScale>
+
+                              <PressableScale
+                                disabled={deleteLoadingId === lesson.id}
+                                onPress={() => deleteLesson(lesson)}
+                                style={{
+                                  borderRadius: 12,
+                                  borderWidth: 1,
+                                  borderColor: theme.colors.danger,
+                                  backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : DANGER_SOFT,
+                                  width: 36,
+                                  height: 36,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  opacity: deleteLoadingId === lesson.id ? 0.6 : 1,
+                                }}
+                              >
+                                {deleteLoadingId === lesson.id ? (
+                                  <Text style={{ fontSize: 11, fontWeight: "900", color: theme.colors.danger }}>
+                                    ...
+                                  </Text>
+                                ) : (
+                                  <Ionicons name="trash-outline" size={15} color={theme.colors.danger} />
+                                )}
+                              </PressableScale>
+                            </View>
+                          ) : null}
                         </View>
-                      </View>
+                      </PressableScale>
                     </FadeInSection>
                   ) : (
                     <FadeInSection key={lesson.id} delay={210 + index * 55}>
@@ -2210,9 +2356,9 @@ export default function LessonsScreen() {
                               <Image
                                 source={{ uri: lesson.cover_image_url.trim() }}
                                 style={{
-                                  width: 56,
-                                  height: 56,
-                                  borderRadius: 18,
+                                  width: 64,
+                                  height: 64,
+                                  borderRadius: 16,
                                   borderWidth: 1,
                                   borderColor: theme.isDark ? theme.colors.borderStrong : accent.border,
                                   backgroundColor: theme.isDark ? theme.colors.surfaceAlt : undefined,
@@ -2223,9 +2369,9 @@ export default function LessonsScreen() {
                             ) : (
                               <View
                                 style={{
-                                  width: 56,
-                                  height: 56,
-                                  borderRadius: 18,
+                                  width: 64,
+                                  height: 64,
+                                  borderRadius: 16,
                                   borderWidth: 1,
                                   borderColor: theme.isDark ? theme.colors.borderStrong : accent.border,
                                   backgroundColor: theme.isDark ? theme.colors.surfaceAlt : accent.bg,
@@ -2257,12 +2403,52 @@ export default function LessonsScreen() {
                                     lineHeight: 20,
                                     fontWeight: "900",
                                     color: theme.colors.text,
-                                    paddingRight: 10,
+                                    paddingRight: canManage ? 8 : 0,
                                   }}
                                   numberOfLines={1}
                                 >
                                   {lesson.title ?? "Untitled"}
                                 </Text>
+
+                                {canManage ? (
+                                  <PressableScale
+                                    onPress={() =>
+                                      navigation.navigate("LessonForm", {
+                                        lessonId: lesson.id,
+                                      })
+                                    }
+                                    style={{
+                                      minWidth: 68,
+                                      borderRadius: 12,
+                                      backgroundColor: theme.isDark
+                                        ? darkActionBg
+                                        : PRIMARY,
+                                      borderWidth: theme.isDark ? 1 : 0,
+                                      borderColor: theme.isDark ? darkActionBorder : "transparent",
+                                      paddingHorizontal: 14,
+                                      paddingVertical: 8,
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    <Ionicons
+                                      name="create-outline"
+                                      size={14}
+                                      color={theme.isDark ? darkActionText : theme.colors.primaryText}
+                                      style={{ marginRight: 5 }}
+                                    />
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: "900",
+                                        color: theme.isDark ? darkActionText : theme.colors.primaryText,
+                                      }}
+                                    >
+                                      Edit
+                                    </Text>
+                                  </PressableScale>
+                                ) : null}
                               </View>
 
                               <View
@@ -2270,35 +2456,10 @@ export default function LessonsScreen() {
                                   flexDirection: "row",
                                   alignItems: "center",
                                   flexWrap: "wrap",
-                                  marginTop: 4,
+                                  marginTop: 6,
                                 }}
                               >
-                                {categoryLabel ? (
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : GOLD_SOFT,
-                                      borderWidth: 1,
-                                      borderColor: theme.isDark ? theme.colors.border : "#F4DB88",
-                                      marginRight: 8,
-                                      marginBottom: 4,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: "800",
-                                        color: theme.isDark ? theme.colors.text : "#9A7400",
-                                      }}
-                                    >
-                                      {categoryLabel}
-                                    </Text>
-                                  </View>
-                                ) : null}
-
-                                {languageBadge ? (
+                                {languageLabel ? (
                                   <View
                                     style={{
                                       borderRadius: 999,
@@ -2316,10 +2477,9 @@ export default function LessonsScreen() {
                                         fontSize: 10,
                                         fontWeight: "900",
                                         color: languagePillColors.textColor,
-                                        letterSpacing: 0.2,
                                       }}
                                     >
-                                      {languageBadge}
+                                      {languageLabel}
                                     </Text>
                                   </View>
                                 ) : null}
@@ -2349,15 +2509,15 @@ export default function LessonsScreen() {
                                   </View>
                                 ) : null}
 
-                                {lesson.language_level ? (
+                                {levelLabel ? (
                                   <View
                                     style={{
                                       borderRadius: 999,
                                       paddingHorizontal: 8,
                                       paddingVertical: 4,
-                                      backgroundColor: theme.colors.primarySoft,
+                                      backgroundColor: theme.isDark ? theme.colors.surfaceAlt : "#F6F4FF",
                                       borderWidth: 1,
-                                      borderColor: theme.colors.borderStrong,
+                                      borderColor: theme.colors.border,
                                       marginRight: 8,
                                       marginBottom: 4,
                                     }}
@@ -2366,15 +2526,15 @@ export default function LessonsScreen() {
                                       style={{
                                         fontSize: 10,
                                         fontWeight: "900",
-                                        color: theme.colors.primary,
+                                        color: theme.isDark ? theme.colors.text : VIOLET,
                                       }}
                                     >
-                                      {lesson.language_level}
+                                      {levelLabel}
                                     </Text>
                                   </View>
                                 ) : null}
 
-                                {lesson.grade_range ? (
+                                {gradeLabel ? (
                                   <View
                                     style={{
                                       borderRadius: 999,
@@ -2394,7 +2554,7 @@ export default function LessonsScreen() {
                                         color: theme.isDark ? theme.colors.textMuted : VIOLET,
                                       }}
                                     >
-                                      {lesson.grade_range}
+                                      {gradeLabel}
                                     </Text>
                                   </View>
                                 ) : null}
@@ -2408,38 +2568,6 @@ export default function LessonsScreen() {
                                       marginLeft: "auto",
                                     }}
                                   >
-                                    <PressableScale
-                                      onPress={() =>
-                                        navigation.navigate("LessonForm", {
-                                          lessonId: lesson.id,
-                                        })
-                                      }
-                                      style={{
-                                        marginRight: 8,
-                                        minWidth: 68,
-                                        borderRadius: 12,
-                                        backgroundColor: theme.isDark
-                                          ? darkActionBg
-                                          : PRIMARY,
-                                        borderWidth: theme.isDark ? 1 : 0,
-                                        borderColor: theme.isDark ? darkActionBorder : "transparent",
-                                        paddingHorizontal: 14,
-                                        paddingVertical: 8,
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 12,
-                                          fontWeight: "900",
-                                          color: theme.isDark ? darkActionText : theme.colors.primaryText,
-                                        }}
-                                      >
-                                        Edit
-                                      </Text>
-                                    </PressableScale>
-
                                     <PressableScale
                                       disabled={deleteLoadingId === lesson.id}
                                       onPress={() => deleteLesson(lesson)}
@@ -2481,107 +2609,12 @@ export default function LessonsScreen() {
                               </View>
                             </View>
                           </View>
-
-                          {descriptionPreview ? (
-                            <Text
-                              numberOfLines={2}
-                              style={{
-                                marginTop: 10,
-                                fontSize: 13,
-                                lineHeight: 19,
-                                color: theme.colors.textMuted,
-                              }}
-                            >
-                              {descriptionPreview}
-                            </Text>
-                          ) : null}
-
-                          {showSelectedCategory && packNames.length > 0 ? (
-                            <View style={{ marginTop: 12 }}>
-                              <Text
-                                style={[
-                                  theme.typography.caption,
-                                  {
-                                    marginBottom: 8,
-                                    color: theme.colors.textMuted,
-                                    textTransform: "uppercase",
-                                  },
-                                ]}
-                              >
-                                In lesson packs
-                              </Text>
-
-                              <View
-                                style={{
-                                  flexDirection: "row",
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {packNames.slice(0, 3).map((pack) => (
-                                  <View
-                                    key={`${lesson.id}-${pack}`}
-                                    style={{
-                                      marginRight: 8,
-                                      marginBottom: 8,
-                                      borderRadius: 999,
-                                      paddingHorizontal: 10,
-                                      paddingVertical: 6,
-                                      backgroundColor: theme.isDark
-                                        ? theme.colors.surfaceAlt
-                                        : GOLD_SOFT,
-                                      borderWidth: 1,
-                                      borderColor: theme.isDark
-                                        ? theme.colors.border
-                                        : "#F4DB88",
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 11,
-                                        fontWeight: "800",
-                                        color: theme.isDark
-                                          ? theme.colors.text
-                                          : "#9A7400",
-                                      }}
-                                    >
-                                      {pack}
-                                    </Text>
-                                  </View>
-                                ))}
-
-                                {packNames.length > 3 ? (
-                                  <View
-                                    style={{
-                                      marginRight: 8,
-                                      marginBottom: 8,
-                                      borderRadius: 999,
-                                      paddingHorizontal: 10,
-                                      paddingVertical: 6,
-                                      backgroundColor: theme.colors.surfaceAlt,
-                                      borderWidth: 1,
-                                      borderColor: theme.colors.border,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 11,
-                                        fontWeight: "800",
-                                        color: theme.colors.textMuted,
-                                      }}
-                                    >
-                                      +{packNames.length - 3} more
-                                    </Text>
-                                  </View>
-                                ) : null}
-                              </View>
-                            </View>
-                          ) : null}
-
                         </View>
                       </PressableScale>
                     </FadeInSection>
                   );
-                })}
+                  }}
+                />
 
                 {totalPages > 1 ? (
                   <View
@@ -2685,6 +2718,92 @@ export default function LessonsScreen() {
           </View>
         </FadeInSection>
       </ScrollView>
+
+      {isAdmin && showBulkActions ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            bottom: Math.max(insets.bottom, 10),
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: theme.colors.borderStrong,
+            backgroundColor: theme.isDark ? theme.colors.surface : CARD_BG,
+            padding: 10,
+            shadowColor: "#000",
+            shadowOpacity: theme.isDark ? 0.28 : 0.12,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.text }}>
+                {selectedLessonIds.length} selected
+              </Text>
+              <Text style={{ marginTop: 1, fontSize: 11, color: theme.colors.textMuted }}>
+                Bulk actions
+              </Text>
+            </View>
+            <TouchableOpacity onPress={toggleSelectAllVisible} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>
+                {allVisibleSelected ? "Unselect visible" : "Select visible"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={clearSelection} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                onPress={handleBulkDuplicate}
+                disabled={selectedLessonIds.length === 0 || bulkLoading !== null}
+                style={{ borderRadius: 12, backgroundColor: theme.colors.primary, paddingHorizontal: 12, paddingVertical: 10, opacity: selectedLessonIds.length === 0 || bulkLoading !== null ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.primaryText, fontSize: 12, fontWeight: "900" }}>
+                  {bulkLoading === "duplicate" ? "Duplicating..." : "Duplicate"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setBulkTeacherPickerOpen(true)}
+                style={{ borderRadius: 12, borderWidth: 1, borderColor: selectedTeacherId ? theme.colors.primary : theme.colors.border, backgroundColor: selectedTeacherId ? theme.colors.primarySoft : theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 10 }}
+              >
+                <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: "800" }}>{bulkTeacherLabel}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleBulkAssignTeacher}
+                disabled={selectedLessonIds.length === 0 || bulkLoading !== null || !selectedTeacherId}
+                style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 10, opacity: selectedLessonIds.length === 0 || bulkLoading !== null || !selectedTeacherId ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: "800" }}>{bulkLoading === "assign" ? "Reassigning..." : "Reassign"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setBulkLanguagePickerOpen(true)}
+                style={{ borderRadius: 12, borderWidth: 1, borderColor: bulkLanguage ? theme.colors.primary : theme.colors.border, backgroundColor: bulkLanguage ? theme.colors.primarySoft : theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 10 }}
+              >
+                <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: "800" }}>{bulkLanguageLabel}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleBulkAssignLanguage}
+                disabled={selectedLessonIds.length === 0 || bulkLoading !== null || !bulkLanguage}
+                style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 10, opacity: selectedLessonIds.length === 0 || bulkLoading !== null || !bulkLanguage ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: "800" }}>{bulkLoading === "language" ? "Updating..." : "Language"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleBulkRemoveCategory}
+                disabled={selectedLessonIds.length === 0 || bulkLoading !== null}
+                style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : DANGER_SOFT, paddingHorizontal: 12, paddingVertical: 10, opacity: selectedLessonIds.length === 0 || bulkLoading !== null ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "800" }}>{bulkLoading === "remove-category" ? "Removing..." : "Remove categories"}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      ) : null}
 
       <Modal
         transparent
@@ -2857,6 +2976,84 @@ export default function LessonsScreen() {
         </View>
       </Modal>
 
+      <FilterPickerModal
+        visible={filterSheetOpen}
+        title="Filters"
+        onClose={() => setFilterSheetOpen(false)}
+        theme={theme}
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 }}>
+          <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Language</Text>
+        </View>
+        <PickerRow
+          label="All languages"
+          active={languageFilter === "all"}
+          count={lessonsForView.length}
+          onPress={() => { layoutEase(); setLanguageFilter("all"); }}
+          theme={theme}
+        />
+        {languageOptions.map((language) => (
+          <PickerRow
+            key={`filter-language-${language}`}
+            label={language}
+            active={languageFilter === language}
+            count={lessonsForView.filter((l) => l.language?.trim() === language).length}
+            onPress={() => { layoutEase(); setLanguageFilter(language); }}
+            theme={theme}
+          />
+        ))}
+
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 8 }}>
+          <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Level</Text>
+        </View>
+        <PickerRow
+          label="All levels"
+          active={levelFilters.length === 0}
+          count={lessonsForView.length}
+          onPress={() => setLevelFilters([])}
+          theme={theme}
+        />
+        {LEVELS.map((level) => (
+          <PickerRow
+            key={`filter-level-${level}`}
+            label={level}
+            active={levelFilters.includes(level)}
+            count={lessonsForView.filter((l) => l.language_level === level).length}
+            onPress={() =>
+              setLevelFilters((prev) =>
+                prev.includes(level) ? prev.filter((item) => item !== level) : [...prev, level]
+              )
+            }
+            theme={theme}
+          />
+        ))}
+
+        <View style={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 8 }}>
+          <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Sort</Text>
+        </View>
+        <PickerRow
+          label={`Date${sortKey === "created_at" ? (sortDirection === "asc" ? " Asc" : " Desc") : ""}`}
+          active={sortKey === "created_at"}
+          onPress={() => toggleSort("created_at")}
+          theme={theme}
+        />
+        <PickerRow
+          label={`Title${sortKey === "title" ? (sortDirection === "asc" ? " Asc" : " Desc") : ""}`}
+          active={sortKey === "title"}
+          onPress={() => toggleSort("title")}
+          theme={theme}
+        />
+        <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+          <TouchableOpacity
+            onPress={() => setFilterSheetOpen(false)}
+            activeOpacity={0.85}
+            style={{ borderRadius: 14, backgroundColor: theme.colors.primary, paddingVertical: 13, alignItems: "center" }}
+          >
+            <Text style={{ color: theme.colors.primaryText, fontSize: 14, fontWeight: "900" }}>Apply filters</Text>
+          </TouchableOpacity>
+        </View>
+      </FilterPickerModal>
+
       {/* Language picker modal */}
       <FilterPickerModal
         visible={languagePickerOpen}
@@ -2932,32 +3129,6 @@ export default function LessonsScreen() {
         ))}
       </FilterPickerModal>
 
-      {/* Category picker modal */}
-      <FilterPickerModal
-        visible={packPickerOpen}
-        title="Lesson category"
-        onClose={() => setPackPickerOpen(false)}
-        theme={theme}
-      >
-        <PickerRow
-          label="All categories"
-          active={packFilter === "all"}
-          count={lessonsForView.length}
-          onPress={() => { layoutEase(); setPackFilter("all"); setPackPickerOpen(false); }}
-          theme={theme}
-        />
-        {LESSON_PACK_CATEGORIES.map((category) => (
-          <PickerRow
-            key={category}
-            label={category}
-            active={packFilter === category}
-            count={lessonsForView.filter((l) => (categoryMap[l.id] ?? []).includes(category)).length}
-            onPress={() => { layoutEase(); setPackFilter(category); setPackPickerOpen(false); }}
-            theme={theme}
-          />
-        ))}
-      </FilterPickerModal>
-
       {/* Level & sort picker modal */}
       <FilterPickerModal
         visible={levelPickerOpen}
@@ -2993,13 +3164,13 @@ export default function LessonsScreen() {
           <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted, marginBottom: 8 }]}>Sort</Text>
         </View>
         <PickerRow
-          label={`Date${sortKey === "created_at" ? (sortDirection === "asc" ? " ↑" : " ↓") : ""}`}
+          label={`Date${sortKey === "created_at" ? (sortDirection === "asc" ? " Asc" : " Desc") : ""}`}
           active={sortKey === "created_at"}
           onPress={() => toggleSort("created_at")}
           theme={theme}
         />
         <PickerRow
-          label={`Title${sortKey === "title" ? (sortDirection === "asc" ? " ↑" : " ↓") : ""}`}
+          label={`Title${sortKey === "title" ? (sortDirection === "asc" ? " Asc" : " Desc") : ""}`}
           active={sortKey === "title"}
           onPress={() => toggleSort("title")}
           theme={theme}

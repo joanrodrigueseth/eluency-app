@@ -8,7 +8,9 @@ import {
   LayoutAnimation,
   Linking,
   ListRenderItemInfo,
+  Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -29,7 +31,8 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
-import SkeletonLoader from "../components/SkeletonLoader";
+import { SkeletonBox } from "../components/SkeletonLoader";
+import ScreenHeader, { useScreenHeaderHeight } from "../components/ScreenHeader";
 import type { FloatingToastTone } from "../components/FloatingToast";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { createAdminTest, deleteTestCascade } from "../lib/api/admin";
@@ -106,6 +109,7 @@ function GlowOrb({
   bottom?: number;
   translate: Animated.Value;
 }) {
+  return null;
   return (
     <Animated.View
       pointerEvents="none"
@@ -182,6 +186,7 @@ export default function TestsScreen() {
   const { showToast, toastProps } = useFeedbackToast({ bottom: Math.max(insets.bottom, 20) + 12 });
   const heroGlowOne = useRef(new Animated.Value(-10)).current;
   const heroGlowTwo = useRef(new Animated.Value(10)).current;
+  const headerHeight = useScreenHeaderHeight();
 
   useEffect(() => {
     if (!route.params?.flashMessage) return;
@@ -201,6 +206,8 @@ export default function TestsScreen() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [teacherView, setTeacherView] = useState<"mine" | string>("mine");
   const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -286,6 +293,15 @@ export default function TestsScreen() {
       loadTests();
     }, [loadTests])
   );
+
+  const refreshTests = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadTests();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadTests]);
 
   const otherTeachers = useMemo(() => {
     if (!isAdmin) return [];
@@ -541,14 +557,117 @@ export default function TestsScreen() {
   if (loading && tests.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LINEN_BG }}>
-        <SkeletonLoader count={6} />
+        <ScreenHeader
+          title="Tests"
+          eyebrow="Library"
+          showBack
+          onBack={() => navigation.navigate("Dashboard", { openDrawer: true })}
+          rightElement={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <ThemeToggleButton />
+              <View style={{ height: 42, width: 42, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass }} />
+              {canManage ? (
+                <View style={{ height: 42, width: 68, borderRadius: 12, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE }} />
+              ) : null}
+            </View>
+          }
+        />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingTop: headerHeight + 14,
+            paddingHorizontal: 20,
+            paddingBottom: 42,
+          }}
+        >
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={16}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <SkeletonBox width={38} height={38} radius={10} />
+              <View style={{ flex: 1 }}>
+                <SkeletonBox width="40%" height={18} radius={9} />
+                <SkeletonBox width="76%" height={11} radius={6} style={{ marginTop: 8 }} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+              {[0, 1, 2].map((item) => (
+                <SkeletonBox key={`test-skeleton-stat-${item}`} width="31%" height={58} radius={14} style={{ flex: 1 }} />
+              ))}
+            </View>
+          </GlassCard>
+
+          <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
+            <SkeletonBox width="100%" height={44} radius={12} />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox width="32%" height={34} radius={12} style={{ flex: 1 }} />
+            </View>
+          </GlassCard>
+
+          {[0, 1, 2, 3].map((item) => (
+            <GlassCard key={`test-skeleton-row-${item}`} style={{ borderRadius: 16, marginBottom: 10 }} padding={10}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <SkeletonBox width={58} height={58} radius={14} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <SkeletonBox width="62%" height={16} radius={8} />
+                  <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
+                    <SkeletonBox width={76} height={22} radius={11} />
+                    <SkeletonBox width={58} height={22} radius={11} />
+                    <SkeletonBox width={52} height={22} radius={11} />
+                  </View>
+                </View>
+                <SkeletonBox width={36} height={36} radius={12} style={{ marginLeft: 8 }} />
+              </View>
+            </GlassCard>
+          ))}
+        </ScrollView>
       </View>
     );
   }
 
   return (
       <View style={{ flex: 1, backgroundColor: theme.isDark ? theme.colors.background : LINEN_BG }}>
-      <View
+      <ScreenHeader
+        title="Tests"
+        eyebrow="Library"
+        showBack
+        onBack={() => navigation.navigate("Dashboard", { openDrawer: true })}
+        rightElement={
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <ThemeToggleButton />
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Notifications")}
+              activeOpacity={0.85}
+              style={{ height: 42, width: 42, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, alignItems: "center", justifyContent: "center" }}
+            >
+              <Ionicons name="notifications-outline" size={18} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+            {canManage ? (
+              <TouchableOpacity
+                onPress={() => navigation.navigate("TestForm")}
+                activeOpacity={0.85}
+                style={{
+                  height: 42,
+                  borderRadius: 12,
+                  backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE,
+                  borderWidth: theme.isDark ? 1 : 0,
+                  borderColor: theme.isDark ? DARK_ACTION_BORDER : "transparent",
+                  paddingHorizontal: 12,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexDirection: "row",
+                  gap: 5,
+                }}
+              >
+                <Ionicons name="add" size={15} color={theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF"} />
+                <Text style={{ color: theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF", fontWeight: "900", fontSize: 12 }}>New</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        }
+      />
+
+      {false ? <View
         style={{
           position: "absolute",
           top: 0,
@@ -617,13 +736,21 @@ export default function TestsScreen() {
             <Text style={{ color: theme.isDark ? DARK_ACTION_TEXT : "#FFFFFF", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 }}>NEW</Text>
           </TouchableOpacity>
         ) : null}
-      </View>
+      </View> : null}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshTests}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
         contentContainerStyle={{
-          paddingTop: Math.max(insets.top, 8) + 62,
+          paddingTop: headerHeight + 14,
           paddingHorizontal: 20,
           paddingBottom: 40,
         }}
@@ -631,8 +758,6 @@ export default function TestsScreen() {
         <ScreenReveal delay={30}>
         <GlassCard style={{ borderRadius: 18, marginBottom: 14, overflow: "hidden" }} padding={16} variant="hero">
           <View style={{ position: "relative", overflow: "hidden" }}>
-            <GlowOrb size={150} color={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} top={-50} right={-18} translate={heroGlowOne} />
-            <GlowOrb size={110} color={theme.isDark ? theme.colors.violetSoft : "#FFF2C8"} bottom={-30} left={-10} translate={heroGlowTwo} />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <IconTile icon="clipboard-outline" size={38} iconSize={20} radius={10} backgroundColor={theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT} borderColor={theme.isDark ? theme.colors.primary : AZULEJO_BLUE_BORDER} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
             <View style={{ flex: 1 }}>
@@ -730,7 +855,7 @@ export default function TestsScreen() {
                   <Text style={{ fontWeight: "800", fontSize: 12, color: viewingOtherTeacher ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>
                     {viewingOtherTeacher
                       ? otherTeachers.find((t) => t.id === teacherView)?.name ?? "Teacher"
-                      : "Other teacher…"}
+                      : "Other teacher..."}
                   </Text>
                 </AnimatedPressable>
                 {viewingOtherTeacher ? (
@@ -745,53 +870,35 @@ export default function TestsScreen() {
           <TextInput
             value={searchTerm}
             onChangeText={setSearchTerm}
-            placeholder="Search tests…"
+            placeholder="Search tests..."
             placeholderTextColor={theme.colors.textMuted}
             style={[inputStyle, { marginBottom: 12 }]}
           />
 
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-            {(
-              [
-                { key: "name" as SortKey, label: "Name" },
-                { key: "type" as SortKey, label: "Type" },
-                { key: "wordCount" as SortKey, label: "Words" },
-                { key: "questionCount" as SortKey, label: "Questions" },
-              ] as const
-            ).map(({ key, label }) => {
-              const active = sortKey === key;
-              const activeColor = theme.isDark ? DARK_FILTER_TEXT : AZULEJO_BLUE;
-              return (
-                <AnimatedPressable
-                  key={key}
-                  onPress={() => cycleSort(key)}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 12,
-                    paddingVertical: 9,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: active ? (theme.isDark ? DARK_FILTER_BORDER : activeColor) : theme.colors.border,
-                    backgroundColor: active ? (theme.isDark ? DARK_FILTER_BG : activeColor) : theme.colors.surfaceGlass,
-                    gap: 5,
-                    shadowColor: active ? (theme.isDark ? "#000" : activeColor) : "transparent",
-                    shadowOpacity: active ? (theme.isDark ? 0.08 : 0.2) : 0,
-                    shadowRadius: theme.isDark ? 5 : 8,
-                    shadowOffset: { width: 0, height: 3 },
-                    elevation: active ? 2 : 0,
-                  }}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: "800", color: active ? (theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF") : theme.colors.text }}>{label}</Text>
-                  {active ? (
-                    <Ionicons name={sortDir === "asc" ? "arrow-up" : "arrow-down"} size={13} color={theme.isDark ? DARK_FILTER_TEXT : "#FFFFFF"} />
-                  ) : (
-                    <Ionicons name="swap-vertical-outline" size={13} color={theme.colors.textMuted} />
-                  )}
-                </AnimatedPressable>
-              );
-            })}
-          </View>
+          <TouchableOpacity
+            onPress={() => setFilterSheetOpen(true)}
+            activeOpacity={0.85}
+            style={{
+              marginBottom: 14,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              backgroundColor: theme.colors.surfaceGlass,
+              paddingHorizontal: 12,
+              paddingVertical: 11,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+              <Ionicons name="options-outline" size={16} color={theme.colors.primary} />
+              <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: "800" }} numberOfLines={1}>
+                Sort: {sortKey === "wordCount" ? "Words" : sortKey === "questionCount" ? "Questions" : sortKey} {sortDir === "asc" ? "Asc" : "Desc"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={14} color={theme.colors.textMuted} />
+          </TouchableOpacity>
 
           {testsForView.length === 0 ? (
             <View style={{ paddingVertical: 32, alignItems: "center" }}>
@@ -870,106 +977,108 @@ export default function TestsScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <>
-              {filteredSorted.map((test, index) => {
-                const cfg = test.config_json ?? {};
-                const wordCount = Array.isArray(cfg.words) ? cfg.words.length : 0;
-                const questionCount = Array.isArray(cfg.tests) ? cfg.tests.length : 0;
-                const busy = actionLoadingId === test.id;
-                const accentColor = theme.isDark ? theme.colors.primary : AZULEJO_BLUE;
-                const createdLabel = formatCreatedDate(test.created_at);
-
-                return (
-                  <ScreenReveal key={test.id} delay={index * 45}>
-                    <AnimatedPressable
-                      onPress={() => navigation.navigate("TestForm", { testId: test.id })}
-                      style={{
-                        marginBottom: 12,
-                        borderRadius: 20,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "#FFFFFF",
-                        overflow: "hidden",
-                        shadowColor: "#000",
-                        shadowOpacity: theme.isDark ? 0.06 : 0.07,
-                        shadowRadius: 10,
-                        shadowOffset: { width: 0, height: 4 },
-                        elevation: 2,
-                      }}
-                    >
-                      <View style={{ height: 3, backgroundColor: accentColor, opacity: 0.65 }} />
-                      <View style={{ paddingHorizontal: 14, paddingVertical: 14 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                          {test.cover_image_url?.trim() ? (
-                            <Image
-                              source={{ uri: test.cover_image_url.trim() }}
-                              style={{ width: 48, height: 48, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.border }}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={{
-                              width: 48, height: 48, borderRadius: 15,
-                              borderWidth: 1,
-                              borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER,
-                              backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT,
-                              alignItems: "center", justifyContent: "center",
-                            }}>
-                              <Ionicons name="clipboard-outline" size={20} color={accentColor} />
-                            </View>
-                          )}
-
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                              <Text style={{ flex: 1, fontSize: 15, fontWeight: "900", color: theme.colors.text }} numberOfLines={1}>
-                                {test.name ?? "Untitled"}
-                              </Text>
-                              {createdLabel ? (
-                                <Text style={{ fontSize: 10, color: theme.colors.textMuted }} numberOfLines={1}>
-                                  {createdLabel}
-                                </Text>
-                              ) : null}
-                            </View>
-                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
-                              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : AZULEJO_BLUE_BORDER, backgroundColor: theme.isDark ? theme.colors.primarySoft : AZULEJO_BLUE_SOFT, paddingHorizontal: 7, paddingVertical: 3 }}>
-                                <Text style={{ fontSize: 9, fontWeight: "900", color: accentColor }}>{wordCount}W</Text>
-                              </View>
-                              <View style={{ borderRadius: 999, borderWidth: 1, borderColor: theme.isDark ? theme.colors.border : "#E6D39A", backgroundColor: theme.isDark ? theme.colors.primarySoft : "#FFF5DA", paddingHorizontal: 7, paddingVertical: 3 }}>
-                                <Text style={{ fontSize: 9, fontWeight: "900", color: theme.isDark ? theme.colors.primary : "#B88400" }}>{questionCount}Q</Text>
-                              </View>
-                              <View style={{ flex: 1 }} />
-                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                {canManage ? (
-                                  <>
-                                    <TouchableOpacity onPress={() => navigation.navigate("TestForm", { testId: test.id })} disabled={busy} style={{ borderRadius: 9, backgroundColor: theme.isDark ? DARK_ACTION_BG : AZULEJO_BLUE_SOFT, borderWidth: 1, borderColor: theme.isDark ? DARK_ACTION_BORDER : accentColor, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4, opacity: busy ? 0.6 : 1 }}>
-                                      <Ionicons name="pencil-outline" size={12} color={theme.isDark ? DARK_ACTION_TEXT : accentColor} />
-                                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.isDark ? DARK_ACTION_TEXT : accentColor }}>Edit</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => deleteTest(test)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.danger, backgroundColor: theme.isDark ? "rgba(239,68,68,0.12)" : "#FFF6F6", opacity: busy ? 0.6 : 1, alignItems: "center", justifyContent: "center" }}>
-                                      {busy ? <Text style={{ fontSize: 10, color: theme.colors.danger }}>...</Text> : <Ionicons name="trash-outline" size={13} color={theme.colors.danger} />}
-                                    </TouchableOpacity>
-                                  </>
-                                ) : (
-                                  <TouchableOpacity onPress={() => openWebEdit(test.id)} style={{ borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, paddingVertical: 5, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                                    <Ionicons name="globe-outline" size={12} color={theme.colors.primary} />
-                                    <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.primary }}>Web</Text>
-                                  </TouchableOpacity>
-                                )}
-                              </View>
-                            </View>
-                          </View>
-                        </View>
-                      </View>
-                    </AnimatedPressable>
-                  </ScreenReveal>
-                );
-              })}
-            </>
+            <FlatList
+              data={filteredSorted}
+              scrollEnabled={false}
+              keyExtractor={(item) => item.id}
+              renderItem={renderTestCard}
+            />
           )}
         </GlassCard>
         </ScreenReveal>
       </ScrollView>
 
-      {isAdmin && teacherMenuOpen ? (
+      <Modal
+        transparent
+        visible={filterSheetOpen}
+        animationType="fade"
+        onRequestClose={() => setFilterSheetOpen(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setFilterSheetOpen(false)}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.42)", paddingHorizontal: 18, paddingBottom: 18 }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(event) => event.stopPropagation()}
+            style={{ borderRadius: 22, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, overflow: "hidden", maxHeight: "78%" }}
+          >
+            <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={[theme.typography.title, { fontSize: 18 }]}>Filters</Text>
+              <TouchableOpacity onPress={() => setFilterSheetOpen(false)} style={{ width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="close" size={18} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingVertical: 10 }}>
+              {isAdmin ? (
+                <>
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+                    <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted }]}>Teacher</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setTeacherView("mine")}
+                    style={{ paddingHorizontal: 16, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: teacherView === "mine" ? theme.colors.primarySoft : "transparent" }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: "800" }}>My tests</Text>
+                    {teacherView === "mine" ? <Ionicons name="checkmark" size={17} color={theme.colors.primary} /> : null}
+                  </TouchableOpacity>
+                  {otherTeachers.map((teacher) => (
+                    <TouchableOpacity
+                      key={`filter-teacher-${teacher.id}`}
+                      onPress={() => setTeacherView(teacher.id)}
+                      style={{ paddingHorizontal: 16, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: teacherView === teacher.id ? theme.colors.primarySoft : "transparent" }}
+                    >
+                      <View>
+                        <Text style={{ color: theme.colors.text, fontWeight: "800" }}>{teacher.name}</Text>
+                        <Text style={{ marginTop: 2, color: theme.colors.textMuted, fontSize: 12 }}>{teacher.count} tests</Text>
+                      </View>
+                      {teacherView === teacher.id ? <Ionicons name="checkmark" size={17} color={theme.colors.primary} /> : null}
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : null}
+
+              <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, borderTopWidth: isAdmin ? 1 : 0, borderTopColor: theme.colors.border }}>
+                <Text style={[theme.typography.caption, { textTransform: "uppercase", color: theme.colors.textMuted }]}>Sort</Text>
+              </View>
+              {(
+                [
+                  { key: "name" as SortKey, label: "Name" },
+                  { key: "type" as SortKey, label: "Type" },
+                  { key: "wordCount" as SortKey, label: "Words" },
+                  { key: "questionCount" as SortKey, label: "Questions" },
+                ] as const
+              ).map(({ key, label }) => {
+                const active = sortKey === key;
+                return (
+                  <TouchableOpacity
+                    key={`sort-${key}`}
+                    onPress={() => cycleSort(key)}
+                    style={{ paddingHorizontal: 16, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: active ? theme.colors.primarySoft : "transparent" }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: active ? "900" : "700" }}>{label}</Text>
+                    <Text style={{ color: active ? theme.colors.primary : theme.colors.textMuted, fontWeight: "800" }}>
+                      {active ? (sortDir === "asc" ? "Asc" : "Desc") : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={{ padding: 14, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+              <TouchableOpacity
+                onPress={() => setFilterSheetOpen(false)}
+                activeOpacity={0.85}
+                style={{ borderRadius: 14, backgroundColor: theme.colors.primary, paddingVertical: 13, alignItems: "center" }}
+              >
+                <Text style={{ color: theme.colors.primaryText, fontWeight: "900" }}>Apply filters</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {false && isAdmin && teacherMenuOpen ? (
         <View
           style={{
             position: "absolute",

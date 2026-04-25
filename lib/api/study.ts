@@ -76,11 +76,15 @@ export async function getRemoteProgress(sessionId: string): Promise<StudyProgres
 }
 
 export async function saveRemoteProgress(sessionId: string, progress: StudyProgress): Promise<void> {
-  await fetch(`${apiBaseUrl}/api/game/progress`, {
+  const res = await fetch(`${apiBaseUrl}/api/game/progress`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId, progress }),
-  }).catch(() => {});
+  });
+  if (!res.ok) {
+    const json = await parseJsonSafe<{ error?: string }>(res);
+    throw new Error(json?.error ?? "Failed to sync progress");
+  }
 }
 
 export async function verifyAnswer(payload: VerifyAnswerPayload): Promise<VerifyAnswerResult | null> {

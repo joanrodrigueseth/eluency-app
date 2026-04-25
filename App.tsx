@@ -24,7 +24,7 @@ import LessonFormScreen from "./screens/LessonFormScreen";
 import StudyGameScreen from "./screens/StudyGameScreen";
 import { getStoredStudentSessionId } from "./lib/studentSession";
 import { ThemeProvider, useAppTheme } from "./lib/theme";
-import { supabase } from "./lib/supabase";
+import { clearSupabaseAuthStorage, supabase } from "./lib/supabase";
 import { ensureLocalNotificationsReady } from "./lib/mobileNotifications";
 import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from "./lib/notificationWatchers";
 import Constants from "expo-constants";
@@ -50,21 +50,37 @@ function AppShell() {
   useEffect(() => {
     let mounted = true;
 
-    Promise.all([supabase.auth.getSession(), getStoredStudentSessionId()])
-      .then(([{ data, error }, storedStudentSessionId]) => {
+    const bootstrap = async () => {
+      const storedStudentSessionId = await getStoredStudentSessionId();
+      try {
+        const { data, error } = await supabase.auth.getSession();
         if (!mounted) return;
         if (error?.message?.toLowerCase().includes("refresh token")) {
-          supabase.auth.signOut().catch(() => {});
+          await clearSupabaseAuthStorage();
           setHasSession(false);
         } else {
           setHasSession(!!data.session);
         }
         setStudentSessionId(storedStudentSessionId);
-      })
-      .finally(() => {
+      } catch (error) {
+        if (!mounted) return;
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (message.includes("refresh token")) {
+          await clearSupabaseAuthStorage();
+        }
+        setHasSession(false);
+        setStudentSessionId(storedStudentSessionId);
+      } finally {
         if (!mounted) return;
         setAuthBootstrapped(true);
-      });
+      }
+    };
+
+    bootstrap().catch(() => {
+      if (!mounted) return;
+      setHasSession(false);
+      setAuthBootstrapped(true);
+    });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setHasSession(!!session);

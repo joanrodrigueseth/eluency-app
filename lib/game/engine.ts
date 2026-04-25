@@ -48,7 +48,7 @@ export function pickSessionWords(
       .slice(0, Math.max(10, practiceLength));
   }
   if (type === "daily-challenge") {
-    return [...source].sort(() => Math.random() - 0.5).slice(0, 12);
+    return [...source].sort(() => Math.random() - 0.5).slice(0, Math.max(1, practiceLength));
   }
   if (type === "test") return source.slice(0, Math.max(10, practiceLength));
   return source.slice(0, Math.max(5, practiceLength));
@@ -73,9 +73,11 @@ export function createRecord(args: {
   issues?: StudyRecordIssue[];
 }): StudyRecord {
   const percentage = gradePercentage(args.correct, args.total);
+  const now = new Date();
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    date: new Date().toISOString(),
+    date: now.toISOString(),
+    timestamp: now.getTime(),
     type: args.type,
     mode: args.mode,
     direction: args.direction,

@@ -19,11 +19,26 @@ export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
   },
 });
 
+export async function clearSupabaseAuthStorage() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const authKeys = keys.filter((key) => {
+      const lower = key.toLowerCase();
+      return lower.includes("supabase") || lower.includes("auth-token") || lower.includes("auth.token");
+    });
+    if (authKeys.length > 0) {
+      await AsyncStorage.multiRemove(authKeys);
+    }
+  } catch {
+    // no-op
+  }
+}
+
 // On Android (Expo Go), a stale token from a different device/platform will
 // trigger "Refresh Token Not Found". Auto sign-out so the user hits the login screen.
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === "SIGNED_OUT" && !session) {
-    AsyncStorage.removeItem("supabase.auth.token").catch(() => {});
+    clearSupabaseAuthStorage().catch(() => {});
   }
 });
 

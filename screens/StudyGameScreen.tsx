@@ -130,6 +130,36 @@ type ContinueSuggestion =
       testId: string;
     };
 
+type StudyUi = {
+  bg: string;
+  card: string;
+  cardStrong: string;
+  text: string;
+  muted: string;
+  border: string;
+  borderStrong: string;
+  borderSoft: string;
+  primary: string;
+  primarySoft: string;
+  secondary: string;
+  success: string;
+  warning: string;
+  danger: string;
+};
+
+const studyRadii = {
+  card: 16,
+  hero: 20,
+  row: 12,
+  control: 12,
+  pill: 999,
+};
+
+const studyMetrics = {
+  footerInputHeight: 48,
+  footerButtonHeight: 46,
+};
+
 function StudentEmptyState({
   icon,
   title,
@@ -186,6 +216,327 @@ function StudentEmptyState({
         ) : null}
       </View>
     </GlassCard>
+  );
+}
+
+function DetailTopBar({
+  ui,
+  topInset,
+  title,
+  onBack,
+  onSettings,
+}: {
+  ui: StudyUi;
+  topInset: number;
+  title: string;
+  onBack: () => void;
+  onSettings: () => void;
+}) {
+  const iconButtonStyle = {
+    width: 40,
+    height: 40,
+    borderRadius: studyRadii.control,
+    borderWidth: 1,
+    borderColor: ui.border,
+    backgroundColor: ui.card,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  };
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        backgroundColor: ui.card,
+        borderBottomWidth: 1,
+        borderBottomColor: ui.border,
+        paddingTop: Math.max(topInset, 8),
+        paddingBottom: 10,
+        paddingHorizontal: 16,
+        flexDirection: "row",
+        alignItems: "center",
+      }}
+    >
+      <TouchableOpacity onPress={onBack} style={[iconButtonStyle, { marginRight: 12 }]}>
+        <Ionicons name="chevron-back" size={18} color={ui.muted} />
+      </TouchableOpacity>
+      <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>{title}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <TouchableOpacity activeOpacity={1} style={iconButtonStyle}>
+          <Ionicons name="notifications-outline" size={18} color={ui.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onSettings} style={iconButtonStyle}>
+          <Ionicons name="person-outline" size={18} color={ui.muted} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function SessionHeader({
+  ui,
+  topInset,
+  title,
+  subtitle,
+  streak,
+  index,
+  total,
+  onExit,
+}: {
+  ui: StudyUi;
+  topInset: number;
+  title: string;
+  subtitle: string;
+  streak: number;
+  index: number;
+  total: number;
+  onExit: () => void;
+}) {
+  const ring = 2 * Math.PI * 17;
+  const progress = Math.min(index + 1, total) / Math.max(total, 1);
+
+  return (
+    <View
+      style={{
+        paddingTop: Math.max(topInset, 5),
+        paddingBottom: 5,
+        paddingHorizontal: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: ui.border,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}
+    >
+      <TouchableOpacity
+        onPress={onExit}
+        style={{
+          width: 31,
+          height: 31,
+          borderRadius: 9,
+          borderWidth: 1,
+          borderColor: ui.border,
+          backgroundColor: ui.card,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Ionicons name="close" size={14} color={ui.muted} />
+      </TouchableOpacity>
+
+      <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 10 }}>
+        <Text style={{ color: ui.text, fontSize: 14, fontWeight: "800", textAlign: "center" }} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.2, marginTop: 1 }}>
+          {subtitle.toUpperCase()}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        {streak >= 2 ? (
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: studyRadii.pill, backgroundColor: "#FFF0DA", borderWidth: 1, borderColor: "#F5C070" }}>
+            <Ionicons name="flame" size={12} color="#E07A10" />
+            <Text style={{ fontSize: 11, fontWeight: "800", color: "#E07A10", marginLeft: 2 }}>{streak}</Text>
+          </View>
+        ) : null}
+        <View style={{ width: 44, height: 44 }}>
+          <Svg width={44} height={44} style={{ position: "absolute" }}>
+            <Circle cx={22} cy={22} r={17} stroke={ui.borderSoft} strokeWidth={3} fill="none" />
+            <Circle
+              cx={22}
+              cy={22}
+              r={17}
+              stroke={ui.primary}
+              strokeWidth={3}
+              fill="none"
+              strokeDasharray={`${ring.toFixed(2)}`}
+              strokeDashoffset={`${(ring * (1 - progress)).toFixed(2)}`}
+              strokeLinecap="round"
+              rotation="-90"
+              origin="22,22"
+            />
+          </Svg>
+          <View style={{ position: "absolute", width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 9, fontWeight: "900", color: ui.primary }}>{index + 1}/{total}</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function FeedbackPanel({
+  ui,
+  feedback,
+}: {
+  ui: StudyUi;
+  feedback: { state: "correct" | "close" | "wrong"; text: string };
+}) {
+  const color = feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger;
+
+  return (
+    <View style={{ padding: 11, borderRadius: studyRadii.row, borderWidth: 1, borderColor: color, backgroundColor: `${color}12` }}>
+      <Text style={{ fontWeight: "800", fontSize: 13, lineHeight: 18, color }}>
+        {feedback.text}
+      </Text>
+    </View>
+  );
+}
+
+function SessionFooter({
+  ui,
+  bottomInset,
+  showInput,
+  input,
+  onInputChange,
+  needsRetype,
+  feedback,
+  showSubmit,
+  submitDisabled,
+  onSubmit,
+  showSkip,
+  onSkip,
+  skipFullWidth,
+}: {
+  ui: StudyUi;
+  bottomInset: number;
+  showInput: boolean;
+  input: string;
+  onInputChange: (value: string) => void;
+  needsRetype: boolean;
+  feedback: { state: "correct" | "close" | "wrong"; text: string } | null;
+  showSubmit: boolean;
+  submitDisabled: boolean;
+  onSubmit: () => void;
+  showSkip: boolean;
+  onSkip: () => void;
+  skipFullWidth: boolean;
+}) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 16,
+        paddingTop: 8,
+        paddingBottom: Math.max(bottomInset, 6),
+        borderTopWidth: 1,
+        borderTopColor: ui.border,
+        backgroundColor: ui.bg,
+        gap: 8,
+      }}
+    >
+      {showInput ? (
+        <TextInput
+          value={input}
+          onChangeText={onInputChange}
+          placeholder={needsRetype ? "Type the exact answer..." : "Type your answer..."}
+          placeholderTextColor="#98A0B2"
+          returnKeyType="done"
+          onSubmitEditing={submitDisabled ? undefined : onSubmit}
+          style={{
+            minHeight: studyMetrics.footerInputHeight,
+            borderWidth: 1,
+            borderColor: ui.border,
+            borderRadius: studyRadii.control,
+            backgroundColor: ui.card,
+            color: ui.text,
+            paddingHorizontal: 14,
+            paddingVertical: 11,
+            fontSize: 16,
+          }}
+        />
+      ) : null}
+
+      {feedback ? <FeedbackPanel ui={ui} feedback={feedback} /> : null}
+
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {showSubmit ? (
+          <TouchableOpacity
+            onPress={onSubmit}
+            disabled={submitDisabled}
+            style={{
+              flex: 1,
+              minHeight: studyMetrics.footerButtonHeight,
+              borderRadius: studyRadii.control,
+              backgroundColor: ui.primary,
+              opacity: submitDisabled ? 0.45 : 1,
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "row",
+              gap: 7,
+            }}
+          >
+            <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Submit</Text>
+          </TouchableOpacity>
+        ) : null}
+        {showSkip ? (
+          <TouchableOpacity
+            onPress={onSkip}
+            style={{
+              minHeight: studyMetrics.footerButtonHeight,
+              borderRadius: studyRadii.control,
+              borderWidth: 1,
+              borderColor: ui.border,
+              backgroundColor: ui.card,
+              paddingHorizontal: 16,
+              justifyContent: "center",
+              alignItems: "center",
+              flex: skipFullWidth ? 1 : undefined,
+            }}
+          >
+            <Text style={{ color: ui.muted, fontWeight: "700", fontSize: 14 }}>Skip</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function ReviewIssueCard({
+  issue,
+  index,
+  theme,
+}: {
+  issue: SessionIssue;
+  index: number;
+  theme: AppTheme;
+}) {
+  return (
+    <View
+      key={`${issue.id}-${index}`}
+      style={{
+        borderRadius: studyRadii.row,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surfaceGlass,
+        padding: 12,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Ionicons name={reviewIssueIcon(issue.kind)} size={14} color={reviewIssueColor(theme, issue.kind)} />
+        <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
+          {reviewIssueLabel(issue.kind)}
+        </Text>
+      </View>
+      <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
+        Prompt: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
+      </Text>
+      {typeof issue.expected === "string" && issue.expected ? (
+        <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
+          Expected: {issue.expected}
+        </Text>
+      ) : null}
+      {typeof issue.answer === "string" && issue.answer ? (
+        <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
+          Answer: {issue.answer}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -279,7 +630,7 @@ function isInfinitiveWord(current: GameWord | undefined, target: string, source:
 
 function titleCaseVerb(s: string) {
   const t = (s ?? "").trim();
-  if (!t) return "—";
+  if (!t) return "-";
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
@@ -430,6 +781,7 @@ export default function StudyGameScreen() {
   const [quickPlayCount, setQuickPlayCount] = useState<number>(15);
   const [quickPlayDirection, setQuickPlayDirection] = useState<StudyDirection>("pt-en");
   const [quickPlayLanguageKey, setQuickPlayLanguageKey] = useState<string | null>(null);
+  const [quickPlayShuffleSeed, setQuickPlayShuffleSeed] = useState(0);
 
   const [sessionType, setSessionType] = useState<StudySessionType>("practice");
   const [sessionMode, setSessionMode] = useState<StudySessionMode>("typing");
@@ -581,6 +933,12 @@ export default function StudyGameScreen() {
       return key === quickPlayLanguageKey;
     });
   }, [quickPlayLanguageKey, quickPlayLanguageGroups.length, lessonsWords]);
+
+  const quickPlayShuffledPool = useMemo(() => {
+    const pool = quickPlayWords.length ? quickPlayWords : lessonsWords;
+    return shuffle(pool);
+  }, [quickPlayDirection, quickPlayShuffleSeed, quickPlayWords, lessonsWords]);
+
   const current = activeWords[idx];
   const isConjugationDrill = current?.practiceKind === "conjugation";
   const isConjugationTable = current?.practiceKind === "conjugation-table";
@@ -618,12 +976,12 @@ export default function StudyGameScreen() {
     return getExpectedAnswer(current, direction);
   }, [current, direction, isFillBlank]);
 
-  /** Label to show after wrong MCQ / Skip — test MCQ correct answer lives in option text, not always pt/en. */
+  /** Label to show after wrong MCQ / Skip - test MCQ correct answer lives in option text, not always pt/en. */
   const feedbackExpected = useMemo(() => {
     if (!current) return "";
     if (isFillBlank) return current.pt || "";
     if (current.practiceKind === "conjugation-table" && current.conjugationTable) {
-      return current.conjugationTable.entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; ");
+      return current.conjugationTable.entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "-"}`).join("; ");
     }
     if (
       current.answerFormat === "mcq" &&
@@ -779,7 +1137,7 @@ export default function StudyGameScreen() {
       }
       map.set(key, prev);
     }
-    // Dashboard edits apply to lessons.title / cover_image_url — not always mirrored on word rows.
+    // Dashboard edits apply to lessons.title / cover_image_url - not always mirrored on word rows.
     return Array.from(map.values()).map((row) => {
       const full = lessonsData.find((l) => l.id === row.id);
       if (!full) return row;
@@ -841,7 +1199,7 @@ export default function StudyGameScreen() {
           kind: "test",
           title: matchedTest.name,
           subtitle: "Revisit your latest test",
-          meta: `${percentage}% last score • ${mode}`,
+          meta: `${percentage}% last score - ${mode}`,
           ctaLabel: "Open test",
           testId: matchedTest.id,
         };
@@ -854,7 +1212,7 @@ export default function StudyGameScreen() {
         kind: "lesson",
         title: matchedLesson.name,
         subtitle: "Pick up your latest lesson",
-        meta: `${percentage}% last run • ${mode}`,
+        meta: `${percentage}% last run - ${mode}`,
         ctaLabel: "Open lesson",
         lessonId: matchedLesson.id,
       };
@@ -1076,11 +1434,17 @@ export default function StudyGameScreen() {
       if (!progress) return;
       const baseWords = scopedWords?.length ? scopedWords : allWords;
       const expandedBase = expandConjugationTablesForMode(baseWords, mode);
+      const requestedLength =
+        type === "daily-challenge"
+          ? 20
+          : scopedWords?.length
+          ? expandedBase.length
+          : progress.preferences.practiceLength || 15;
       const selected = pickSessionWords(
         expandedBase,
         type,
         mode,
-        progress.preferences.practiceLength || 15,
+        requestedLength,
         mistakeWordIds,
         progress.wordStats
       );
@@ -1160,14 +1524,20 @@ export default function StudyGameScreen() {
     };
     setProgress(nextProgress);
     await saveLocalProgress(nextProgress);
-    if (sessionId) await flushProgressSync(sessionId, nextProgress);
+    if (sessionId) {
+      try {
+        await flushProgressSync(sessionId, nextProgress);
+      } catch {
+        showToast("Result saved on this device. Sync will retry when your connection is ready.", "info");
+      }
+    }
     if (sessionType === "test") callTeacherCompletionEdge("test_completed").catch(() => {});
     if (sessionType === "practice" || sessionType === "smart-review") callTeacherCompletionEdge("lesson_completed").catch(() => {});
     setResultRecord({ score: finalCorrectCount, total, percentage, passed, issues: finalIssues });
     setSavedResume(null);
     AsyncStorage.removeItem("eluency_lesson_resume").catch(() => {});
     setRuntimeScreen("results");
-  }, [activeWords, callTeacherCompletionEdge, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType]);
+  }, [activeWords, callTeacherCompletionEdge, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType, showToast]);
 
   const answerCurrent = useCallback(async () => {
     if (!current || !progress) return;
@@ -1345,7 +1715,7 @@ export default function StudyGameScreen() {
       recordSessionIssue({
         id: current.id,
         prompt: current.conjugationTable.infinitive,
-        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; "),
+        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "-"}`).join("; "),
         answer: conjugationInputs.join("; "),
         kind: "correct",
       });
@@ -1355,7 +1725,7 @@ export default function StudyGameScreen() {
       recordSessionIssue({
         id: current.id,
         prompt: current.conjugationTable.infinitive,
-        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; "),
+        expected: entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "-"}`).join("; "),
         answer: conjugationInputs.join("; "),
         kind: "close",
       });
@@ -1363,7 +1733,7 @@ export default function StudyGameScreen() {
     } else {
       triggerHaptic("error").catch(() => {});
       setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
-      const lines = entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "—"}`).join("; ");
+      const lines = entries.map((e) => `${e.pronoun}: ${e.form_a || e.form_b || "-"}`).join("; ");
       setFeedback({ state: "wrong", text: `Expected: ${lines}` });
       recordSessionIssue({ id: current.id, prompt: current.conjugationTable.infinitive, expected: lines, kind: "wrong" });
     }
@@ -1428,7 +1798,7 @@ export default function StudyGameScreen() {
     }
     let choices = shuffle([correct, ...wrong].filter((x) => String(x ?? "").trim()));
     if (choices.length < 2) {
-      const fillers = ["?", "—", "…"].filter((f) => !choices.some((c) => normalizeText(c) === normalizeText(f)));
+      const fillers = ["?", "-", "..."].filter((f) => !choices.some((c) => normalizeText(c) === normalizeText(f)));
       for (const f of fillers) {
         if (choices.length >= 4) break;
         choices.push(f);
@@ -1940,7 +2310,7 @@ export default function StudyGameScreen() {
                     </View>
                     <View style={{ flex: 1, marginLeft: 10 }}>
                       <Text style={{ fontWeight: "800", fontSize: 20, color: ui.text }}>
-                        Level {levelInfo.current.level} — {levelInfo.current.name}
+                        Level {levelInfo.current.level} - {levelInfo.current.name}
                       </Text>
                       <Text style={{ fontSize: 12, color: ui.muted, marginTop: 2 }}>
                         {levelInfo.next
@@ -2065,9 +2435,9 @@ export default function StudyGameScreen() {
                       justifyContent: "space-between",
                     }}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                        <Text style={{ fontSize: 18 }}>{dailyCompleted ? "✅" : "⚡"}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                        <Ionicons name={dailyCompleted ? "checkmark-circle" : "flash"} size={22} color={dailyCompleted ? ui.success : ui.primary} />
                       </View>
                       <View>
                         <Text style={{ fontWeight: "800", fontSize: 16, color: ui.text }}>Daily Challenge</Text>
@@ -2259,7 +2629,7 @@ export default function StudyGameScreen() {
                         </View>
                       </View>
 
-                      {/* Language selector — only shown when 2+ distinct languages */}
+                      {/* Language selector - only shown when 2+ distinct languages */}
                       {quickPlayLanguageGroups.length >= 2 && (
                         <>
                           <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Language</Text>
@@ -2301,7 +2671,10 @@ export default function StudyGameScreen() {
                           return (
                             <TouchableOpacity
                               key={dir}
-                              onPress={() => setQuickPlayDirection(dir)}
+                              onPress={() => {
+                                setQuickPlayDirection(dir);
+                                setQuickPlayShuffleSeed((prev) => prev + 1);
+                              }}
                               activeOpacity={0.85}
                               style={{
                                 flex: 1,
@@ -2351,27 +2724,79 @@ export default function StudyGameScreen() {
                     {/* ── Session mode list ── */}
                     <Text style={{ fontSize: 11, color: ui.muted, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }}>Study modes</Text>
                     {[
-                      { label: "Typing Practice", type: "practice" as StudySessionType, mode: "typing" as StudySessionMode, icon: "⌨️" },
-                      { label: "Multiple Choice", type: "practice" as StudySessionType, mode: "multiple-choice" as StudySessionMode, icon: "✅" },
-                      { label: "Listening", type: "practice" as StudySessionType, mode: "listening" as StudySessionMode, icon: "🎧" },
-                      { label: "Image Mode", type: "practice" as StudySessionType, mode: "image" as StudySessionMode, icon: "🖼️" },
-                      { label: "Review Mistakes", type: "review-mistakes" as StudySessionType, mode: "typing" as StudySessionMode, icon: "🧠" },
-                      { label: "Smart Review", type: "smart-review" as StudySessionType, mode: "typing" as StudySessionMode, icon: "✨" },
+                      {
+                        label: "Typing Practice",
+                        type: "practice" as StudySessionType,
+                        mode: "typing" as StudySessionMode,
+                        iconBg: theme.isDark ? "#1A2F45" : "#E8F4FF",
+                        iconColor: theme.isDark ? "#8DC7FF" : "#0B6FC2",
+                      },
+                      {
+                        label: "Multiple Choice",
+                        type: "practice" as StudySessionType,
+                        mode: "multiple-choice" as StudySessionMode,
+                        iconBg: theme.isDark ? "#2C2A52" : "#F1EDFF",
+                        iconColor: theme.isDark ? "#C9BCFF" : "#6A4DD9",
+                      },
+                      {
+                        label: "Listening",
+                        type: "practice" as StudySessionType,
+                        mode: "listening" as StudySessionMode,
+                        iconBg: theme.isDark ? "#153A37" : "#E9FAF7",
+                        iconColor: theme.isDark ? "#7CE9D6" : "#0A8B76",
+                      },
+                      {
+                        label: "Image Mode",
+                        type: "practice" as StudySessionType,
+                        mode: "image" as StudySessionMode,
+                        iconBg: theme.isDark ? "#3A2B1D" : "#FFF3E3",
+                        iconColor: theme.isDark ? "#FFD39A" : "#C97100",
+                      },
+                      {
+                        label: "Review Mistakes",
+                        type: "review-mistakes" as StudySessionType,
+                        mode: "typing" as StudySessionMode,
+                        iconBg: theme.isDark ? "#3A2020" : "#FFECEC",
+                        iconColor: theme.isDark ? "#FF9F9F" : "#C83D3D",
+                      },
+                      {
+                        label: "Smart Review",
+                        type: "smart-review" as StudySessionType,
+                        mode: "typing" as StudySessionMode,
+                        iconBg: theme.isDark ? "#2E2436" : "#F8EEFF",
+                        iconColor: theme.isDark ? "#E3B7FF" : "#8A3FB0",
+                      },
                     ].map((item) => (
                       <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                         <TouchableOpacity
                           onPress={() => {
-                            const pool = quickPlayWords.length ? quickPlayWords : lessonsWords;
+                            const pool = quickPlayShuffledPool;
                             const words = quickPlayCount === 0
                               ? pool
-                              : shuffle(pool).slice(0, quickPlayCount);
+                              : pool.slice(0, quickPlayCount);
                             if (!words.length) { showToast("No words available.", "info"); return; }
                             startSession(item.type, item.mode, quickPlayDirection, words, { id: null, name: "Quick Play" });
                           }}
                           style={{ flexDirection: "row", alignItems: "center" }}
                         >
-                          <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                            <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+                          <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: item.iconBg, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                            <Ionicons
+                              name={
+                                item.mode === "multiple-choice"
+                                  ? "checkmark-done-outline"
+                                  : item.mode === "image"
+                                  ? "image-outline"
+                                  : item.mode === "listening"
+                                  ? "headset-outline"
+                                  : item.type === "review-mistakes"
+                                  ? "refresh-circle-outline"
+                                  : item.type === "smart-review"
+                                  ? "sparkles-outline"
+                                  : "keypad-outline"
+                              }
+                              size={22}
+                              color={item.iconColor}
+                            />
                           </View>
                           <Text style={{ flex: 1, fontWeight: "700", fontSize: 16, color: ui.text }}>{item.label}</Text>
                           <Ionicons name="chevron-forward" size={18} color={ui.primary} />
@@ -2457,7 +2882,7 @@ export default function StudyGameScreen() {
                           <View style={{ flex: 1, marginRight: 10 }}>
                             <Text style={{ fontWeight: "600", color: ui.text }} numberOfLines={1}>{record.lessonName || "Lesson test"}</Text>
                             <Text style={{ color: ui.muted, fontSize: 12, marginTop: 2 }}>
-                              {record.date ? new Date(record.date).toLocaleDateString() : ""} •{" "}
+                              {record.date ? new Date(record.date).toLocaleDateString() : ""} -{" "}
                               {historyDirectionLabel(record.direction, record.languagePair, record.lessonLanguage)}
                             </Text>
                             <Text style={{ color: ui.primary, fontSize: 11, fontWeight: "700", marginTop: 5 }}>
@@ -2592,76 +3017,13 @@ export default function StudyGameScreen() {
 
       {runtimeScreen === "lesson-detail" && selectedLessonDetail ? (
         <>
-          <View
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 50,
-              backgroundColor: ui.card,
-              borderBottomWidth: 1,
-              borderBottomColor: ui.border,
-              paddingTop: Math.max(insets.top, 8),
-              paddingBottom: 10,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <TouchableOpacity
-              onPress={() => { setRuntimeScreen("dashboard"); setActiveTab("lessons"); }}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: ui.border,
-                backgroundColor: ui.card,
-                alignItems: "center",
-                justifyContent: "center",
-                marginRight: 12,
-              }}
-            >
-              <Ionicons name="chevron-back" size={18} color={ui.muted} />
-            </TouchableOpacity>
-            <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>Lesson</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <TouchableOpacity
-                activeOpacity={1}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: ui.border,
-                  backgroundColor: ui.card,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="notifications-outline" size={18} color={ui.muted} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setRuntimeScreen("dashboard");
-                  setActiveTab("settings");
-                }}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: ui.border,
-                  backgroundColor: ui.card,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="person-outline" size={18} color={ui.muted} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <DetailTopBar
+            ui={ui}
+            topInset={insets.top}
+            title="Lesson"
+            onBack={() => { setRuntimeScreen("dashboard"); setActiveTab("lessons"); }}
+            onSettings={() => { setRuntimeScreen("dashboard"); setActiveTab("settings"); }}
+          />
 
           <ScrollView
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
@@ -2749,7 +3111,7 @@ export default function StudyGameScreen() {
                   <Text style={{ color: ui.primary, fontWeight: "700", fontSize: 16 }} numberOfLines={1}>
                     📄 {selectedLessonDetail.document_name || "Lesson document"}
                   </Text>
-                  <Text style={{ color: ui.primary, fontSize: 20 }}>→</Text>
+                  <Text style={{ color: ui.primary, fontSize: 20 }}>-></Text>
                 </TouchableOpacity>
               </GlassCard>
             ) : null}
@@ -2803,7 +3165,7 @@ export default function StudyGameScreen() {
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TouchableOpacity
                   onPress={() =>
-                    startSession("practice", lessonDetailMode, "pt-en", selectedLessonWords, {
+                    startSession("practice", lessonDetailMode, "pt-en", shuffle(selectedLessonWords), {
                       id: selectedLessonDetail.id,
                       name: selectedLessonDetail.name,
                     })
@@ -2816,7 +3178,7 @@ export default function StudyGameScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() =>
-                    startSession("practice", lessonDetailMode, "en-pt", selectedLessonWords, {
+                    startSession("practice", lessonDetailMode, "en-pt", shuffle(selectedLessonWords), {
                       id: selectedLessonDetail.id,
                       name: selectedLessonDetail.name,
                     })
@@ -2836,11 +3198,11 @@ export default function StudyGameScreen() {
                 return (
                   <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
                     <Text style={{ color: ui.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.6, marginBottom: 6 }}>CONJUGATION</Text>
-                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 18 }}>{word.infinitive?.trim() || "—"}</Text>
+                    <Text style={{ color: ui.text, fontWeight: "800", fontSize: 18 }}>{word.infinitive?.trim() || "-"}</Text>
                     {(word.conjugations ?? []).map((c, ci) => (
                       <View key={`conj-${selectedLessonDetail.id}-${index}-${ci}`} style={{ flexDirection: "row", marginTop: 10, gap: 10, alignItems: "flex-start" }}>
-                        <Text style={{ color: ui.muted, fontSize: 13, fontWeight: "700", width: 118 }}>{c.pronoun || "—"}</Text>
-                        <Text style={{ color: ui.text, fontSize: 15, flex: 1 }}>{(c.form_a || c.form_b || "").trim() || "—"}</Text>
+                        <Text style={{ color: ui.muted, fontSize: 13, fontWeight: "700", width: 118 }}>{c.pronoun || "-"}</Text>
+                        <Text style={{ color: ui.text, fontSize: 15, flex: 1 }}>{(c.form_a || c.form_b || "").trim() || "-"}</Text>
                       </View>
                     ))}
                   </GlassCard>
@@ -2850,10 +3212,10 @@ export default function StudyGameScreen() {
                 return (
                   <GlassCard key={`${selectedLessonDetail.id}-word-${index}`} style={{ borderRadius: 16, backgroundColor: ui.card, marginBottom: 10 }} padding={12}>
                     <Text style={{ color: ui.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.6, marginBottom: 6 }}>PREPOSITION</Text>
-                    <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, marginBottom: 8 }}>{word.prepositionTitle?.trim() || "—"}</Text>
+                    <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, marginBottom: 8 }}>{word.prepositionTitle?.trim() || "-"}</Text>
                     {(word.prepositions ?? []).map((p, pi) => (
                       <Text key={`prep-${selectedLessonDetail.id}-${index}-${pi}`} style={{ color: ui.text, fontSize: 14, marginTop: 4 }}>
-                        {String(p.left ?? "").trim()} + {String(p.right ?? "").trim()} → {String(p.answer ?? "").trim()}
+                        {String(p.left ?? "").trim()} + {String(p.right ?? "").trim()} {"->"} {String(p.answer ?? "").trim()}
                       </Text>
                     ))}
                   </GlassCard>
@@ -2942,76 +3304,13 @@ export default function StudyGameScreen() {
 
       {runtimeScreen === "test-detail" && selectedTestDetail ? (
         <>
-          <View
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 50,
-              backgroundColor: ui.card,
-              borderBottomWidth: 1,
-              borderBottomColor: ui.border,
-              paddingTop: Math.max(insets.top, 8),
-              paddingBottom: 10,
-              paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
-            <TouchableOpacity
-              onPress={() => { setRuntimeScreen("dashboard"); setActiveTab("tests"); }}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: ui.border,
-                backgroundColor: ui.card,
-                alignItems: "center",
-                justifyContent: "center",
-                marginRight: 12,
-              }}
-            >
-              <Ionicons name="chevron-back" size={18} color={ui.muted} />
-            </TouchableOpacity>
-            <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>Test</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <TouchableOpacity
-                activeOpacity={1}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: ui.border,
-                  backgroundColor: ui.card,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="notifications-outline" size={18} color={ui.muted} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setRuntimeScreen("dashboard");
-                  setActiveTab("settings");
-                }}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: ui.border,
-                  backgroundColor: ui.card,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="person-outline" size={18} color={ui.muted} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <DetailTopBar
+            ui={ui}
+            topInset={insets.top}
+            title="Test"
+            onBack={() => { setRuntimeScreen("dashboard"); setActiveTab("tests"); }}
+            onSettings={() => { setRuntimeScreen("dashboard"); setActiveTab("settings"); }}
+          />
 
           <ScrollView
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: Math.max(insets.top, 8) + 62, paddingBottom: 108 }}
@@ -3054,8 +3353,8 @@ export default function StudyGameScreen() {
                   </Text>
                   <Text style={{ color: ui.muted, marginTop: 4, fontSize: 14 }}>
                     {selectedTestDetail.type === "test"
-                      ? `${safeLength(selectedTestDetail.test.words)} questions • No hints`
-                      : `${safeLength(selectedTestDetail.lesson.words)} words • No hints`}
+                      ? `${safeLength(selectedTestDetail.test.words)} questions - No hints`
+                      : `${safeLength(selectedTestDetail.lesson.words)} words - No hints`}
                   </Text>
                 </View>
               </View>
@@ -3148,106 +3447,46 @@ export default function StudyGameScreen() {
 
       {runtimeScreen === "session" && current ? (
         <View style={{ flex: 1 }}>
-          {/* Fixed top bar — stays in place when keyboard opens */}
-          <View
-            style={{
-              paddingTop: Math.max(insets.top, 5),
-              paddingBottom: 5,
-              paddingHorizontal: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: ui.border,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <TouchableOpacity
-              onPress={() =>
-                Alert.alert(
-                  "Exit Session?",
-                  "Your progress in this session will be lost.",
-                  [
-                    { text: "Keep Going", style: "cancel" },
-                    {
-                      text: "Exit",
-                      style: "destructive",
-                      onPress: () => {
-                        if (sessionType === "test" && selectedTestDetail) {
-                          setRuntimeScreen("test-detail");
-                        } else if (selectedLessonDetail) {
-                          saveResumeData();
-                          setRuntimeScreen("lesson-detail");
-                        } else if (selectedTestDetail) {
-                          setRuntimeScreen("test-detail");
-                        } else {
-                          setRuntimeScreen("dashboard");
-                        }
-                      },
+          <SessionHeader
+            ui={ui}
+            topInset={insets.top}
+            title={current.lessonName || current.testName || "Session"}
+            subtitle={sessionHeaderLabel}
+            streak={sessionStreak}
+            index={idx}
+            total={activeWords.length}
+            onExit={() =>
+              Alert.alert(
+                "Exit Session?",
+                "Your progress in this session will be lost.",
+                [
+                  { text: "Keep Going", style: "cancel" },
+                  {
+                    text: "Exit",
+                    style: "destructive",
+                    onPress: () => {
+                      if (sessionType === "test" && selectedTestDetail) {
+                        setRuntimeScreen("test-detail");
+                      } else if (selectedLessonDetail) {
+                        saveResumeData();
+                        setRuntimeScreen("lesson-detail");
+                      } else if (selectedTestDetail) {
+                        setRuntimeScreen("test-detail");
+                      } else {
+                        setRuntimeScreen("dashboard");
+                      }
                     },
-                  ]
-                )
-              }
-              style={{
-                width: 31,
-                height: 31,
-                borderRadius: 9,
-                borderWidth: 1,
-                borderColor: ui.border,
-                backgroundColor: ui.card,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons name="close" size={14} color={ui.muted} />
-            </TouchableOpacity>
+                  },
+                ]
+              )
+            }
+          />
+          
 
-            <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 10 }}>
-              <Text
-                style={{ color: ui.text, fontSize: 14, fontWeight: "800", textAlign: "center" }}
-                numberOfLines={1}
-              >
-                {current.lessonName || current.testName || "Session"}
-              </Text>
-              <Text style={{ color: ui.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.2, marginTop: 1 }}>
-                {sessionHeaderLabel.toUpperCase()}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              {sessionStreak >= 2 ? (
-                <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "#FFF0DA", borderWidth: 1, borderColor: "#F5C070" }}>
-                  <Text style={{ fontSize: 12 }}>🔥</Text>
-                  <Text style={{ fontSize: 11, fontWeight: "800", color: "#E07A10", marginLeft: 2 }}>{sessionStreak}</Text>
-                </View>
-              ) : null}
-              <View style={{ width: 44, height: 44 }}>
-                <Svg width={44} height={44} style={{ position: "absolute" }}>
-                  <Circle cx={22} cy={22} r={17} stroke={ui.borderSoft} strokeWidth={3} fill="none" />
-                  <Circle
-                    cx={22} cy={22} r={17}
-                    stroke={ui.primary}
-                    strokeWidth={3}
-                    fill="none"
-                    strokeDasharray={`${(2 * Math.PI * 17).toFixed(2)}`}
-                    strokeDashoffset={`${(2 * Math.PI * 17 * (1 - Math.min(idx + 1, activeWords.length) / Math.max(activeWords.length, 1))).toFixed(2)}`}
-                    strokeLinecap="round"
-                    rotation="-90"
-                    origin="22,22"
-                  />
-                </Svg>
-                <View style={{ position: "absolute", width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontSize: 9, fontWeight: "900", color: ui.primary }}>{idx + 1}/{activeWords.length}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Keyboard-aware content area */}
           <KeyboardAvoidingView
             style={{ flex: 1 }}
             behavior={Platform.OS === "ios" ? "padding" : "height"}
           >
-            {/* Scrollable question card */}
             <ScrollView
               style={{ flex: 1 }}
               contentContainerStyle={{ padding: 16, paddingBottom: 12 }}
@@ -3337,7 +3576,7 @@ export default function StudyGameScreen() {
                                   return next;
                                 });
                               }}
-                              placeholder="…"
+                              placeholder="..."
                               placeholderTextColor="#98A0B2"
                               autoCapitalize="none"
                               editable={conjugationRowFeedback.length === 0}
@@ -3389,7 +3628,7 @@ export default function StudyGameScreen() {
                           textAlign: "center",
                         }}
                       >
-                        {titleCaseVerb(current.conjugationInfinitive || prompt || "—")}
+                        {titleCaseVerb(current.conjugationInfinitive || prompt || "-")}
                       </Text>
                       <TouchableOpacity
                         onPress={() => playPromptAudio().catch(() => {})}
@@ -3461,7 +3700,7 @@ export default function StudyGameScreen() {
                     onPress={() => setShowHint((v) => !v)}
                     style={{ borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, paddingVertical: 11, alignItems: "center" }}
                   >
-                    <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 13 }}>💡 {showHint ? "Hide Hint" : "Show Hint"}</Text>
+                    <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 13 }}>Hint {showHint ? "Hide Hint" : "Show Hint"}</Text>
                   </TouchableOpacity>
                 ) : null}
 
@@ -3477,7 +3716,7 @@ export default function StudyGameScreen() {
                   </View>
                 ) : null}
 
-                {/* Same flow as typing/listening: prompt (+ hint) first, then answer area — MCQ options stay high in the card. */}
+                {/* Same flow as typing/listening: prompt (+ hint) first, then answer area - MCQ options stay high in the card. */}
                 {showMcq ? (
                   <View style={{ gap: 8, marginTop: sessionType === "test" ? 12 : showHint && sentenceHint ? 12 : isConjugationDrill ? 14 : 10 }}>
                     {mcqChoiceOptions && mcqChoiceOptions.length >= 2
@@ -3519,7 +3758,7 @@ export default function StudyGameScreen() {
                             </TouchableOpacity>
                           ))
                         : (
-                          <Text style={{ color: ui.muted, textAlign: "center", fontSize: 14 }}>Preparing choices…</Text>
+                          <Text style={{ color: ui.muted, textAlign: "center", fontSize: 14 }}>Preparing choices...</Text>
                         )}
                   </View>
                 ) : null}
@@ -3573,96 +3812,44 @@ export default function StudyGameScreen() {
               </ScreenReveal>
             </ScrollView>
 
-            {/* Pinned bottom: input + feedback + submit/skip + progress — always visible above keyboard */}
-            <View
-              style={{
-                paddingHorizontal: 16,
-                paddingTop: 2,
-                paddingBottom: Math.max(insets.bottom, 1),
-                borderTopWidth: 1,
-                borderTopColor: ui.border,
-                backgroundColor: ui.bg,
-                gap: 5,
+            <SessionFooter
+              ui={ui}
+              bottomInset={insets.bottom}
+              showInput={!showMcq && !isConjugationTable}
+              input={input}
+              onInputChange={setInput}
+              needsRetype={needsRetype}
+              feedback={!showMcq ? feedback : null}
+              showSubmit={!showMcq && !isConjugationTable}
+              submitDisabled={!input.trim() || !!feedback}
+              onSubmit={() => answerCurrent().catch(() => {})}
+              showSkip={sessionMode !== "listening" || sessionType === "test"}
+              skipFullWidth={showMcq || isConjugationTable}
+              onSkip={() => {
+                applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, false) });
+                triggerHaptic("error").catch(() => {});
+                setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
+                setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
+                recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, kind: "skip" });
+                if (sessionType === "test" || current.practiceKind === "conjugation-table") {
+                  setTimeout(() => {
+                    setFeedback(null);
+                    setInput("");
+                    setShowHint(false);
+                    setNeedsRetype(false);
+                    setShowInfinitiveNote(false);
+                    setGeminiCorrection("");
+                    setConjugationRowFeedback([]);
+                    if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+                    else setIdx((v) => v + 1);
+                  }, 2000);
+                  return;
+                }
+                setNeedsRetype(true);
+                setInput("");
               }}
-            >
-              {!showMcq && !isConjugationTable ? (
-                <TextInput
-                  value={input}
-                  onChangeText={setInput}
-                  placeholder={needsRetype ? "Type the exact answer..." : "Type your answer..."}
-                  placeholderTextColor="#98A0B2"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: ui.border,
-                    borderRadius: 10,
-                    backgroundColor: ui.card,
-                    color: ui.text,
-                    paddingHorizontal: 12,
-                    paddingVertical: 9,
-                    fontSize: 15,
-                  }}
-                />
-              ) : null}
-
-              {feedback && !showMcq ? (
-                <View style={{ padding: 8, borderRadius: 8, borderWidth: 1, borderColor: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger }}>
-                  <Text style={{ fontWeight: "700", fontSize: 13, color: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger }}>
-                    {feedback.text}
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {!showMcq && !isConjugationTable ? (
-                  <TouchableOpacity
-                    onPress={() => answerCurrent().catch(() => {})}
-                    style={{ flex: 1, borderRadius: 12, backgroundColor: ui.primary, paddingVertical: 10, alignItems: "center" }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Submit ↵</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {sessionMode !== "listening" || sessionType === "test" ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, false) });
-                      triggerHaptic("error").catch(() => {});
-                      setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
-                      setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
-                      recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, kind: "skip" });
-                      if (sessionType === "test" || current.practiceKind === "conjugation-table") {
-                        setTimeout(() => {
-                          setFeedback(null);
-                          setInput("");
-                          setShowHint(false);
-                          setNeedsRetype(false);
-                          setShowInfinitiveNote(false);
-                          setGeminiCorrection("");
-                          setConjugationRowFeedback([]);
-                          if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
-                          else setIdx((v) => v + 1);
-                        }, 2000);
-                        return;
-                      }
-                      setNeedsRetype(true);
-                      setInput("");
-                    }}
-                    style={{
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: ui.border,
-                      backgroundColor: ui.card,
-                      paddingHorizontal: 14,
-                      justifyContent: "center",
-                      alignItems: "center",
-                      flex: showMcq || isConjugationTable ? 1 : undefined,
-                    }}
-                  >
-                    <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 14 }}>Skip</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-
-            </View>
+            />
+            
           </KeyboardAvoidingView>
         </View>
       ) : null}
@@ -3840,7 +4027,7 @@ export default function StudyGameScreen() {
                         <View style={{ flex: 1, paddingRight: 10 }}>
                           <Text style={[theme.typography.title, { fontSize: 18 }]}>Session complete</Text>
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
-                            {sessionType === "test" ? "Test" : "Lesson"} • {sessionContext.name || "General practice"}
+                            {sessionType === "test" ? "Test" : "Lesson"} - {sessionContext.name || "General practice"}
                           </Text>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
@@ -3863,40 +4050,7 @@ export default function StudyGameScreen() {
                             <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
                             <View style={{ gap: 8 }}>
                               {resultRecord.issues.map((issue, index) => (
-                                <View
-                                  key={`${issue.id}-${index}`}
-                                  style={{
-                                    borderRadius: 12,
-                                    borderWidth: 1,
-                                    borderColor: theme.colors.border,
-                                    backgroundColor: theme.colors.surfaceGlass,
-                                    padding: 12,
-                                  }}
-                                >
-                                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Ionicons
-                                      name={reviewIssueIcon(issue.kind)}
-                                      size={14}
-                                      color={reviewIssueColor(theme, issue.kind)}
-                                    />
-                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
-                                      {reviewIssueLabel(issue.kind)}
-                                    </Text>
-                                  </View>
-                                  <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
-                                    P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
-                                  </Text>
-                                  {typeof issue.expected === "string" && issue.expected ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
-                                      E: {issue.expected}
-                                    </Text>
-                                  ) : null}
-                                  {typeof issue.answer === "string" && issue.answer ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
-                                      A: {issue.answer}
-                                    </Text>
-                                  ) : null}
-                                </View>
+                                <ReviewIssueCard key={`${issue.id}-${index}`} issue={issue} index={index} theme={theme} />
                               ))}
                             </View>
                           </View>
@@ -3974,7 +4128,7 @@ export default function StudyGameScreen() {
                         <View style={{ flex: 1, paddingRight: 10 }}>
                           <Text style={[theme.typography.title, { fontSize: 18 }]}>Test review</Text>
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
-                            {(selectedHistoryRecord.lessonName || "Past test")} • {selectedHistoryRecord.date ? new Date(selectedHistoryRecord.date).toLocaleDateString() : "Past attempt"}
+                            {(selectedHistoryRecord.lessonName || "Past test")} - {selectedHistoryRecord.date ? new Date(selectedHistoryRecord.date).toLocaleDateString() : "Past attempt"}
                           </Text>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
@@ -3997,40 +4151,7 @@ export default function StudyGameScreen() {
                             <Text style={[theme.typography.label, { marginBottom: 8 }]}>Question Review</Text>
                             <View style={{ gap: 8 }}>
                               {(selectedHistoryRecord.issues ?? []).map((issue, index) => (
-                                <View
-                                  key={`${issue.id}-${index}`}
-                                  style={{
-                                    borderRadius: 12,
-                                    borderWidth: 1,
-                                    borderColor: theme.colors.border,
-                                    backgroundColor: theme.colors.surfaceGlass,
-                                    padding: 12,
-                                  }}
-                                >
-                                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                                    <Ionicons
-                                      name={reviewIssueIcon(issue.kind)}
-                                      size={14}
-                                      color={reviewIssueColor(theme, issue.kind)}
-                                    />
-                                    <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
-                                      {reviewIssueLabel(issue.kind)}
-                                    </Text>
-                                  </View>
-                                  <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
-                                    P: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
-                                  </Text>
-                                  {typeof issue.expected === "string" && issue.expected ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
-                                      E: {issue.expected}
-                                    </Text>
-                                  ) : null}
-                                  {typeof issue.answer === "string" && issue.answer ? (
-                                    <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted, lineHeight: 18 }]}>
-                                      A: {issue.answer}
-                                    </Text>
-                                  ) : null}
-                                </View>
+                                <ReviewIssueCard key={`${issue.id}-${index}`} issue={issue} index={index} theme={theme} />
                               ))}
                             </View>
                           </View>

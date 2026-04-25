@@ -156,6 +156,8 @@ export type StudyRecordIssue = {
 export type StudyRecord = {
   id: string;
   date: string;
+  /** Epoch milliseconds. Web dashboard uses this for recent-result sorting. */
+  timestamp?: number;
   type: StudySessionType;
   mode: StudySessionMode;
   lessonId?: string | null;

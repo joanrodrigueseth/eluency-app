@@ -345,7 +345,7 @@ function getStudentActivityResultLabel(item: StudentActivity) {
     parts.push(`${item.score} correct`);
   }
 
-  return parts.join(" • ") || "Result pending";
+  return parts.join(" - ") || "Result pending";
 }
  
 const reviewViewportMaxHeight = 488;
@@ -663,10 +663,6 @@ export default function DashboardScreen() {
   const drawerWidth = useMemo(() => Dimensions.get("window").width, []);
   const drawerAnim = useRef(new Animated.Value(-drawerWidth)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
-  const contentScale = useRef(new Animated.Value(1)).current;
-  const contentLift = useRef(new Animated.Value(0)).current;
-  const headerOpacity = useRef(new Animated.Value(1)).current;
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
  
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [dashboardAnnouncements, setDashboardAnnouncements] = useState<DashboardAnnouncement[]>([]);
@@ -699,7 +695,7 @@ export default function DashboardScreen() {
     }, [apiBaseUrl])
   );
 
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPrincipal, setIsPrincipal] = useState(false);
   const [teacherName, setTeacherName] = useState("Teacher");
@@ -1109,40 +1105,18 @@ export default function DashboardScreen() {
   }, []);
 
   const animateDrawer = (toValue: number, onDone?: () => void) => {
+    drawerAnim.stopAnimation();
+    backdropAnim.stopAnimation();
     Animated.parallel([
-      Animated.spring(drawerAnim, {
+      Animated.timing(drawerAnim, {
         toValue,
-        tension: 78,
-        friction: 14,
+        duration: toValue === 0 ? 210 : 180,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(backdropAnim, {
         toValue: toValue === 0 ? 1 : 0,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentScale, {
-        toValue: toValue === 0 ? 0.985 : 1,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentLift, {
-        toValue: toValue === 0 ? -topBarHeight : 0,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(headerOpacity, {
-        toValue: toValue === 0 ? 0 : 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(headerTranslateY, {
-        toValue: toValue === 0 ? -8 : 0,
-        duration: 220,
+        duration: toValue === 0 ? 180 : 140,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -1154,7 +1128,8 @@ export default function DashboardScreen() {
   const openMenu = () => {
     setDrawerVisible(true);
     drawerAnim.setValue(-drawerWidth);
-    animateDrawer(0);
+    backdropAnim.setValue(0);
+    requestAnimationFrame(() => animateDrawer(0));
   };
  
   const closeMenu = () => {
@@ -1274,6 +1249,11 @@ export default function DashboardScreen() {
   );
  
   const topBarHeight = Math.max(insets.top, 8) + 76;
+  const dashboardRadius = theme.radii.md;
+  const dashboardHeroRadius = theme.radii.lg;
+  const dashboardTileRadius = theme.radii.sm;
+  const dashboardRowRadius = theme.radii.sm;
+  const dashboardCardStyle = { marginBottom: 16, borderRadius: dashboardRadius };
  
   const SectionHeader = ({
     eyebrow,
@@ -1334,7 +1314,7 @@ export default function DashboardScreen() {
       <AnimatedPressable
         onPress={onPress}
         style={{
-          borderRadius: 12,
+          borderRadius: dashboardTileRadius,
           padding: 6,
           backgroundColor: theme.isDark ? iconBg + "33" : tint,
           borderWidth: 1,
@@ -1412,18 +1392,19 @@ export default function DashboardScreen() {
       : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
 
     return (
-      <View style={{ width: twoPerRow ? "31.5%" : "31.5%", marginBottom: 8 }}>
+      <View style={{ width: twoPerRow ? "48.5%" : "100%", marginBottom: 10 }}>
         <AnimatedPressable
           onPress={() => handleActionPress(label)}
           style={{
-            borderRadius: 14,
-            padding: 10,
-            minHeight: 88,
+            borderRadius: dashboardTileRadius,
+            padding: 12,
+            minHeight: 74,
             backgroundColor: colors.bg,
             borderWidth: 1,
             borderColor: theme.colors.border,
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent: "flex-start",
+            flexDirection: "row",
           }}
         >
           <View
@@ -1438,12 +1419,12 @@ export default function DashboardScreen() {
           >
             <Ionicons name={ICONS[icon]} size={14} color={colors.icon} />
           </View>
-          <View style={{ marginTop: 8, alignItems: "center" }}>
-            <Text style={[theme.typography.bodyStrong, { fontSize: 11, lineHeight: 13, textTransform: "uppercase", color: theme.colors.textMuted, textAlign: "center" }]} numberOfLines={1}>
+          <View style={{ marginLeft: 10, flex: 1 }}>
+            <Text style={[theme.typography.bodyStrong, { fontSize: 10, lineHeight: 12, textTransform: "uppercase", color: theme.colors.textMuted }]} numberOfLines={1}>
               {topLabel}
             </Text>
             {bottomLabel ? (
-              <Text style={[theme.typography.bodyStrong, { marginTop: 2, fontSize: 12, lineHeight: 15, color: theme.colors.text, textAlign: "center" }]} numberOfLines={1}>
+              <Text style={[theme.typography.bodyStrong, { marginTop: 1, fontSize: 13, lineHeight: 16, color: theme.colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
                 {bottomLabel}
               </Text>
             ) : null}
@@ -1468,7 +1449,7 @@ export default function DashboardScreen() {
       style={{
         width: "48.5%",
         marginBottom: 12,
-        borderRadius: 18,
+        borderRadius: dashboardTileRadius,
         borderWidth: 1,
         borderColor: theme.colors.border,
         backgroundColor: accent,
@@ -1598,8 +1579,8 @@ export default function DashboardScreen() {
     const visibleItems = items.slice(0, 5);
  
     return (
-      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-        <SectionHeader eyebrow="Activity" title="Recent lessons" subtitle="Your latest lessons in a cleaner, faster-scanning layout." />
+      <GlassCard style={dashboardCardStyle}>
+        <SectionHeader eyebrow="Activity" title="Recent lessons" />
         <ActivityTabs />
  
         {visibleItems.length > 0 ? (
@@ -1614,7 +1595,7 @@ export default function DashboardScreen() {
                     flexDirection: "row",
                     alignItems: "center",
                     backgroundColor: theme.colors.surfaceAlt,
-                    borderRadius: 12,
+                    borderRadius: dashboardRowRadius,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
                     paddingVertical: 8,
@@ -1647,7 +1628,7 @@ export default function DashboardScreen() {
         ) : (
           <View
             style={{
-              borderRadius: 18,
+              borderRadius: dashboardTileRadius,
               borderWidth: 1,
               borderColor: theme.colors.border,
               backgroundColor: theme.colors.surfaceAlt,
@@ -1666,8 +1647,8 @@ export default function DashboardScreen() {
     const visibleItems = items.slice(0, 5);
  
     return (
-      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-        <SectionHeader eyebrow="Activity" title="Recent tests" subtitle="Your latest tests with quick signal chips and better spacing." />
+      <GlassCard style={dashboardCardStyle}>
+        <SectionHeader eyebrow="Activity" title="Recent tests" />
         <ActivityTabs />
  
         {visibleItems.length > 0 ? (
@@ -1684,7 +1665,7 @@ export default function DashboardScreen() {
                     flexDirection: "row",
                     alignItems: "center",
                     backgroundColor: theme.colors.surfaceAlt,
-                    borderRadius: 12,
+                    borderRadius: dashboardRowRadius,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
                     paddingVertical: 8,
@@ -1718,7 +1699,7 @@ export default function DashboardScreen() {
         ) : (
           <View
             style={{
-              borderRadius: 18,
+              borderRadius: dashboardTileRadius,
               borderWidth: 1,
               borderColor: theme.colors.border,
               backgroundColor: theme.colors.surfaceAlt,
@@ -1736,7 +1717,7 @@ export default function DashboardScreen() {
   const RecentStudentActivityCard = ({ items }: { items: StudentActivity[] }) => {
     const visibleItems = items.slice(0, 5);
     return (
-      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+      <GlassCard style={dashboardCardStyle}>
         <SectionHeader eyebrow="Activity" title="Student Activity" subtitle="Recent lesson and test completions across your students." />
         <ActivityTabs />
         {visibleItems.length > 0 ? (
@@ -1745,7 +1726,7 @@ export default function DashboardScreen() {
               <View
                 style={{
                   minWidth: 740,
-                  borderRadius: 14,
+                  borderRadius: dashboardTileRadius,
                   borderWidth: 1,
                   borderColor: theme.colors.border,
                   overflow: "hidden",
@@ -1800,10 +1781,10 @@ export default function DashboardScreen() {
                   </View>
                   <View style={{ width: 110, paddingRight: 12 }}>
                     <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }}>
-                      {item.percentage !== null ? `${item.percentage}%` : "—"}
+                      {item.percentage !== null ? `${item.percentage}%` : "-"}
                     </Text>
                     <Text style={{ fontSize: 10, fontWeight: "700", color: resultColor, marginTop: 1 }}>
-                      {item.score !== null && item.total !== null ? `${item.score}/${item.total}` : "—"}
+                      {item.score !== null && item.total !== null ? `${item.score}/${item.total}` : "-"}
                     </Text>
                   </View>
                   <Text style={{ fontSize: 10, color: theme.colors.textMuted, flexShrink: 0 }}>{formatDateTime(item.created_at)}</Text>
@@ -1822,7 +1803,7 @@ export default function DashboardScreen() {
             </View>
           </>
         ) : (
-          <View style={{ borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
+          <View style={{ borderRadius: dashboardTileRadius, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No student activity yet</Text>
           </View>
         )}
@@ -1921,7 +1902,7 @@ export default function DashboardScreen() {
 
                       <View style={{ width: 120, paddingRight: 12 }}>
                         <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }} numberOfLines={1}>
-                          {item.percentage !== null ? `${item.percentage}%` : "—"}
+                          {item.percentage !== null ? `${item.percentage}%` : "-"}
                         </Text>
                         <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted, marginTop: 1 }} numberOfLines={1}>
                           {item.score !== null && item.total !== null ? `${item.score}/${item.total}` : "No score"}
@@ -1956,8 +1937,8 @@ export default function DashboardScreen() {
     const visibleItems = items.slice(0, 5);
 
     return (
-      <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-        <SectionHeader eyebrow="Activity" title="Student activity" subtitle="Recent lesson and test completions across your students." />
+      <GlassCard style={dashboardCardStyle}>
+        <SectionHeader eyebrow="Activity" title="Student activity" />
         <ActivityTabs />
 
         {visibleItems.length > 0 ? (
@@ -2127,7 +2108,7 @@ export default function DashboardScreen() {
     items: string[];
     emptyLabel: string;
   }) => (
-    <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+    <GlassCard style={dashboardCardStyle}>
       <SectionHeader eyebrow={eyebrow} title={title} subtitle={`${items.length} assigned`} />
       {items.length > 0 ? (
         items.map((id, index) => (
@@ -2135,7 +2116,7 @@ export default function DashboardScreen() {
             key={id}
             style={{
               backgroundColor: theme.colors.surfaceAlt,
-              borderRadius: 18,
+              borderRadius: dashboardTileRadius,
               borderWidth: 1,
               borderColor: theme.colors.border,
               padding: 14,
@@ -2174,7 +2155,7 @@ export default function DashboardScreen() {
       <View
         style={{
           backgroundColor: theme.colors.surfaceAlt,
-          borderRadius: 18,
+          borderRadius: dashboardTileRadius,
           borderWidth: 1,
           borderColor: theme.colors.border,
           padding: 14,
@@ -2187,7 +2168,7 @@ export default function DashboardScreen() {
               style={{
                 height: 40,
                 width: 40,
-                borderRadius: 15,
+                borderRadius: dashboardRowRadius,
                 backgroundColor: theme.colors.primarySoft,
                 alignItems: "center",
                 justifyContent: "center",
@@ -2242,7 +2223,82 @@ export default function DashboardScreen() {
   const teacherDashboard = (
     <>
       <AnimatedSection delay={0}>
-        <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+        <GlassCard style={{ marginBottom: 18, borderRadius: dashboardHeroRadius, overflow: "hidden" }}>
+          <View
+            style={{
+              borderRadius: dashboardHeroRadius,
+              padding: 2,
+              backgroundColor: theme.colors.surfaceGlass,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
+                  {isAdmin ? "Admin" : isPrincipal ? "Principal" : "Teacher"} workspace
+                </Text>
+                <Text style={[theme.typography.title, { marginTop: 8, fontSize: 24, lineHeight: 30 }]}>{`Welcome back, ${teacherName}`}</Text>
+                <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
+              </View>
+
+              <View
+                style={{
+                  height: 48,
+                  width: 48,
+                  borderRadius: dashboardTileRadius,
+                  backgroundColor: theme.colors.primarySoft,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Ionicons name={isAdmin || isPrincipal ? "shield-checkmark" : "school"} size={22} color={theme.colors.primary} />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+              <TouchableOpacity
+                onPress={() => handleActionPress("Create Lesson")}
+                activeOpacity={0.85}
+                style={{ flex: 1, borderRadius: dashboardTileRadius, backgroundColor: theme.colors.primary, paddingVertical: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
+              >
+                <Ionicons name="book-outline" size={16} color={theme.colors.primaryText} />
+                <Text style={{ color: theme.colors.primaryText, fontSize: 13, lineHeight: 16, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
+                  New Lesson
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleActionPress("Create Student")}
+                activeOpacity={0.85}
+                style={{ flex: 1, borderRadius: dashboardTileRadius, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
+              >
+                <Ionicons name="school-outline" size={16} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 16, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
+                  Add Student
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ marginTop: 14, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+              {stats.map((s) => (
+                <StatCard
+                  key={s.label}
+                  label={s.label}
+                  value={s.animatedValue}
+                  icon={s.icon}
+                  iconBg={s.iconBg}
+                  iconColor={s.iconColor}
+                  tint={s.tint}
+                  onPress={s.onPress}
+                  twoPerRow
+                />
+              ))}
+            </View>
+          </View>
+        </GlassCard>
+      </AnimatedSection>
+
+      <AnimatedSection delay={80}>
+        <GlassCard style={dashboardCardStyle}>
           <TouchableOpacity
             onPress={() => setQuickActionsOpen((o) => !o)}
             activeOpacity={0.8}
@@ -2269,63 +2325,11 @@ export default function DashboardScreen() {
           ))}
         </GlassCard>
       </AnimatedSection>
-
-      <AnimatedSection delay={80}>
-        <GlassCard style={{ marginBottom: 18, borderRadius: 24, overflow: "hidden" }}>
-          <View
-            style={{
-              borderRadius: 24,
-              padding: 2,
-              backgroundColor: theme.colors.surfaceGlass,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
-                  {isAdmin ? "Admin" : isPrincipal ? "Principal" : "Teacher"} workspace
-                </Text>
-                <Text style={[theme.typography.title, { marginTop: 8, fontSize: 24, lineHeight: 30 }]}>{`Welcome back, ${teacherName}`}</Text>
-                <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
-              </View>
- 
-              <View
-                style={{
-                  height: 52,
-                  width: 52,
-                  borderRadius: 18,
-                  backgroundColor: theme.colors.primarySoft,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <Ionicons name="shield-checkmark" size={24} color={theme.colors.primary} />
-              </View>
-            </View>
-
-            <View style={{ marginTop: 14, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              {stats.map((s) => (
-                <StatCard
-                  key={s.label}
-                  label={s.label}
-                  value={s.animatedValue}
-                  icon={s.icon}
-                  iconBg={s.iconBg}
-                  iconColor={s.iconColor}
-                  tint={s.tint}
-                  onPress={s.onPress}
-                  twoPerRow
-                />
-              ))}
-            </View>
-          </View>
-        </GlassCard>
-      </AnimatedSection>
  
       {isAdmin ? (
         <AnimatedSection delay={200}>
-          <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
-            <SectionHeader eyebrow="Platform" title="Key KPIs" subtitle="Plan distribution plus recurring monthly revenue." />
+          <GlassCard style={dashboardCardStyle}>
+            <SectionHeader eyebrow="Platform" title="Key KPIs" />
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
               <CompactMetric
                 label="Basic"
@@ -2350,7 +2354,7 @@ export default function DashboardScreen() {
               <View
                 style={{
                   width: "100%",
-                  borderRadius: 18,
+                  borderRadius: dashboardTileRadius,
                   borderWidth: 1,
                   borderColor: theme.isDark ? "rgba(52,211,153,0.28)" : theme.colors.success,
                   backgroundColor: theme.isDark ? "rgba(52,211,153,0.10)" : theme.colors.successSoft,
@@ -2369,38 +2373,50 @@ export default function DashboardScreen() {
  
       {isAdmin || isPrincipal ? (
         <AnimatedSection delay={260}>
-          <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+          <GlassCard style={dashboardCardStyle}>
             <View style={{ marginBottom: 16 }}>
-              <SectionHeader eyebrow="Teachers" title="Capacity and activity" subtitle="Animated load bars make team health easier to scan." />
+              <SectionHeader eyebrow="Teachers" title="Capacity and activity" />
               
               {/* Last Login Sort Buttons */}
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 16 }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                 <TouchableOpacity
                   onPress={() => setLastLoginSort(lastLoginSort === 'asc' ? null : 'asc')}
                   style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 6,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    borderRadius: 10,
+                    borderRadius: dashboardRowRadius,
                     borderWidth: 1.5,
                     borderColor: lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.border,
                     backgroundColor: lastLoginSort === 'asc' ? theme.colors.primarySoft : 'transparent',
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.textMuted }}>Last Login ↑</Text>
+                  <Ionicons name="arrow-up-outline" size={13} color={lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.textMuted} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'asc' ? theme.colors.primary : theme.colors.textMuted }}>Oldest Login</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
                   onPress={() => setLastLoginSort(lastLoginSort === 'desc' ? null : 'desc')}
                   style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 6,
                     paddingHorizontal: 12,
                     paddingVertical: 8,
-                    borderRadius: 10,
+                    borderRadius: dashboardRowRadius,
                     borderWidth: 1.5,
                     borderColor: lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.border,
                     backgroundColor: lastLoginSort === 'desc' ? theme.colors.primarySoft : 'transparent',
                   }}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.textMuted }}>Last Login ↓</Text>
+                  <Ionicons name="arrow-down-outline" size={13} color={lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.textMuted} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: lastLoginSort === 'desc' ? theme.colors.primary : theme.colors.textMuted }}>Newest Login</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2417,7 +2433,7 @@ export default function DashboardScreen() {
             ) : (
               <View
                 style={{
-                  borderRadius: 18,
+                  borderRadius: dashboardTileRadius,
                   borderWidth: 1,
                   borderColor: theme.colors.border,
                   backgroundColor: theme.colors.surfaceAlt,
@@ -2449,7 +2465,7 @@ export default function DashboardScreen() {
   const studentDashboard = (
     <>
       <AnimatedSection delay={0}>
-        <GlassCard style={{ marginBottom: 18, borderRadius: 24 }}>
+        <GlassCard style={{ marginBottom: 18, borderRadius: dashboardHeroRadius }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Student dashboard</Text>
@@ -2462,7 +2478,7 @@ export default function DashboardScreen() {
               style={{
                 height: 64,
                 width: 64,
-                borderRadius: 24,
+                borderRadius: dashboardTileRadius,
                 backgroundColor: theme.colors.violetSoft,
                 alignItems: "center",
                 justifyContent: "center",
@@ -2476,7 +2492,7 @@ export default function DashboardScreen() {
  
       {studentExpiresAt ? (
         <AnimatedSection delay={80}>
-          <GlassCard style={{ marginBottom: 16, borderRadius: 18 }}>
+          <GlassCard style={dashboardCardStyle}>
             <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Session</Text>
             <Text style={[theme.typography.caption, { marginTop: 8, color: theme.colors.textMuted }]}>{`Active until ${formatDateTime(studentExpiresAt)}`}</Text>
           </GlassCard>
@@ -2763,7 +2779,7 @@ export default function DashboardScreen() {
                   style={{
                     flex: 1,
                     minWidth: 120,
-                    borderRadius: 14,
+                    borderRadius: dashboardTileRadius,
                     borderWidth: 1,
                     borderColor: theme.colors.border,
                     backgroundColor: theme.colors.surfaceAlt,
@@ -2989,7 +3005,6 @@ export default function DashboardScreen() {
       <Animated.View
         style={{
           flex: 1,
-          transform: [{ scale: contentScale }],
         }}
       >
         <Animated.View
@@ -3008,8 +3023,6 @@ export default function DashboardScreen() {
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
-            opacity: headerOpacity,
-            transform: [{ translateY: headerTranslateY }],
           }}
           pointerEvents="box-none"
         >
@@ -3075,7 +3088,6 @@ export default function DashboardScreen() {
         </Animated.View>
  
         <Animated.ScrollView
-          style={{ transform: [{ translateY: contentLift }] }}
           contentContainerStyle={{
             paddingHorizontal: 20,
             paddingTop: topBarHeight + 16,
@@ -3084,24 +3096,45 @@ export default function DashboardScreen() {
           showsVerticalScrollIndicator={false}
         >
           {loading ? (
-            <GlassCard style={{ borderRadius: 18 }}>
-              <View style={{ gap: 18 }}>
+            <View>
+              <GlassCard style={{ borderRadius: dashboardHeroRadius, marginBottom: 14 }} padding={16}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                  <SkeletonBox width={52} height={52} radius={16} />
-                  <View style={{ flex: 1, gap: 8 }}>
-                    <SkeletonBox width="40%" height={12} radius={6} />
-                    <SkeletonBox width="65%" height={20} radius={10} />
+                  <SkeletonBox width={58} height={58} radius={dashboardTileRadius} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonBox width="34%" height={11} radius={6} />
+                    <SkeletonBox width="68%" height={24} radius={12} style={{ marginTop: 10 }} />
+                    <SkeletonBox width="82%" height={12} radius={6} style={{ marginTop: 10 }} />
                   </View>
                 </View>
-                <View style={{ flexDirection: "row", gap: 12 }}>
-                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
-                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
-                  <SkeletonBox width="31%" height={92} radius={18} style={{ flex: 1 }} />
-                </View>
-                <SkeletonBox width="100%" height={170} radius={22} />
-                <SkeletonBox width="100%" height={120} radius={22} />
+              </GlassCard>
+
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+                {[0, 1, 2].map((item) => (
+                  <GlassCard key={`dash-skeleton-stat-${item}`} style={{ flex: 1, borderRadius: dashboardRadius }} padding={12}>
+                    <SkeletonBox width={34} height={34} radius={dashboardTileRadius} />
+                    <SkeletonBox width="58%" height={11} radius={6} style={{ marginTop: 12 }} />
+                    <SkeletonBox width="42%" height={22} radius={11} style={{ marginTop: 8 }} />
+                  </GlassCard>
+                ))}
               </View>
-            </GlassCard>
+
+              <GlassCard style={{ borderRadius: dashboardRadius, marginBottom: 14 }} padding={16}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                  <SkeletonBox width={42} height={42} radius={dashboardTileRadius} />
+                  <View style={{ flex: 1 }}>
+                    <SkeletonBox width="42%" height={14} radius={7} />
+                    <SkeletonBox width="66%" height={11} radius={6} style={{ marginTop: 8 }} />
+                  </View>
+                </View>
+                <SkeletonBox width="100%" height={118} radius={dashboardRadius} />
+              </GlassCard>
+
+              <GlassCard style={{ borderRadius: dashboardRadius }} padding={16}>
+                <SkeletonBox width="46%" height={15} radius={8} />
+                <SkeletonBox width="100%" height={54} radius={dashboardTileRadius} style={{ marginTop: 14 }} />
+                <SkeletonBox width="100%" height={54} radius={dashboardTileRadius} style={{ marginTop: 10 }} />
+              </GlassCard>
+            </View>
           ) : fatalError ? (
             <GlassCard style={{ borderRadius: 18 }}>
               <Text style={theme.typography.title}>Error loading dashboard</Text>
