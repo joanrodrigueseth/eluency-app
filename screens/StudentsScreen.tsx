@@ -51,6 +51,7 @@ export type RootStudentsStackParams = {
   Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
   Students: { flashMessage?: string; flashTone?: FloatingToastTone; openStudentId?: string } | undefined;
   StudentForm: { studentId?: string } | undefined;
+  StudentResults: undefined;
   Subscription: undefined;
   Notifications: undefined;
 };
@@ -84,8 +85,8 @@ const RECENT_ACTIVITY_DEFAULT_COUNT = 10;
 /**
  * Normalise per-question data into a single ActivityIssue shape.
  * Handles two formats:
- *   • Mobile StudyRecordIssue  — { kind, prompt, expected, answer? }
- *   • Webapp StudentResultAnswer — { result, word:{pt?,en?}, correctAnswer, userAnswer }
+ *   G�� Mobile StudyRecordIssue  G�� { kind, prompt, expected, answer? }
+ *   G�� Webapp StudentResultAnswer G�� { result, word:{pt?,en?}, correctAnswer, userAnswer }
  */
 function activityIssueLabel(kind: ActivityIssue["kind"]) {
   if (kind === "correct") return "Correct";
@@ -854,7 +855,7 @@ export default function StudentsScreen() {
                 })
               );
             } catch {
-              // Best-effort — skip students whose progress can't be enriched.
+              // Best-effort G�� skip students whose progress can't be enriched.
             }
           }
         })();
@@ -1310,6 +1311,27 @@ export default function StudentsScreen() {
                 icon="people-outline"
                 danger={isMaxed}
               />
+              <TouchableOpacity
+                onPress={() => navigation.navigate("StudentResults")}
+                activeOpacity={0.85}
+                style={{
+                  height: 72,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: theme.colors.success,
+                  backgroundColor: theme.colors.successSoft,
+                  paddingHorizontal: 14,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  minWidth: 180,
+                }}
+              >
+                <Ionicons name="stats-chart-outline" size={16} color={theme.colors.success} />
+                <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 12 }}>
+                  View Students Results
+                </Text>
+              </TouchableOpacity>
             </>
           )}
         </View>
@@ -1694,186 +1716,6 @@ export default function StudentsScreen() {
         </GlassCard>
         </ScreenReveal>
 
-        <ScreenReveal delay={210}>
-        <GlassCard style={{ borderRadius: 18, marginTop: 14 }} padding={0}>
-          {/* Header */}
-          <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: 12 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: theme.colors.successSoft, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="time-outline" size={16} color={theme.colors.success} />
-              </View>
-              <View>
-                <Text style={[theme.typography.bodyStrong, { fontSize: 15 }]}>Recent Activity</Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 1 }]}>
-                  Session completions across your students
-                </Text>
-              </View>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, backgroundColor: theme.colors.surfaceGlass, paddingHorizontal: 10, gap: 6 }}>
-              <Ionicons name="search-outline" size={14} color={theme.colors.textMuted} />
-              <TextInput
-                value={activitySearch}
-                onChangeText={setActivitySearch}
-                placeholder="Search by student name..."
-                placeholderTextColor={theme.colors.textMuted}
-                style={{ flex: 1, paddingVertical: 9, fontSize: 13, color: theme.colors.text }}
-              />
-              {activitySearch.length > 0 && (
-                <TouchableOpacity onPress={() => setActivitySearch("")}>
-                  <Ionicons name="close-circle" size={16} color={theme.colors.textMuted} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-
-          {/* Column headers */}
-          <View style={{ flexDirection: "row", paddingHorizontal: 16, paddingVertical: 9, backgroundColor: theme.isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)", borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-            <Text style={{ flex: 1.4, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Student</Text>
-            <Text style={{ flex: 1.5, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Lesson / Test</Text>
-            <Text style={{ flex: 1.45, fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Result</Text>
-          </View>
-
-          {/* Rows */}
-          {filteredActivities.length === 0 ? (
-            <View style={{ paddingVertical: 32, alignItems: "center", gap: 8 }}>
-              <Ionicons name="time-outline" size={28} color={theme.colors.textMuted} />
-              <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
-                {activitySearch.trim() ? `No results for "${activitySearch.trim()}"` : "No activity yet"}
-              </Text>
-              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center", maxWidth: 260 }]}>
-                {activitySearch.trim() ? "Try a different name." : "Completed lessons and tests will appear here."}
-              </Text>
-            </View>
-          ) : (
-            visibleActivities.map((activity, index) => {
-              const meta = activity.metadata ?? {};
-              const studentName = typeof meta.student_name === "string" ? meta.student_name : "Student";
-              const contentName =
-                typeof meta.lesson_name === "string" ? meta.lesson_name :
-                typeof meta.test_name === "string" ? meta.test_name :
-                activity.title;
-              const isTest = activity.type === "test_completed";
-              const percentage = typeof meta.percentage === "number" ? meta.percentage : null;
-              const passed = typeof meta.passed === "boolean" ? meta.passed : null;
-              const score = typeof meta.score === "number" ? meta.score : null;
-              const total = typeof meta.total === "number" ? meta.total : null;
-              const isResolvingDetails = activityDetailLoadingId === activity.id;
-              const outcomeCounts = getActivityOutcomeCounts(meta);
-              const correctCount = outcomeCounts.correct;
-              const wrongCount = outcomeCounts.wrong;
-              const closeCount = outcomeCounts.close;
-
-              const resultColor = percentage !== null
-                ? (percentage >= 80 ? theme.colors.success : percentage >= 50 ? "#D97706" : theme.colors.danger)
-                : theme.colors.textMuted;
-
-              return (
-                <TouchableOpacity
-                  key={activity.id}
-                  onPress={() => { openActivity(activity).catch(() => {}); }}
-                  activeOpacity={0.75}
-                  disabled={isResolvingDetails}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderBottomWidth: index < visibleActivities.length - 1 ? 1 : 0,
-                    borderBottomColor: theme.colors.border,
-                    backgroundColor: "transparent",
-                    opacity: isResolvingDetails ? 0.7 : 1,
-                  }}
-                >
-                  {/* Student name */}
-                  <View style={{ flex: 1.4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                    <View style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
-                      <Text style={{ fontSize: 12, fontWeight: "700", color: theme.colors.text, textAlign: "center" }} numberOfLines={1}>{studentName}</Text>
-                      <Text style={{ fontSize: 10, color: theme.colors.textMuted, marginTop: 1, textAlign: "center" }}>{formatShortDate(activity.created_at)}</Text>
-                    </View>
-                  </View>
-
-                  {/* Lesson / Test name */}
-                  <View style={{ flex: 1.5, paddingRight: 8, alignItems: "center" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      <Ionicons
-                        name={isTest ? "clipboard-outline" : "book-outline"}
-                        size={10}
-                        color={isTest ? "#7C3AED" : "#0284C7"}
-                      />
-                      <Text style={{ fontSize: 10, fontWeight: "800", color: isTest ? "#7C3AED" : "#0284C7", textTransform: "uppercase" }}>
-                        {isTest ? "Test" : "Lesson"}
-                      </Text>
-                    </View>
-                    <Text style={{ fontSize: 12, color: theme.colors.text, marginTop: 2, textAlign: "center" }} numberOfLines={2}>{contentName}</Text>
-                  </View>
-
-                  {/* Result badge */}
-                  <View style={{ flex: 1.45, alignItems: "center", gap: 4 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 4 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                        <Ionicons name="checkmark-circle" size={12} color={theme.colors.success} />
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.success }}>{correctCount}</Text>
-                      </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                        <Ionicons name="remove-circle" size={12} color="#D97706" />
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: "#D97706" }}>{closeCount}</Text>
-                      </View>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                        <Ionicons name="close-circle" size={12} color={theme.colors.danger} />
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.danger }}>{wrongCount}</Text>
-                      </View>
-                    </View>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      <Text style={{ fontSize: 13, fontWeight: "900", color: resultColor }}>
-                        {percentage !== null ? `${percentage}%` : "-"}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: theme.colors.textMuted }}>|</Text>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: resultColor }}>
-                        {score !== null && total !== null ? `${score}/${total}` : "-"}
-                      </Text>
-                    </View>
-                    {isResolvingDetails ? (
-                      <Text style={{ fontSize: 10, fontWeight: "700", color: theme.colors.textMuted }}>Loading...</Text>
-                    ) : null}
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          )}
-          {filteredActivities.length > RECENT_ACTIVITY_DEFAULT_COUNT ? (
-            <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-              <TouchableOpacity
-                onPress={() => {
-                  layoutEase();
-                  setActivityExpanded((current) => !current);
-                }}
-                activeOpacity={0.85}
-                style={{
-                  alignSelf: "center",
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.surfaceGlass,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "800", color: theme.colors.text }}>
-                  {activityExpanded ? "Show less" : `Expand (${filteredActivities.length - RECENT_ACTIVITY_DEFAULT_COUNT} more)`}
-                </Text>
-                <Ionicons
-                  name={activityExpanded ? "chevron-up" : "chevron-down"}
-                  size={14}
-                  color={theme.colors.textMuted}
-                />
-              </TouchableOpacity>
-            </View>
-          ) : null}
-        </GlassCard>
-        </ScreenReveal>
       </ScrollView>
 
       {/* Activity detail modal */}
@@ -1931,7 +1773,7 @@ export default function StudentsScreen() {
                       <View style={{ flex: 1, paddingRight: 10 }}>
                         <Text style={[theme.typography.title, { fontSize: 18 }]}>{isTest ? "Test review" : "Lesson review"}</Text>
                         <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
-                          {isTest ? "Test" : "Lesson"} • {contentName}
+                          {isTest ? "Test" : "Lesson"} G�� {contentName}
                         </Text>
                         <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                           {selectedActivity.created_at ? new Date(selectedActivity.created_at).toLocaleDateString() : "Past attempt"}

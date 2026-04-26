@@ -22,6 +22,7 @@ import TestFormScreen from "./screens/TestFormScreen";
 import LessonsScreen from "./screens/LessonsScreen";
 import LessonFormScreen from "./screens/LessonFormScreen";
 import StudyGameScreen from "./screens/StudyGameScreen";
+import StudentResultsScreen from "./screens/StudentResultsScreen";
 import { getStoredStudentSessionId } from "./lib/studentSession";
 import { ThemeProvider, useAppTheme } from "./lib/theme";
 import { clearSupabaseAuthStorage, supabase } from "./lib/supabase";
@@ -214,6 +215,7 @@ function AppShell() {
               <Stack.Screen name="LessonForm" component={LessonFormScreen} />
               <Stack.Screen name="Tests" component={TestsScreen} />
               <Stack.Screen name="TestForm" component={TestFormScreen} />
+              <Stack.Screen name="StudentResults" component={StudentResultsScreen} />
               <Stack.Screen name="StudyGame" component={StudyGameScreen} initialParams={{ sessionId: studentSessionId || "" }} />
             </Stack.Navigator>
           </NavigationContainer>

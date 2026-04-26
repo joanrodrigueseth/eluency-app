@@ -55,6 +55,7 @@ type RootStackParamList = {
   StudentForm: { studentId?: string } | undefined;
   Tests: undefined;
   TestForm: { testId?: string } | undefined;
+  StudentResults: undefined;
   StudyGame: { sessionId: string };
 };
  
@@ -800,6 +801,10 @@ export default function DashboardScreen() {
       navigation.navigate("Tests");
       return;
     }
+    if (label === "/dashboard/student-results") {
+      navigation.navigate("StudentResults");
+      return;
+    }
     if (label === "/dashboard") {
       return;
     }
@@ -817,6 +822,10 @@ export default function DashboardScreen() {
     }
     if (label === "Add Teacher" || label === "Add Principal" || label === "Create Teacher" || label === "Create Principal") {
       navigation.navigate("Teachers");
+      return;
+    }
+    if (label === "Students Results") {
+      navigation.navigate("StudentResults");
       return;
     }
  
@@ -891,6 +900,7 @@ export default function DashboardScreen() {
       { label: "Lessons", href: "/dashboard/lessons", icon: "book" as const },
       { label: "Tests", href: "/dashboard/tests", icon: "clipboard" as const },
       { label: "Students", href: "/dashboard/students", icon: "school" as const },
+      { label: "Students Results", href: "/dashboard/student-results", icon: "flame" as const },
       { label: "Vocabulary Browser", href: "/dashboard/packs", icon: "star" as const },
     ];
  
@@ -2255,25 +2265,15 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+            <View style={{ marginTop: 16, alignItems: "flex-start" }}>
               <TouchableOpacity
-                onPress={() => handleActionPress("Create Lesson")}
+                onPress={() => handleActionPress("Students Results")}
                 activeOpacity={0.85}
-                style={{ flex: 1, borderRadius: dashboardTileRadius, backgroundColor: theme.colors.primary, paddingVertical: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
+                style={{ borderRadius: dashboardTileRadius, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
               >
-                <Ionicons name="book-outline" size={16} color={theme.colors.primaryText} />
-                <Text style={{ color: theme.colors.primaryText, fontSize: 13, lineHeight: 16, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
-                  New Lesson
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleActionPress("Create Student")}
-                activeOpacity={0.85}
-                style={{ flex: 1, borderRadius: dashboardTileRadius, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
-              >
-                <Ionicons name="school-outline" size={16} color={theme.colors.primary} />
+                <Ionicons name="stats-chart-outline" size={16} color={theme.colors.primary} />
                 <Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 16, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
-                  Add Student
+                  Students Results
                 </Text>
               </TouchableOpacity>
             </View>
