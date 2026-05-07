@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { supabase } from "./supabase";
-import { ensureLocalNotificationsReady, showLocalNotification } from "./mobileNotifications";
+import { ensureLocalNotificationsReady } from "./mobileNotifications";
 
 type TeacherNotificationRow = {
   id: string;
@@ -155,19 +155,8 @@ export async function startStudentAssignmentsWatcher(sessionId: string, apiBaseU
 
     const previous = await readSnapshot();
     if (previous.hasSnapshot) {
-      const addedLessons = lessons.filter((id) => !previous.lessons.includes(id)).length;
-      const addedTests = tests.filter((id) => !previous.tests.includes(id)).length;
-      if (addedLessons > 0 || addedTests > 0) {
-        const chunks = [
-          addedLessons > 0 ? `${addedLessons} new lesson${addedLessons === 1 ? "" : "s"}` : null,
-          addedTests > 0 ? `${addedTests} new test${addedTests === 1 ? "" : "s"}` : null,
-        ].filter(Boolean);
-        await showLocalNotification("New assignments available", chunks.join(" and "), {
-          sessionId,
-          addedLessons,
-          addedTests,
-        });
-      }
+      // Keep snapshot tracking so assignment diffs remain available for UI state,
+      // but push delivery is handled server-side to work when app is closed.
     }
 
     await writeSnapshot(lessons, tests);

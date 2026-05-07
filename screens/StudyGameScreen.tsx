@@ -50,7 +50,6 @@ import {
   getAssignedTests,
   getStudentSession,
   requestTtsBase64,
-  verifyAnswer,
 } from "../lib/api/study";
 import {
   calculateStreak,
@@ -159,6 +158,8 @@ const studyMetrics = {
   footerInputHeight: 48,
   footerButtonHeight: 46,
 };
+
+const CLOSE_MATCH_THRESHOLD = 85;
 
 function StudentEmptyState({
   icon,
@@ -601,13 +602,23 @@ function localAnswerFallback(expected: string, answer: string, alternatives: str
   if (!ansNorm) return { isCorrect: false, close: false };
   if (ansNorm === expNorm || alts.includes(ansNorm)) return { isCorrect: true, close: false };
   const dist = levenshtein(ansNorm, expNorm);
-  const close = expNorm.length > 0 && dist <= Math.max(1, Math.floor(expNorm.length * 0.2));
+  const maxLen = Math.max(ansNorm.length, expNorm.length);
+  const similarity = maxLen > 0 ? ((maxLen - dist) / maxLen) * 100 : 100;
+  const closeBySingleTypo = expNorm.length >= 4 && dist <= 1;
+  const closeBySimilarity = similarity >= CLOSE_MATCH_THRESHOLD;
+  const close = expNorm.length > 0 && (closeBySingleTypo || closeBySimilarity);
   return { isCorrect: false, close };
 }
 
 function getAcceptedAnswers(target: string, current: GameWord | undefined, direction: StudyDirection) {
   const t = typeof target === "string" ? target.trim() : "";
   const accepted = [t];
+  const enAlt = Array.isArray((current as { en_alt?: string[] } | undefined)?.en_alt)
+    ? (current as { en_alt?: string[] }).en_alt ?? []
+    : [];
+  if (direction === "pt-en" && enAlt.length) {
+    accepted.push(...enAlt.filter(Boolean));
+  }
   if (direction === "en-pt" && current?.pt_alt?.length) {
     accepted.push(...current.pt_alt.filter(Boolean));
   }
@@ -1592,31 +1603,11 @@ export default function StudyGameScreen() {
       return;
     }
 
-    let result: "correct" | "close" | "wrong" = "wrong";
-    let exactMatch = false;
-    let infinitiveNote = false;
-    let correction = "";
-
-    const remote = await verifyAnswer({
-      correctAnswer: expected,
-      userAnswer,
-      sourceText: prompt,
-      isMarkedInfinitive: isInfinitiveWord(current, expected, prompt, targetLang),
-    });
-
-    if (remote) {
-      const remoteCorrect = typeof remote.correct === "boolean" ? remote.correct : !!remote.isCorrect;
-      result = remoteCorrect ? "correct" : remote.close ? "close" : "wrong";
-      exactMatch = remoteCorrect;
-      infinitiveNote = !!remote.showInfinitiveNote && remoteCorrect;
-      correction =
-        typeof remote.correction === "string" ? remote.correction.trim() : typeof remote.feedback === "string" ? remote.feedback.trim() : "";
-    } else {
-      const fallback = localAnswerFallback(expected, userAnswer, acceptedAnswers.filter((value) => value !== expected));
-      result = fallback.isCorrect ? "correct" : fallback.close ? "close" : "wrong";
-      exactMatch = fallback.isCorrect;
-      infinitiveNote = fallback.isCorrect && isInfinitiveWord(current, expected, prompt, targetLang);
-    }
+    const fallback = localAnswerFallback(expected, userAnswer, acceptedAnswers.filter((value) => value !== expected));
+    const result: "correct" | "close" | "wrong" = fallback.isCorrect ? "correct" : fallback.close ? "close" : "wrong";
+    const exactMatch = fallback.isCorrect;
+    const infinitiveNote = fallback.isCorrect && isInfinitiveWord(current, expected, prompt, targetLang);
+    const correction = "";
 
     const correctForStats = result === "correct" || result === "close";
     applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, correctForStats) });
@@ -3821,7 +3812,7 @@ export default function StudyGameScreen() {
               needsRetype={needsRetype}
               feedback={!showMcq ? feedback : null}
               showSubmit={!showMcq && !isConjugationTable}
-              submitDisabled={!input.trim() || !!feedback}
+              submitDisabled={!input.trim() || (!!feedback && !needsRetype)}
               onSubmit={() => answerCurrent().catch(() => {})}
               showSkip={sessionMode !== "listening" || sessionType === "test"}
               skipFullWidth={showMcq || isConjugationTable}
@@ -3831,22 +3822,18 @@ export default function StudyGameScreen() {
                 setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
                 setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
                 recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, kind: "skip" });
-                if (sessionType === "test" || current.practiceKind === "conjugation-table") {
-                  setTimeout(() => {
-                    setFeedback(null);
-                    setInput("");
-                    setShowHint(false);
-                    setNeedsRetype(false);
-                    setShowInfinitiveNote(false);
-                    setGeminiCorrection("");
-                    setConjugationRowFeedback([]);
-                    if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
-                    else setIdx((v) => v + 1);
-                  }, 2000);
-                  return;
-                }
-                setNeedsRetype(true);
-                setInput("");
+                const skipDelay = sessionType === "test" || current.practiceKind === "conjugation-table" ? 2000 : 900;
+                setTimeout(() => {
+                  setFeedback(null);
+                  setInput("");
+                  setShowHint(false);
+                  setNeedsRetype(false);
+                  setShowInfinitiveNote(false);
+                  setGeminiCorrection("");
+                  setConjugationRowFeedback([]);
+                  if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
+                  else setIdx((v) => v + 1);
+                }, skipDelay);
               }}
             />
             

@@ -97,6 +97,8 @@ export default function StudentFormScreen() {
   const [teacherId, setTeacherId] = useState("");
   const [selectedLessons, setSelectedLessons] = useState<string[]>([]);
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
+  const [initialLessons, setInitialLessons] = useState<string[]>([]);
+  const [initialTests, setInitialTests] = useState<string[]>([]);
 
   const [teachers, setTeachers] = useState<TeacherOpt[]>([]);
   const [allLessons, setAllLessons] = useState<LessonOpt[]>([]);
@@ -149,10 +151,30 @@ export default function StudentFormScreen() {
       return badge === lessonLanguageFilter;
     });
   }, [allLessons, lessonSearch, lessonLanguageFilter]);
+  const displayedLessons = useMemo(() => {
+    const selectedSet = new Set(selectedLessons);
+    const selected: LessonOpt[] = [];
+    const unselected: LessonOpt[] = [];
+    filteredLessons.forEach((lesson) => {
+      if (selectedSet.has(lesson.id)) selected.push(lesson);
+      else unselected.push(lesson);
+    });
+    return [...selected, ...unselected];
+  }, [filteredLessons, selectedLessons]);
   const filteredTests = useMemo(
     () => allTests.filter((t) => (t.name ?? "").toLowerCase().includes(testSearch.toLowerCase())),
     [allTests, testSearch]
   );
+  const displayedTests = useMemo(() => {
+    const selectedSet = new Set(selectedTests);
+    const selected: TestOpt[] = [];
+    const unselected: TestOpt[] = [];
+    filteredTests.forEach((test) => {
+      if (selectedSet.has(test.id)) selected.push(test);
+      else unselected.push(test);
+    });
+    return [...selected, ...unselected];
+  }, [filteredTests, selectedTests]);
   const filteredTeachers = useMemo(
 
     () => teachers.filter((t) => t.name.toLowerCase().includes(teacherSearch.toLowerCase())),
@@ -224,6 +246,8 @@ export default function StudentFormScreen() {
           setTeacherId(student.teacher_id ?? "");
           setSelectedLessons(Array.isArray(student.assigned_lessons) ? student.assigned_lessons : []);
           setSelectedTests(Array.isArray(student.assigned_tests) ? student.assigned_tests : []);
+          setInitialLessons(Array.isArray(student.assigned_lessons) ? student.assigned_lessons : []);
+          setInitialTests(Array.isArray(student.assigned_tests) ? student.assigned_tests : []);
 
           const tidForContent = admin ? student.teacher_id || user.id : user.id;
           const [tr, lr, ter] = await Promise.all([
@@ -280,6 +304,8 @@ export default function StudentFormScreen() {
           }
           if (!cancelled) setCode(generated);
           setTeacherId(user.id);
+          setInitialLessons([]);
+          setInitialTests([]);
           await loadListsForTeacher(user.id);
         }
       } catch (e) {
@@ -301,6 +327,38 @@ export default function StudentFormScreen() {
   const toggleTest = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedTests((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+  const selectAllShownLessons = () => {
+    const shownIds = displayedLessons.map((lesson) => lesson.id);
+    if (shownIds.length === 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedLessons((prev) => {
+      const merged = new Set(prev);
+      shownIds.forEach((id) => merged.add(id));
+      return Array.from(merged);
+    });
+  };
+  const deselectAllShownLessons = () => {
+    const shownSet = new Set(displayedLessons.map((lesson) => lesson.id));
+    if (shownSet.size === 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedLessons((prev) => prev.filter((id) => !shownSet.has(id)));
+  };
+  const selectAllShownTests = () => {
+    const shownIds = displayedTests.map((test) => test.id);
+    if (shownIds.length === 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedTests((prev) => {
+      const merged = new Set(prev);
+      shownIds.forEach((id) => merged.add(id));
+      return Array.from(merged);
+    });
+  };
+  const deselectAllShownTests = () => {
+    const shownSet = new Set(displayedTests.map((test) => test.id));
+    if (shownSet.size === 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectedTests((prev) => prev.filter((id) => !shownSet.has(id)));
   };
 
   const copyCode = async () => {
@@ -355,7 +413,34 @@ export default function StudentFormScreen() {
       Animated.spring(saveScale, { toValue: 1, useNativeDriver: true, speed: 28, bounciness: 6 }),
     ]).start();
     try {
+      const accessToken = await supabase.auth
+        .getSession()
+        .then((res) => res.data.session?.access_token ?? null)
+        .catch(() => null);
+
+      const notifyStudentAssignmentPush = async (targetStudentId: string, addedLessons: number, addedTests: number) => {
+        if (!accessToken || (!addedLessons && !addedTests)) return;
+        const endpoint = `${apiBaseUrl.replace(/\/$/, "")}/api/mobile/push/notify-assignment`;
+        await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            studentId: targetStudentId,
+            addedLessons,
+            addedTests,
+          }),
+        }).catch(() => {});
+      };
+
       if (isEdit && studentId) {
+        const previousLessons = new Set(initialLessons);
+        const previousTests = new Set(initialTests);
+        const addedLessons = selectedLessons.filter((id) => !previousLessons.has(id)).length;
+        const addedTests = selectedTests.filter((id) => !previousTests.has(id)).length;
+
         const payload: Record<string, unknown> = {
           name: name.trim(),
           email: email.trim() || null,
@@ -365,18 +450,26 @@ export default function StudentFormScreen() {
         if (isAdmin) payload.teacher_id = finalTeacherId;
         const { error } = await (supabase.from("students") as any).update(payload).eq("id", studentId);
         if (error) throw error;
+        await notifyStudentAssignmentPush(studentId, addedLessons, addedTests);
         navigation.navigate("Students", { flashMessage: "Student updated", flashTone: "success" });
       } else {
-        const { error } = await (supabase.from("students") as any).insert({
-          name: name.trim(),
-          email: email.trim() || null,
-          code: code.trim().toUpperCase(),
-          teacher_id: finalTeacherId,
-          assigned_lessons: selectedLessons,
-          assigned_tests: selectedTests,
-          progress: {},
-        });
+        const { data: insertedStudent, error } = await (supabase.from("students") as any)
+          .insert({
+            name: name.trim(),
+            email: email.trim() || null,
+            code: code.trim().toUpperCase(),
+            teacher_id: finalTeacherId,
+            assigned_lessons: selectedLessons,
+            assigned_tests: selectedTests,
+            progress: {},
+          })
+          .select("id")
+          .single();
         if (error) throw error;
+        const newStudentId = typeof insertedStudent?.id === "string" ? insertedStudent.id : "";
+        if (newStudentId) {
+          await notifyStudentAssignmentPush(newStudentId, selectedLessons.length, selectedTests.length);
+        }
         navigation.navigate("Students", { flashMessage: "Student added", flashTone: "success" });
       }
     } catch (e: unknown) {
@@ -886,13 +979,27 @@ export default function StudentFormScreen() {
                         ) : null}
                       </View>
                     </View>
+                    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                      <TouchableOpacity
+                        onPress={selectAllShownLessons}
+                        style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: successActionBorder, backgroundColor: successActionBg }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: successActionText }}>Select all</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={deselectAllShownLessons}
+                        style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>Deselect all</Text>
+                      </TouchableOpacity>
+                    </View>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" style={{ height: listHeight }}>
-                  {filteredLessons.length === 0 ? (
+                  {displayedLessons.length === 0 ? (
                     <View style={{ paddingVertical: 32, alignItems: "center" }}>
                       <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No lessons found</Text>
                     </View>
-                  ) : filteredLessons.map((l) => {
+                  ) : displayedLessons.map((l) => {
                     const selected = selectedLessons.includes(l.id);
                     const vocabCount = Array.isArray(l.content_json?.words) ? l.content_json?.words.length : 0;
                     const languageBadge = getLanguageBadge(l.language);
@@ -968,13 +1075,27 @@ export default function StudentFormScreen() {
                     placeholderTextColor={theme.colors.textMuted}
                     style={[inputStyle, { marginBottom: 0 }]}
                   />
+                  <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity
+                      onPress={selectAllShownTests}
+                      style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: successActionBorder, backgroundColor: successActionBg }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: successActionText }}>Select all</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={deselectAllShownTests}
+                      style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "800", color: theme.colors.textMuted }}>Deselect all</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" style={{ height: listHeight }}>
-                  {filteredTests.length === 0 ? (
+                  {displayedTests.length === 0 ? (
                     <View style={{ paddingVertical: 32, alignItems: "center" }}>
                       <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No tests found</Text>
                     </View>
-                  ) : filteredTests.map((t) => {
+                  ) : displayedTests.map((t) => {
                     const selected = selectedTests.includes(t.id);
                     const vocabCount = Array.isArray(t.config_json?.words) ? t.config_json?.words.length : 0;
                     const questionCount = Array.isArray(t.config_json?.tests) ? t.config_json?.tests.length : 0;

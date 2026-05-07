@@ -26,7 +26,7 @@ import StudentResultsScreen from "./screens/StudentResultsScreen";
 import { getStoredStudentSessionId } from "./lib/studentSession";
 import { ThemeProvider, useAppTheme } from "./lib/theme";
 import { clearSupabaseAuthStorage, supabase } from "./lib/supabase";
-import { ensureLocalNotificationsReady } from "./lib/mobileNotifications";
+import { ensureLocalNotificationsReady, registerStudentPushToken } from "./lib/mobileNotifications";
 import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from "./lib/notificationWatchers";
 import Constants from "expo-constants";
 
@@ -164,6 +164,7 @@ function AppShell() {
       }
 
       if (studentSessionId) {
+        await registerStudentPushToken(studentSessionId, apiBaseUrl);
         const watcherCleanup = await startStudentAssignmentsWatcher(studentSessionId, apiBaseUrl);
         if (disposed) {
           watcherCleanup();

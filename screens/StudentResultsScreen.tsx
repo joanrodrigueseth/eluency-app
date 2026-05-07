@@ -452,6 +452,13 @@ export default function StudentResultsScreen() {
   const [dismissedWeakWords, setDismissedWeakWords] = useState<Record<string, "taught" | "removed">>({});
   const [showModalReteach, setShowModalReteach] = useState(false);
   const [showModalHistory, setShowModalHistory] = useState(false);
+
+  const openRecordFromSummary = useCallback((record: StudentResultRecord, studentName: string) => {
+    setSelectedSummary(null);
+    setTimeout(() => {
+      setSelectedRecord({ record, studentName });
+    }, 0);
+  }, []);
   const [showAllRecentAttempts, setShowAllRecentAttempts] = useState(false);
 
   const loadData = useCallback(
@@ -1132,7 +1139,7 @@ export default function StudentResultsScreen() {
                       return (
                         <TouchableOpacity
                           key={`${record.timestamp ?? index}-${index}`}
-                          onPress={() => setSelectedRecord({ record, studentName: selectedSummary.student.name })}
+                          onPress={() => openRecordFromSummary(record, selectedSummary.student.name)}
                           style={{ marginTop: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.isDark ? "rgba(46,122,191,0.10)" : "#EAF3FB", padding: 10 }}
                         >
                           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>

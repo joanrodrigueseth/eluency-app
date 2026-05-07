@@ -18,7 +18,7 @@ export function SkeletonBox({ width, height, radius = 10, style }: { width: numb
   return (
     <Animated.View
       style={[
-        { width: width as any, height, borderRadius: radius, backgroundColor: theme.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", opacity: pulse },
+        { width: width as any, height, borderRadius: radius, backgroundColor: theme.isDark ? "rgba(59,130,246,0.34)" : "rgba(59,130,246,0.2)", opacity: pulse },
         style,
       ]}
     />

@@ -115,3 +115,44 @@ export async function showLocalNotification(title: string, body?: string, data?:
     trigger: null,
   });
 }
+
+function resolveExpoProjectId() {
+  const fromEasConfig = (Constants.easConfig as { projectId?: string } | null)?.projectId;
+  if (typeof fromEasConfig === "string" && fromEasConfig.trim()) return fromEasConfig.trim();
+  const fromExtra = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
+  if (typeof fromExtra === "string" && fromExtra.trim()) return fromExtra.trim();
+  return undefined;
+}
+
+export async function registerStudentPushToken(sessionId: string, apiBaseUrl: string): Promise<boolean> {
+  if (!sessionId) return false;
+
+  const granted = await ensureLocalNotificationsReady();
+  if (!granted) return false;
+
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
+
+  let token = "";
+  try {
+    const projectId = resolveExpoProjectId();
+    const expoToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+    token = typeof expoToken?.data === "string" ? expoToken.data.trim() : "";
+  } catch {
+    return false;
+  }
+
+  if (!token) return false;
+
+  try {
+    const endpoint = `${apiBaseUrl.replace(/\/$/, "")}/api/mobile/push/register`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, expoPushToken: token }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
