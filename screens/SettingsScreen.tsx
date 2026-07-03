@@ -28,16 +28,7 @@ import { deleteOwnAccountCascade } from "../lib/api/admin";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole, normalizePlanUi } from "../lib/teacherRolePlanRules";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
-  Notifications: undefined;
-  Subscription: undefined;
-  Login: undefined;
-};
-
-type SettingsTab = "profile" | "security" | "terms" | "contact";
+import type { RootStackParamList, SettingsTab } from "../types/navigation";
 
 type PlanInfo = {
   plan: string;

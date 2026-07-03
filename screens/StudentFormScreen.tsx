@@ -22,7 +22,6 @@ import {
 import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import Constants from "expo-constants";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,10 +34,11 @@ import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { getLanguageBadge, getLanguageBadgeColors } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
+import { getApiBaseUrl } from "../lib/api/config";
 import type { RootStudentsStackParams } from "./StudentsScreen";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const GREEN = "#3EA370";
 const GREEN_SOFT = "#EBF8F0";

@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { supabase } from "./supabase";
-import { ensureLocalNotificationsReady } from "./mobileNotifications";
+import { ensureLocalNotificationsReady, showLocalNotification } from "./mobileNotifications";
 
 type TeacherNotificationRow = {
   id: string;

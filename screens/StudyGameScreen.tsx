@@ -9,7 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Animated,
+  Easing,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -22,7 +25,6 @@ import {
 } from "react-native";
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
 import { Asset } from "expo-asset";
 import { NavigationProp, RouteProp, useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,6 +45,7 @@ import ScreenReveal from "../components/ScreenReveal";
 import RemoteLessonImage from "../components/RemoteLessonImage";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { useAppTheme, type AppTheme } from "../lib/theme";
+import { getApiBaseUrl } from "../lib/api/config";
 import { cacheBustAssetUrl } from "../lib/imageCacheBust";
 import { clearStoredStudentSessionId, getStoredStudentSessionId } from "../lib/studentSession";
 import {
@@ -60,7 +63,14 @@ import {
   updateUserStats,
   updateWordStats,
 } from "../lib/game/engine";
-import { flushProgressSync, hydrateProgress, saveLocalProgress, scheduleProgressSync } from "../lib/game/progress";
+import {
+  flushProgressSync,
+  flushQueuedProgressSync,
+  hydrateProgress,
+  loadLocalProgress,
+  saveLocalProgress,
+  scheduleProgressSync,
+} from "../lib/game/progress";
 import {
   expandConjugationTablesForMode,
   getDisplayPrompt,
@@ -69,9 +79,18 @@ import {
   normalizeTestsToWords,
 } from "../lib/game/normalizers";
 import { getDisplayLanguageMeta, historyDirectionLabel, labelDirectionForward, labelDirectionReverse } from "../lib/game/languagePair";
+import {
+  downloadLessonForOffline,
+  getOfflineLessonSummaries,
+  isDownloadedLessonStale,
+  loadOfflineStudyCatalog,
+  saveOfflineSessionSnapshot,
+  type OfflineLessonSummary,
+} from "../lib/offline/offlineLessons";
 import type {
   GameWord,
   LessonGamePayload,
+  StudentSessionPayload,
   StudyDirection,
   StudyProgress,
   StudyRecord,
@@ -80,19 +99,20 @@ import type {
   StudySessionType,
   TestGamePayload,
 } from "../types/study-game";
-
-type RootStackParamList = {
-  Login: undefined;
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  StudyGame: { sessionId: string };
-  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
-};
+import type { RootStackParamList } from "../types/navigation";
 
 type BottomTab = "home" | "lessons" | "practice" | "tests" | "settings";
 type RuntimeScreen = "dashboard" | "lesson-detail" | "test-detail" | "session" | "results";
 type SessionIssue = StudyRecordIssue;
+type ReviewableGameWord = GameWord & {
+  reviewMode?: StudySessionMode;
+  reviewIssue?: SessionIssue;
+};
+type LessonDownloadState = "downloading" | "removing" | "success";
 
-const studyApiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const studyApiBaseUrl = getApiBaseUrl();
+const studyResumeStorageKey = (sessionId: string) => `eluency_lesson_resume:${sessionId}`;
+const STUDY_SESSION_MODES = new Set<StudySessionMode>(["typing", "multiple-choice", "listening", "image"]);
 
 type StudentEmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -160,6 +180,95 @@ const studyMetrics = {
 };
 
 const CLOSE_MATCH_THRESHOLD = 85;
+const CORRECT_DING_ASSET = require("../assets/Correct.mp3");
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+function AnimatedNumber({
+  value,
+  suffix = "",
+  style,
+  duration = 520,
+}: {
+  value: number;
+  suffix?: string;
+  style?: import("react-native").StyleProp<import("react-native").TextStyle>;
+  duration?: number;
+}) {
+  const animated = useRef(new Animated.Value(value)).current;
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => {
+    const listenerId = animated.addListener(({ value: nextValue }) => {
+      setDisplayValue(Math.round(nextValue));
+    });
+    Animated.timing(animated, {
+      toValue: value,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+    return () => animated.removeListener(listenerId);
+  }, [animated, duration, value]);
+
+  return <Text style={style}>{displayValue}{suffix}</Text>;
+}
+
+function AnimatedProgressFill({
+  progress,
+  color,
+}: {
+  progress: number;
+  color: string;
+}) {
+  const animated = useRef(new Animated.Value(Math.min(100, Math.max(0, progress)))).current;
+
+  useEffect(() => {
+    Animated.timing(animated, {
+      toValue: Math.min(100, Math.max(0, progress)),
+      duration: 560,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [animated, progress]);
+
+  const width = animated.interpolate({
+    inputRange: [0, 100],
+    outputRange: ["0%", "100%"],
+  });
+
+  return <Animated.View style={{ height: "100%", width, backgroundColor: color }} />;
+}
+
+function PreparingChoicesPulse({ color }: { color: string }) {
+  const opacity = useRef(new Animated.Value(0.46)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 560, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.46, duration: 560, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <View style={{ gap: 8 }}>
+      {[0, 1, 2].map((item) => (
+        <Animated.View
+          key={item}
+          style={{
+            height: 48,
+            borderRadius: 12,
+            backgroundColor: color,
+            opacity,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 
 function StudentEmptyState({
   icon,
@@ -172,11 +281,21 @@ function StudentEmptyState({
 }: StudentEmptyStateProps) {
   const theme = useAppTheme();
   const ui = theme.colors;
+  const iconScale = useRef(new Animated.Value(0.92)).current;
+
+  useEffect(() => {
+    Animated.spring(iconScale, {
+      toValue: 1,
+      friction: 6,
+      tension: 150,
+      useNativeDriver: true,
+    }).start();
+  }, [iconScale]);
 
   return (
     <GlassCard style={{ borderRadius: 20 }} padding={18} variant="hero">
       <View style={{ alignItems: "center" }}>
-        <View
+        <Animated.View
           style={{
             width: 60,
             height: 60,
@@ -187,10 +306,11 @@ function StudentEmptyState({
             alignItems: "center",
             justifyContent: "center",
             marginBottom: 14,
+            transform: [{ scale: iconScale }],
           }}
         >
           <Ionicons name={icon} size={26} color={ui.primary} />
-        </View>
+        </Animated.View>
         <Text style={{ color: ui.text, fontSize: 20, fontWeight: "800", textAlign: "center" }}>{title}</Text>
         <Text style={{ color: ui.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8 }}>{body}</Text>
         {actionLabel && onAction ? (
@@ -299,6 +419,33 @@ function SessionHeader({
 }) {
   const ring = 2 * Math.PI * 17;
   const progress = Math.min(index + 1, total) / Math.max(total, 1);
+  const ringProgress = useRef(new Animated.Value(progress)).current;
+  const streakScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.timing(ringProgress, {
+      toValue: progress,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [progress, ringProgress]);
+
+  useEffect(() => {
+    if (streak < 2) return;
+    streakScale.setValue(0.92);
+    Animated.spring(streakScale, {
+      toValue: 1,
+      friction: 5,
+      tension: 170,
+      useNativeDriver: true,
+    }).start();
+  }, [streak, streakScale]);
+
+  const strokeDashoffset = ringProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [ring, 0],
+  });
 
   return (
     <View
@@ -340,15 +487,15 @@ function SessionHeader({
 
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {streak >= 2 ? (
-          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: studyRadii.pill, backgroundColor: "#FFF0DA", borderWidth: 1, borderColor: "#F5C070" }}>
+          <Animated.View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: studyRadii.pill, backgroundColor: "#FFF0DA", borderWidth: 1, borderColor: "#F5C070", transform: [{ scale: streakScale }] }}>
             <Ionicons name="flame" size={12} color="#E07A10" />
             <Text style={{ fontSize: 11, fontWeight: "800", color: "#E07A10", marginLeft: 2 }}>{streak}</Text>
-          </View>
+          </Animated.View>
         ) : null}
         <View style={{ width: 44, height: 44 }}>
           <Svg width={44} height={44} style={{ position: "absolute" }}>
             <Circle cx={22} cy={22} r={17} stroke={ui.borderSoft} strokeWidth={3} fill="none" />
-            <Circle
+            <AnimatedCircle
               cx={22}
               cy={22}
               r={17}
@@ -356,7 +503,7 @@ function SessionHeader({
               strokeWidth={3}
               fill="none"
               strokeDasharray={`${ring.toFixed(2)}`}
-              strokeDashoffset={`${(ring * (1 - progress)).toFixed(2)}`}
+              strokeDashoffset={strokeDashoffset}
               strokeLinecap="round"
               rotation="-90"
               origin="22,22"
@@ -379,12 +526,443 @@ function FeedbackPanel({
   feedback: { state: "correct" | "close" | "wrong"; text: string };
 }) {
   const color = feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger;
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    scale.setValue(feedback.state === "correct" ? 0.98 : 1);
+    translateX.setValue(0);
+    if (feedback.state === "correct") {
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.025, friction: 5, tension: 180, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, friction: 6, tension: 150, useNativeDriver: true }),
+      ]).start();
+      return;
+    }
+    Animated.sequence([
+      Animated.timing(translateX, { toValue: -4, duration: 45, useNativeDriver: true }),
+      Animated.timing(translateX, { toValue: 4, duration: 70, useNativeDriver: true }),
+      Animated.timing(translateX, { toValue: 0, duration: 55, useNativeDriver: true }),
+    ]).start();
+  }, [feedback.state, feedback.text, scale, translateX]);
 
   return (
-    <View style={{ padding: 11, borderRadius: studyRadii.row, borderWidth: 1, borderColor: color, backgroundColor: `${color}12` }}>
+    <Animated.View style={{ padding: 11, borderRadius: studyRadii.row, borderWidth: 1, borderColor: color, backgroundColor: `${color}12`, transform: [{ translateX }, { scale }] }}>
       <Text style={{ fontWeight: "800", fontSize: 13, lineHeight: 18, color }}>
         {feedback.text}
       </Text>
+    </Animated.View>
+  );
+}
+
+function CorrectAnswerCelebration({
+  ui,
+  label = "Correct!",
+}: {
+  ui: StudyUi;
+  label?: string;
+}) {
+  const scale = useRef(new Animated.Value(0.82)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const lift = useRef(new Animated.Value(18)).current;
+  const ringScale = useRef(new Animated.Value(0.72)).current;
+  const ringOpacity = useRef(new Animated.Value(0.42)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 150,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 5,
+        tension: 165,
+        useNativeDriver: true,
+      }),
+      Animated.timing(lift, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(ringScale, {
+            toValue: 1.18,
+            duration: 360,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringOpacity, {
+            toValue: 0,
+            duration: 360,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ]).start();
+  }, [lift, opacity, ringOpacity, ringScale, scale]);
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 30,
+        paddingHorizontal: 24,
+      }}
+    >
+      <Animated.View
+        style={{
+          alignItems: "center",
+          opacity,
+          transform: [{ translateY: lift }, { scale }],
+        }}
+      >
+        <View style={{ width: 108, height: 108, alignItems: "center", justifyContent: "center" }}>
+          <Animated.View
+            style={{
+              position: "absolute",
+              width: 108,
+              height: 108,
+              borderRadius: 54,
+              borderWidth: 2,
+              borderColor: `${ui.success}88`,
+              opacity: ringOpacity,
+              transform: [{ scale: ringScale }],
+            }}
+          />
+          <View
+            style={{
+              width: 76,
+              height: 76,
+              borderRadius: 38,
+              backgroundColor: ui.success,
+              alignItems: "center",
+              justifyContent: "center",
+              shadowColor: ui.success,
+              shadowOpacity: 0.26,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 8 },
+              elevation: 8,
+            }}
+          >
+            <Ionicons name="checkmark" size={40} color="#fff" />
+          </View>
+        </View>
+        <Text
+          style={{
+            marginTop: 8,
+            color: ui.success,
+            fontSize: 34,
+            lineHeight: 40,
+            fontWeight: "900",
+            textAlign: "center",
+            textShadowColor: "rgba(0,0,0,0.10)",
+            textShadowOffset: { width: 0, height: 1 },
+            textShadowRadius: 2,
+          }}
+        >
+          {label}
+        </Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+const ANSWER_PAD_QWERTY_ROWS = [
+  Array.from("qwertyuiop"),
+  Array.from("asdfghjkl"),
+  Array.from("zxcvbnm"),
+];
+const ANSWER_PAD_QWERTY_KEY_SET = new Set(ANSWER_PAD_QWERTY_ROWS.flat());
+
+function buildAnswerPadExtraKeys(target: string) {
+  const targetChars = Array.from(target.toLocaleLowerCase()).filter((char) => {
+    if (/\s/u.test(char)) return false;
+    return /[\p{L}\p{N}]/u.test(char) || char === "'" || char === "-" || char.charCodeAt(0) === 0x2019;
+  });
+
+  return Array.from(new Set(targetChars)).filter((char) => !ANSWER_PAD_QWERTY_KEY_SET.has(char));
+}
+
+function appendAnswerPadText(value: string, text: string, target: string) {
+  if (/\s/u.test(text)) return `${value}${text}`;
+  const template = Array.from(target.trim());
+  let next = value;
+  let nextIndex = Array.from(next).length;
+  while (nextIndex < template.length && /\s/u.test(template[nextIndex])) {
+    next += template[nextIndex];
+    nextIndex += 1;
+  }
+  return `${next}${text}`;
+}
+
+function isStudySessionMode(value: unknown): value is StudySessionMode {
+  return typeof value === "string" && STUDY_SESSION_MODES.has(value as StudySessionMode);
+}
+
+function getIssueReviewMode(issue?: SessionIssue): StudySessionMode | undefined {
+  if (!issue) return undefined;
+  if (issue.answerFormat === "mcq" || (issue.mcqOptions?.length ?? 0) >= 2) return "multiple-choice";
+  return isStudySessionMode(issue.mode) ? issue.mode : undefined;
+}
+
+function AnswerSlot({
+  value,
+  active,
+  ui,
+}: {
+  value: string;
+  active: boolean;
+  ui: StudyUi;
+}) {
+  const scale = useRef(new Animated.Value(value ? 1 : 0.98)).current;
+  const opacity = useRef(new Animated.Value(active ? 0.55 : 1)).current;
+
+  useEffect(() => {
+    if (value) {
+      opacity.stopAnimation();
+      opacity.setValue(1);
+      scale.setValue(0.9);
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 5,
+        tension: 180,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    if (!active) {
+      opacity.stopAnimation();
+      opacity.setValue(1);
+      scale.setValue(0.98);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.55, duration: 520, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, opacity, scale, value]);
+
+  return (
+    <Animated.View style={{ minWidth: 18, alignItems: "center", opacity, transform: [{ scale }] }}>
+      <Text style={{ color: value ? ui.text : active ? ui.primary : ui.muted, fontSize: 21, lineHeight: 24, fontWeight: "900" }}>
+        {value || "_"}
+      </Text>
+    </Animated.View>
+  );
+}
+
+function StudyAnswerPad({
+  ui,
+  value,
+  target,
+  disabled,
+  feedback,
+  onChange,
+}: {
+  ui: StudyUi;
+  value: string;
+  target: string;
+  disabled: boolean;
+  feedback: { state: "correct" | "close" | "wrong"; text: string } | null;
+  onChange: (value: string) => void;
+}) {
+  const extraKeys = useMemo(() => buildAnswerPadExtraKeys(target), [target]);
+  const answerSlots = useMemo(() => {
+    const template = Array.from(target.trim() || value);
+    const typed = Array.from(value);
+    return template.map((char, index) => ({
+      key: `${char}-${index}`,
+      isSpace: /\s/u.test(char),
+      value: typed[index] ?? "",
+    }));
+  }, [target, value]);
+  const activeSlotIndex = useMemo(
+    () => answerSlots.findIndex((slot) => !slot.isSpace && !slot.value),
+    [answerSlots]
+  );
+  const addText = (text: string) => {
+    if (disabled) return;
+    onChange(appendAnswerPadText(value, text, target));
+  };
+  const removeLast = () => {
+    if (disabled || !value) return;
+    onChange(Array.from(value).slice(0, -1).join(""));
+  };
+  const clear = () => {
+    if (disabled || !value) return;
+    onChange("");
+  };
+  const answerPadOpacity = disabled ? 0.72 : 1;
+
+  return (
+    <View style={{ gap: 8 }}>
+      {feedback ? <FeedbackPanel ui={ui} feedback={feedback} /> : null}
+
+      <View
+        style={{
+          minHeight: 58,
+          borderWidth: 1,
+          borderColor: ui.border,
+          borderRadius: studyRadii.control,
+          backgroundColor: ui.card,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: answerPadOpacity,
+        }}
+      >
+        {answerSlots.length > 0 ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", rowGap: 8, columnGap: 7 }}>
+            {answerSlots.map((slot) =>
+              slot.isSpace ? (
+                <View key={slot.key} style={{ width: 13 }} />
+              ) : (
+                <AnswerSlot key={slot.key} value={slot.value} active={activeSlotIndex === -1 ? false : answerSlots[activeSlotIndex]?.key === slot.key} ui={ui} />
+              )
+            )}
+          </View>
+        ) : (
+          <Text style={{ color: "#98A0B2", fontSize: 16, fontWeight: "600" }}>Tap letters to answer</Text>
+        )}
+        {value.length > answerSlots.length && answerSlots.length > 0 ? (
+          <Text numberOfLines={1} style={{ marginTop: 5, color: ui.muted, fontSize: 12, fontWeight: "700" }}>
+            {value}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={{ gap: 7, opacity: answerPadOpacity }}>
+        {ANSWER_PAD_QWERTY_ROWS.map((row, rowIndex) => (
+          <View
+            key={`qwerty-row-${rowIndex}`}
+            style={{
+              flexDirection: "row",
+              gap: 5,
+              justifyContent: "center",
+              paddingHorizontal: rowIndex === 1 ? 12 : rowIndex === 2 ? 8 : 0,
+            }}
+          >
+            {row.map((key) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => addText(key)}
+                disabled={disabled}
+                style={{
+                  flex: 1,
+                  height: 46,
+                  minWidth: 0,
+                  borderRadius: 11,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: ui.text, fontSize: 21, fontWeight: "900" }}>{key}</Text>
+              </TouchableOpacity>
+            ))}
+            {rowIndex === 2 ? (
+              <TouchableOpacity
+                onPress={removeLast}
+                disabled={disabled || !value}
+                style={{
+                  flex: 1.18,
+                  height: 46,
+                  minWidth: 0,
+                  borderRadius: 11,
+                  borderWidth: 1,
+                  borderColor: ui.border,
+                  backgroundColor: ui.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: value ? 1 : 0.5,
+                }}
+              >
+                <Ionicons name="backspace-outline" size={21} color={ui.text} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ))}
+        {extraKeys.length > 0 ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, justifyContent: "center" }}>
+            {extraKeys.map((key) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => addText(key)}
+                disabled={disabled}
+                style={{
+                  minWidth: 46,
+                  height: 46,
+                  paddingHorizontal: 12,
+                  borderRadius: 11,
+                  borderWidth: 1,
+                  borderColor: ui.borderStrong,
+                  backgroundColor: ui.primarySoft,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: ui.primary, fontSize: 21, fontWeight: "900" }}>{key}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 7, opacity: answerPadOpacity }}>
+        <TouchableOpacity
+          onPress={() => addText(" ")}
+          disabled={disabled}
+          style={{
+            flex: 1,
+            minHeight: 42,
+            borderRadius: 11,
+            borderWidth: 1,
+            borderColor: ui.border,
+            backgroundColor: ui.card,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: ui.text, fontSize: 13, fontWeight: "800" }}>Space</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={clear}
+          disabled={disabled || !value}
+          style={{
+            width: 72,
+            minHeight: 42,
+            borderRadius: 11,
+            borderWidth: 1,
+            borderColor: ui.border,
+            backgroundColor: ui.card,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: value ? 1 : 0.5,
+          }}
+        >
+          <Text style={{ color: ui.muted, fontSize: 13, fontWeight: "800" }}>Clear</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -395,6 +973,9 @@ function SessionFooter({
   showInput,
   input,
   onInputChange,
+  useAnswerPad,
+  answerPadTarget,
+  answerPadDisabled,
   needsRetype,
   feedback,
   showSubmit,
@@ -409,6 +990,9 @@ function SessionFooter({
   showInput: boolean;
   input: string;
   onInputChange: (value: string) => void;
+  useAnswerPad: boolean;
+  answerPadTarget: string;
+  answerPadDisabled: boolean;
   needsRetype: boolean;
   feedback: { state: "correct" | "close" | "wrong"; text: string } | null;
   showSubmit: boolean;
@@ -430,7 +1014,16 @@ function SessionFooter({
         gap: 8,
       }}
     >
-      {showInput ? (
+      {showInput && useAnswerPad ? (
+        <StudyAnswerPad
+          ui={ui}
+          value={input}
+          target={answerPadTarget}
+          disabled={answerPadDisabled}
+          feedback={feedback}
+          onChange={onInputChange}
+        />
+      ) : showInput ? (
         <TextInput
           value={input}
           onChangeText={onInputChange}
@@ -452,9 +1045,27 @@ function SessionFooter({
         />
       ) : null}
 
-      {feedback ? <FeedbackPanel ui={ui} feedback={feedback} /> : null}
+      {feedback && !useAnswerPad ? <FeedbackPanel ui={ui} feedback={feedback} /> : null}
 
       <View style={{ flexDirection: "row", gap: 8 }}>
+        {showSkip ? (
+          <TouchableOpacity
+            onPress={onSkip}
+            style={{
+              minHeight: studyMetrics.footerButtonHeight,
+              borderRadius: studyRadii.control,
+              borderWidth: 1,
+              borderColor: ui.border,
+              backgroundColor: ui.card,
+              paddingHorizontal: 16,
+              justifyContent: "center",
+              alignItems: "center",
+              flex: skipFullWidth ? 1 : undefined,
+            }}
+          >
+            <Text style={{ color: ui.muted, fontWeight: "700", fontSize: 14 }}>Skip</Text>
+          </TouchableOpacity>
+        ) : null}
         {showSubmit ? (
           <TouchableOpacity
             onPress={onSubmit}
@@ -475,24 +1086,6 @@ function SessionFooter({
             <Text style={{ color: "#fff", fontSize: 15, fontWeight: "800" }}>Submit</Text>
           </TouchableOpacity>
         ) : null}
-        {showSkip ? (
-          <TouchableOpacity
-            onPress={onSkip}
-            style={{
-              minHeight: studyMetrics.footerButtonHeight,
-              borderRadius: studyRadii.control,
-              borderWidth: 1,
-              borderColor: ui.border,
-              backgroundColor: ui.card,
-              paddingHorizontal: 16,
-              justifyContent: "center",
-              alignItems: "center",
-              flex: skipFullWidth ? 1 : undefined,
-            }}
-          >
-            <Text style={{ color: ui.muted, fontWeight: "700", fontSize: 14 }}>Skip</Text>
-          </TouchableOpacity>
-        ) : null}
       </View>
     </View>
   );
@@ -507,8 +1100,42 @@ function ReviewIssueCard({
   index: number;
   theme: AppTheme;
 }) {
+  const isMcqReview = issue.answerFormat === "mcq" || issue.mode === "multiple-choice" || (issue.mcqOptions?.length ?? 0) >= 2;
+  const formatLabel = isMcqReview
+    ? "Multiple choice"
+    : issue.promptFormat === "fill_blank"
+      ? "Fill in the blank"
+      : issue.mode === "listening"
+        ? "Listening"
+        : issue.mode === "image"
+          ? "Image"
+          : "Typing";
+  const selectedAnswerNorm = typeof issue.answer === "string" ? normalizeText(issue.answer) : "";
+  const expectedNorm = typeof issue.expected === "string" ? normalizeText(issue.expected) : "";
+  const entryOpacity = useRef(new Animated.Value(0)).current;
+  const entryY = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(entryOpacity, {
+        toValue: 1,
+        duration: 260,
+        delay: Math.min(index * 28, 180),
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(entryY, {
+        toValue: 0,
+        duration: 300,
+        delay: Math.min(index * 28, 180),
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [entryOpacity, entryY, index]);
+
   return (
-    <View
+    <Animated.View
       key={`${issue.id}-${index}`}
       style={{
         borderRadius: studyRadii.row,
@@ -516,6 +1143,8 @@ function ReviewIssueCard({
         borderColor: theme.colors.border,
         backgroundColor: theme.colors.surfaceGlass,
         padding: 12,
+        opacity: entryOpacity,
+        transform: [{ translateY: entryY }],
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -523,11 +1152,56 @@ function ReviewIssueCard({
         <Text style={[theme.typography.bodyStrong, { fontSize: 11.5 }]}>
           {reviewIssueLabel(issue.kind)}
         </Text>
+        <View style={{ borderRadius: 999, backgroundColor: theme.colors.primarySoft, paddingHorizontal: 7, paddingVertical: 2 }}>
+          <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: "800" }}>{formatLabel}</Text>
+        </View>
+        {issue.kind === "correct" ? (
+          <View style={{ borderRadius: 999, backgroundColor: `${theme.colors.success}16`, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ color: theme.colors.success, fontSize: 10, fontWeight: "900" }}>Fixed</Text>
+          </View>
+        ) : null}
       </View>
       <Text style={[theme.typography.body, { marginTop: 6, fontSize: 12, lineHeight: 18 }]}>
         Prompt: {typeof issue.prompt === "string" ? issue.prompt || "Untitled" : "Untitled"}
       </Text>
-      {typeof issue.expected === "string" && issue.expected ? (
+      {isMcqReview && (issue.mcqOptions?.length ?? 0) >= 2 ? (
+        <View style={{ marginTop: 8, gap: 6 }}>
+          {issue.mcqOptions?.map((option, optionIndex) => {
+            const optionNorm = normalizeText(option.text);
+            const correct = Boolean(option.correct) || (!!expectedNorm && optionNorm === expectedNorm);
+            const selected =
+              issue.selectedOptionId != null && option.id != null
+                ? String(issue.selectedOptionId) === String(option.id)
+                : !!selectedAnswerNorm && optionNorm === selectedAnswerNorm;
+            const borderColor = correct ? theme.colors.success : selected ? theme.colors.danger : theme.colors.border;
+            const bg = correct
+              ? `${theme.colors.success}12`
+              : selected
+                ? `${theme.colors.danger}10`
+                : theme.colors.surfaceAlt;
+            return (
+              <View
+                key={`${option.text}-${optionIndex}`}
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor,
+                  backgroundColor: bg,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 12, fontWeight: "700" }}>{option.text}</Text>
+                {correct ? <Ionicons name="checkmark-circle" size={15} color={theme.colors.success} /> : null}
+                {!correct && selected ? <Ionicons name="close-circle" size={15} color={theme.colors.danger} /> : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : typeof issue.expected === "string" && issue.expected ? (
         <Text style={[theme.typography.caption, { marginTop: 4, color: theme.colors.textMuted, lineHeight: 18 }]}>
           Expected: {issue.expected}
         </Text>
@@ -537,7 +1211,40 @@ function ReviewIssueCard({
           Answer: {issue.answer}
         </Text>
       ) : null}
-    </View>
+    </Animated.View>
+  );
+}
+
+function CompletionBadge({ passed, theme }: { passed: boolean; theme: AppTheme }) {
+  const scale = useRef(new Animated.Value(0.82)).current;
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 5,
+      tension: 160,
+      useNativeDriver: true,
+    }).start();
+  }, [scale]);
+
+  const color = passed ? theme.colors.success : theme.colors.primary;
+
+  return (
+    <Animated.View
+      style={{
+        width: 38,
+        height: 38,
+        borderRadius: 13,
+        backgroundColor: `${color}16`,
+        borderWidth: 1,
+        borderColor: `${color}44`,
+        alignItems: "center",
+        justifyContent: "center",
+        transform: [{ scale }],
+      }}
+    >
+      <Ionicons name={passed ? "checkmark-circle" : "trending-up"} size={20} color={color} />
+    </Animated.View>
   );
 }
 
@@ -715,7 +1422,55 @@ function reviewIssueColor(theme: AppTheme, kind: SessionIssue["kind"]) {
   return theme.colors.danger;
 }
 
+function LessonDownloadStatusIcon({
+  state,
+  downloaded,
+  stale,
+  ui,
+  size = 18,
+}: {
+  state?: LessonDownloadState;
+  downloaded: boolean;
+  stale: boolean;
+  ui: StudyUi;
+  size?: number;
+}) {
+  const scale = useRef(new Animated.Value(0.92)).current;
+  const iconKey = state === "success" ? "success" : downloaded && !stale ? "downloaded" : stale ? "stale" : "download";
+
+  useEffect(() => {
+    scale.setValue(0.86);
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 5,
+      tension: 140,
+      useNativeDriver: true,
+    }).start();
+  }, [iconKey, scale]);
+
+  if (state === "downloading" || state === "removing") {
+    return <ActivityIndicator size="small" color={state === "removing" ? ui.muted : ui.primary} />;
+  }
+
+  const name: keyof typeof Ionicons.glyphMap =
+    state === "success"
+      ? "thumbs-up"
+      : downloaded && !stale
+        ? "checkmark"
+        : stale
+          ? "cloud-download-outline"
+          : "download-outline";
+  const color = state === "success" || (downloaded && !stale) ? ui.success : ui.primary;
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Ionicons name={name} size={size} color={color} />
+    </Animated.View>
+  );
+}
+
 function normalizeAbsoluteDocumentUrl(sourceUrl: string) {
+  if (/^(file|content|asset):\/\//i.test(sourceUrl.trim())) return sourceUrl.trim();
   if (/^https?:\/\//i.test(sourceUrl)) return sourceUrl;
   const host = studyApiBaseUrl.replace(/\/$/, "");
   if (sourceUrl.startsWith("/")) return `${host}${sourceUrl}`;
@@ -779,8 +1534,12 @@ export default function StudyGameScreen() {
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
   const [studentName, setStudentName] = useState("");
   const [teacherName, setTeacherName] = useState("");
+  const [studentSession, setStudentSession] = useState<StudentSessionPayload | null>(null);
   const [lessonsData, setLessonsData] = useState<LessonGamePayload[]>([]);
   const [testsData, setTestsData] = useState<TestGamePayload[]>([]);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [downloadedLessons, setDownloadedLessons] = useState<Record<string, OfflineLessonSummary>>({});
+  const [lessonDownloadState, setLessonDownloadState] = useState<Record<string, LessonDownloadState>>({});
   /** Bumps on each successful lesson/test catalog load so image URLs change (cache bust + expo-image). */
   const assetCatalogEpochRef = useRef(0);
   const [assetRefreshEpoch, setAssetRefreshEpoch] = useState(0);
@@ -792,6 +1551,7 @@ export default function StudyGameScreen() {
   const [quickPlayCount, setQuickPlayCount] = useState<number>(15);
   const [quickPlayDirection, setQuickPlayDirection] = useState<StudyDirection>("pt-en");
   const [quickPlayLanguageKey, setQuickPlayLanguageKey] = useState<string | null>(null);
+  const [lessonLanguageKey, setLessonLanguageKey] = useState<string | null>(null);
   const [quickPlayShuffleSeed, setQuickPlayShuffleSeed] = useState(0);
 
   const [sessionType, setSessionType] = useState<StudySessionType>("practice");
@@ -800,9 +1560,11 @@ export default function StudyGameScreen() {
   const [activeWords, setActiveWords] = useState<GameWord[]>([]);
   const [idx, setIdx] = useState(0);
   const [input, setInput] = useState("");
+  const [useNativeAnswerKeyboard, setUseNativeAnswerKeyboard] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
   const [mistakeWordIds, setMistakeWordIds] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<{ state: "correct" | "close" | "wrong"; text: string } | null>(null);
+  const [isResolvingAnswer, setIsResolvingAnswer] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
   const [lessonPdfViewerVisible, setLessonPdfViewerVisible] = useState(false);
   const [lessonPdfViewerUri, setLessonPdfViewerUri] = useState<string | null>(null);
@@ -818,6 +1580,7 @@ export default function StudyGameScreen() {
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [mcqChoiceTexts, setMcqChoiceTexts] = useState<string[]>([]);
   const [mcqChoiceOptions, setMcqChoiceOptions] = useState<{ id: string; text: string }[] | null>(null);
+  const [mcqSelection, setMcqSelection] = useState<{ key: string; correct: boolean } | null>(null);
   /** Full conjugation table (typing mode), aligned with web `rowType === 'conjugation'`. */
   const [conjugationInputs, setConjugationInputs] = useState<string[]>([]);
   const [conjugationRowFeedback, setConjugationRowFeedback] = useState<(boolean | null)[]>([]);
@@ -833,11 +1596,16 @@ export default function StudyGameScreen() {
     sessionMode: StudySessionMode;
     direction: StudyDirection;
     pool: GameWord[];
+    sessionIssues?: SessionIssue[];
+    sessionStreak?: number;
+    mistakeWordIds?: string[];
   } | null>(null);
   const [sessionIssues, setSessionIssues] = useState<SessionIssue[]>([]);
   const [sessionStreak, setSessionStreak] = useState(0);
   const audioPlayerRef = useRef<any>(null);
   const audioTempFileRef = useRef<string | null>(null);
+  const correctDingPlayerRef = useRef<any>(null);
+  const correctDingUriRef = useRef<string | null>(null);
   const initialCatalogLoadedRef = useRef(false);
   /** Clear catalog when session changes so we never flash another student's lessons or stale rows. */
   useEffect(() => {
@@ -849,16 +1617,48 @@ export default function StudyGameScreen() {
     setTestsWords([]);
   }, [sessionId]);
   const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
+  const progressRef = useRef<StudyProgress | null>(null);
   const correctCountRef = useRef(0);
   const sessionIssuesRef = useRef<SessionIssue[]>([]);
   const sessionStreakRef = useRef(0);
+  const answerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const mcqCorrectScale = useRef(new Animated.Value(1)).current;
+  const downloadSuccessTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const finishingSessionRef = useRef(false);
   const runtimeScreenRef = useRef<RuntimeScreen>("dashboard");
   const saveResumeDataRef = useRef<() => void>(() => {});
+  progressRef.current = progress;
   const runtimeToastBottom =
     runtimeScreen === "dashboard" || runtimeScreen === "lesson-detail" || runtimeScreen === "test-detail"
       ? Math.max(insets.bottom, 20) + 88
       : Math.max(insets.bottom, 20) + 12;
   const { showToast, toastProps } = useFeedbackToast({ bottom: runtimeToastBottom });
+
+  const clearAnswerTimers = useCallback((resetResolving = true) => {
+    for (const timer of answerTimersRef.current) clearTimeout(timer);
+    answerTimersRef.current = [];
+    if (resetResolving) setIsResolvingAnswer(false);
+  }, []);
+
+  const scheduleAnswerResolution = useCallback((callback: () => void, delay: number) => {
+    setIsResolvingAnswer(true);
+    const timer = setTimeout(() => {
+      answerTimersRef.current = answerTimersRef.current.filter((item) => item !== timer);
+      setIsResolvingAnswer(false);
+      callback();
+    }, delay);
+    answerTimersRef.current.push(timer);
+  }, []);
+
+  useEffect(() => () => clearAnswerTimers(false), [clearAnswerTimers]);
+
+  useEffect(
+    () => () => {
+      Object.values(downloadSuccessTimersRef.current).forEach((timer) => clearTimeout(timer));
+      downloadSuccessTimersRef.current = {};
+    },
+    []
+  );
 
   const bumpAssetCatalogEpoch = useCallback(() => {
     assetCatalogEpochRef.current += 1;
@@ -866,6 +1666,12 @@ export default function StudyGameScreen() {
     setAssetRefreshEpoch(n);
     return n;
   }, []);
+
+  const refreshDownloadedLessons = useCallback(async () => {
+    if (!sessionId) return;
+    const summaries = await getOfflineLessonSummaries(sessionId);
+    setDownloadedLessons(summaries);
+  }, [sessionId]);
 
   const refreshCatalog = useCallback(async () => {
     if (!sessionId) return;
@@ -888,12 +1694,16 @@ export default function StudyGameScreen() {
       );
     }
     const epoch = bumpAssetCatalogEpoch();
+    await saveOfflineSessionSnapshot(sessionId, session).catch(() => {});
+    setStudentSession(session);
+    setOfflineMode(false);
     setLessonsData(lessons);
     setTestsData(tests);
     setLessonsWords(normalizeLessonsToWords(lessons, epoch));
     setTestsWords(normalizeTestsToWords(tests, epoch));
     setStudentName(session.student.name);
     setTeacherName(session.teacher?.name ?? "Teacher");
+    refreshDownloadedLessons().catch(() => {});
     setSelectedLessonDetail((prev) => {
       if (!prev) return prev;
       const next = lessons.find((l) => l.id === prev.id);
@@ -908,7 +1718,7 @@ export default function StudyGameScreen() {
       const test = tests.find((t) => t.id === prev.test.id);
       return test ? { type: "test", test } : prev;
     });
-  }, [sessionId, bumpAssetCatalogEpoch]);
+  }, [sessionId, bumpAssetCatalogEpoch, refreshDownloadedLessons]);
 
   refreshCatalogRef.current = refreshCatalog;
 
@@ -916,13 +1726,62 @@ export default function StudyGameScreen() {
     setCatalogRefreshing(true);
     try {
       await refreshCatalog();
+      if (sessionId && progress) await flushQueuedProgressSync(sessionId, progress).catch(() => false);
       showToast("Lessons and tests updated.", "success");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not refresh lessons and tests.", "danger");
     } finally {
       setCatalogRefreshing(false);
     }
-  }, [refreshCatalog, showToast]);
+  }, [progress, refreshCatalog, sessionId, showToast]);
+
+  const downloadLesson = useCallback(
+    async (lesson: LessonGamePayload) => {
+      if (!sessionId) return;
+      const existingTimer = downloadSuccessTimersRef.current[lesson.id];
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        delete downloadSuccessTimersRef.current[lesson.id];
+      }
+      setLessonDownloadState((prev) => ({ ...prev, [lesson.id]: "downloading" }));
+      try {
+        const summary = await downloadLessonForOffline(sessionId, lesson, studentSession);
+        const catalog = await loadOfflineStudyCatalog(sessionId);
+        setDownloadedLessons((prev) => ({ ...prev, [lesson.id]: summary }));
+        const offlineLesson = catalog.lessons.find((item) => item.id === lesson.id);
+        if (offlineLesson) {
+          const nextLessons = offlineMode
+            ? catalog.lessons
+            : lessonsData.map((item) => (item.id === lesson.id ? offlineLesson : item));
+          const epoch = bumpAssetCatalogEpoch();
+          setLessonsData(nextLessons);
+          setLessonsWords(normalizeLessonsToWords(nextLessons, epoch));
+          setSelectedLessonDetail((prev) => {
+            if (!prev || prev.id !== lesson.id) return prev;
+            return offlineLesson;
+          });
+        }
+        setLessonDownloadState((prev) => ({ ...prev, [lesson.id]: "success" }));
+        downloadSuccessTimersRef.current[lesson.id] = setTimeout(() => {
+          setLessonDownloadState((prev) => {
+            const next = { ...prev };
+            delete next[lesson.id];
+            return next;
+          });
+          delete downloadSuccessTimersRef.current[lesson.id];
+        }, 850);
+        showToast("Lesson downloaded for offline play.", "success");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not download this lesson.", "danger");
+        setLessonDownloadState((prev) => {
+          const next = { ...prev };
+          delete next[lesson.id];
+          return next;
+        });
+      }
+    },
+    [bumpAssetCatalogEpoch, lessonsData, offlineMode, sessionId, showToast, studentSession]
+  );
 
   const allWords = useMemo(() => [...lessonsWords, ...testsWords], [lessonsWords, testsWords]);
 
@@ -945,12 +1804,42 @@ export default function StudyGameScreen() {
     });
   }, [quickPlayLanguageKey, quickPlayLanguageGroups.length, lessonsWords]);
 
+  const lessonLanguageGroups = useMemo(() => {
+    const seen = new Map<string, { key: string; label: string; short: string }>();
+    for (const lesson of lessonsData) {
+      const meta = getDisplayLanguageMeta(lesson.language_pair, lesson.language);
+      const label = lesson.language?.trim() || meta.labelA;
+      const key = `${lesson.language_pair ?? ""}::${label}`;
+      if (!seen.has(key)) {
+        seen.set(key, { key, label, short: meta.shortA });
+      }
+    }
+    return Array.from(seen.values());
+  }, [lessonsData]);
+
+  useEffect(() => {
+    if (!lessonLanguageKey) return;
+    if (!lessonLanguageGroups.some((group) => group.key === lessonLanguageKey)) {
+      setLessonLanguageKey(null);
+    }
+  }, [lessonLanguageGroups, lessonLanguageKey]);
+
+  const filteredLessonsData = useMemo(() => {
+    if (!lessonLanguageKey || lessonLanguageGroups.length < 2) return lessonsData;
+    return lessonsData.filter((lesson) => {
+      const meta = getDisplayLanguageMeta(lesson.language_pair, lesson.language);
+      const label = lesson.language?.trim() || meta.labelA;
+      return `${lesson.language_pair ?? ""}::${label}` === lessonLanguageKey;
+    });
+  }, [lessonLanguageGroups.length, lessonLanguageKey, lessonsData]);
+
   const quickPlayShuffledPool = useMemo(() => {
     const pool = quickPlayWords.length ? quickPlayWords : lessonsWords;
     return shuffle(pool);
   }, [quickPlayDirection, quickPlayShuffleSeed, quickPlayWords, lessonsWords]);
 
-  const current = activeWords[idx];
+  const current = activeWords[idx] as ReviewableGameWord | undefined;
+  const currentSessionMode = isStudySessionMode(current?.reviewMode) ? current.reviewMode : sessionMode;
   const isConjugationDrill = current?.practiceKind === "conjugation";
   const isConjugationTable = current?.practiceKind === "conjugation-table";
 
@@ -964,6 +1853,11 @@ export default function StudyGameScreen() {
     setConjugationInputs(Array.from({ length: n }, () => ""));
     setConjugationRowFeedback([]);
   }, [current?.id, idx]);
+
+  useEffect(() => {
+    setMcqSelection(null);
+    mcqCorrectScale.setValue(1);
+  }, [current?.id, idx, mcqCorrectScale]);
 
   const activeLanguagePair = useMemo(() => {
     if (current?.lessonLanguagePair) return current.lessonLanguagePair;
@@ -1024,8 +1918,21 @@ export default function StudyGameScreen() {
     runtimeScreen === "session" &&
     !!current &&
     !isFillBlank &&
-    (sessionMode === "multiple-choice" ||
+    (currentSessionMode === "multiple-choice" ||
       (current.answerFormat === "mcq" && (current.mcqOptions?.length ?? 0) >= 2));
+  const canUseAnswerPad =
+    runtimeScreen === "session" &&
+    !!current &&
+    !showMcq &&
+    !isConjugationTable &&
+    sessionType !== "test" &&
+    current.answerFormat !== "open" &&
+    (currentSessionMode === "typing" || currentSessionMode === "listening" || currentSessionMode === "image");
+  const useAnswerPad = canUseAnswerPad && !useNativeAnswerKeyboard;
+
+  useEffect(() => {
+    if (useAnswerPad) Keyboard.dismiss();
+  }, [idx, useAnswerPad]);
 
   /** Match web: no big emoji block for conjugation / preposition when there is no image. */
   const hidePlaceholderIllustration =
@@ -1033,16 +1940,16 @@ export default function StudyGameScreen() {
     current?.practiceKind === "conjugation-table" ||
     current?.practiceKind === "preposition";
   const showSessionIllustration =
-    sessionMode === "image" ||
-    (sessionMode === "listening" && !!current?.imageUrl) ||
-    (sessionMode !== "listening" && (!!current?.imageUrl || (!showMcq && !hidePlaceholderIllustration)));
+    currentSessionMode === "image" ||
+    (currentSessionMode === "listening" && !!current?.imageUrl) ||
+    (currentSessionMode !== "listening" && (!!current?.imageUrl || (!showMcq && !hidePlaceholderIllustration)));
   const sessionHeaderLabel = isConjugationTable
     ? "Conjugate"
     : isConjugationDrill
-      ? (sessionMode === "listening" ? "Listen" : showMcq ? "Multiple Choice" : "Conjugate")
-      : sessionMode === "listening"
+      ? (currentSessionMode === "listening" ? "Listen" : showMcq ? "Multiple Choice" : "Conjugate")
+      : currentSessionMode === "listening"
         ? "Listen"
-        : sessionMode === "image"
+        : currentSessionMode === "image"
           ? "Look"
           : isFillBlank
             ? "Fill Blank"
@@ -1050,7 +1957,7 @@ export default function StudyGameScreen() {
               ? "Multiple Choice"
               : "Translate";
   const hidePromptHeaderForImageMode =
-    sessionMode === "image" &&
+    currentSessionMode === "image" &&
     sessionType !== "test" &&
     !isConjugationTable &&
     !isConjugationDrill;
@@ -1273,9 +2180,12 @@ export default function StudyGameScreen() {
 
   const applyProgress = useCallback(
     (next: StudyProgress) => {
+      progressRef.current = next;
       setProgress(next);
-      saveLocalProgress(next).catch(() => {});
-      if (sessionId) scheduleProgressSync(sessionId, next, 1200);
+      if (sessionId) {
+        saveLocalProgress(sessionId, next).catch(() => {});
+        scheduleProgressSync(sessionId, next, 1200);
+      }
     },
     [sessionId]
   );
@@ -1296,11 +2206,40 @@ export default function StudyGameScreen() {
     setSessionIssues([]);
   }, []);
 
+  const getCurrentMcqReviewOptions = useCallback((): SessionIssue["mcqOptions"] => {
+    if (!showMcq) return undefined;
+    if (mcqChoiceOptions && mcqChoiceOptions.length >= 2) {
+      const correctId = current?.mcqCorrectOptionId != null ? String(current.mcqCorrectOptionId) : null;
+      return mcqChoiceOptions.map((option) => ({
+        id: option.id,
+        text: option.text,
+        correct: correctId != null
+          ? String(option.id) === correctId
+          : acceptedAnswers.some((answer) => normalizeText(String(answer)) === normalizeText(option.text)),
+      }));
+    }
+    if (mcqChoiceTexts.length >= 2) {
+      return mcqChoiceTexts.map((text) => ({
+        text,
+        correct: acceptedAnswers.some((answer) => normalizeText(String(answer)) === normalizeText(text)),
+      }));
+    }
+    return undefined;
+  }, [acceptedAnswers, current?.mcqCorrectOptionId, mcqChoiceOptions, mcqChoiceTexts, showMcq]);
+
   const recordSessionIssue = useCallback((issue: SessionIssue) => {
-    const next = [...sessionIssuesRef.current, issue];
+    const enriched: SessionIssue = {
+      ...issue,
+      mode: issue.mode ?? currentSessionMode,
+      promptFormat: issue.promptFormat ?? current?.promptFormat,
+      answerFormat: issue.answerFormat ?? current?.answerFormat,
+      mcqOptions: issue.mcqOptions ?? getCurrentMcqReviewOptions(),
+      mcqCorrectOptionId: issue.mcqCorrectOptionId ?? current?.mcqCorrectOptionId ?? null,
+    };
+    const next = [...sessionIssuesRef.current, enriched];
     sessionIssuesRef.current = next;
     setSessionIssues(next);
-  }, []);
+  }, [current?.answerFormat, current?.mcqCorrectOptionId, current?.promptFormat, currentSessionMode, getCurrentMcqReviewOptions]);
 
   useEffect(() => {
     correctCountRef.current = correctCount;
@@ -1330,6 +2269,26 @@ export default function StudyGameScreen() {
     [progress?.preferences.hapticEnabled]
   );
 
+  const playCorrectDing = useCallback(async () => {
+    try {
+      if (!correctDingUriRef.current) {
+        const asset = Asset.fromModule(CORRECT_DING_ASSET);
+        await asset.downloadAsync();
+        correctDingUriRef.current = asset.localUri ?? asset.uri;
+      }
+      if (!correctDingUriRef.current) return;
+      try {
+        correctDingPlayerRef.current?.pause?.();
+        correctDingPlayerRef.current?.remove?.();
+      } catch {}
+      const player = createAudioPlayer(correctDingUriRef.current);
+      correctDingPlayerRef.current = player;
+      player.play();
+    } catch {
+      // Correct-answer audio is decorative; never block gameplay.
+    }
+  }, []);
+
   const callTeacherCompletionEdge = useCallback(
     async (type: "lesson_completed" | "test_completed") => {
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
@@ -1353,7 +2312,7 @@ export default function StudyGameScreen() {
   }, []);
 
   const saveResumeData = useCallback(() => {
-    if (!selectedLessonDetail || !activeWords.length) return;
+    if (!sessionId || !selectedLessonDetail || !activeWords.length) return;
     const data = {
       lessonId: selectedLessonDetail.id,
       lessonName: selectedLessonDetail.name,
@@ -1364,13 +2323,18 @@ export default function StudyGameScreen() {
       sessionMode,
       direction,
       pool: sessionPool,
+      sessionIssues,
+      sessionStreak,
+      mistakeWordIds,
     };
-    AsyncStorage.setItem("eluency_lesson_resume", JSON.stringify(data)).catch(() => {});
+    AsyncStorage.setItem(studyResumeStorageKey(sessionId), JSON.stringify(data)).catch(() => {});
     setSavedResume(data);
-  }, [activeWords, correctCount, direction, idx, selectedLessonDetail, sessionMode, sessionPool, sessionType]);
+  }, [activeWords, correctCount, direction, idx, mistakeWordIds, selectedLessonDetail, sessionId, sessionIssues, sessionMode, sessionPool, sessionStreak, sessionType]);
 
   const resumeSession = useCallback(() => {
     if (!savedResume) return;
+    clearAnswerTimers();
+    finishingSessionRef.current = false;
     const lesson = lessonsData.find((l) => l.id === savedResume.lessonId) ?? null;
     setSelectedLessonDetail(lesson);
     setSessionType(savedResume.sessionType);
@@ -1379,8 +2343,16 @@ export default function StudyGameScreen() {
     setActiveWords(savedResume.activeWords);
     setIdx(savedResume.idx);
     setInput("");
+    setUseNativeAnswerKeyboard(false);
     setCorrectCountValue(savedResume.correctCount);
+    setSessionIssues(savedResume.sessionIssues ?? []);
+    sessionIssuesRef.current = savedResume.sessionIssues ?? [];
+    sessionStreakRef.current = savedResume.sessionStreak ?? 0;
+    setSessionStreak(savedResume.sessionStreak ?? 0);
+    setMistakeWordIds(savedResume.mistakeWordIds ?? []);
     setFeedback(null);
+    setMcqSelection(null);
+    mcqCorrectScale.setValue(1);
     setShowHint(false);
     setNeedsRetype(false);
     setShowInfinitiveNote(false);
@@ -1388,7 +2360,7 @@ export default function StudyGameScreen() {
     setSessionContext({ id: savedResume.lessonId, name: savedResume.lessonName });
     setSessionPool(savedResume.pool);
     setRuntimeScreen("session");
-  }, [lessonsData, savedResume, setCorrectCountValue]);
+  }, [clearAnswerTimers, lessonsData, mcqCorrectScale, savedResume, setCorrectCountValue]);
 
   const openLessonDocument = useCallback(() => {
     const documentUrl = selectedLessonDetail?.document_url?.trim();
@@ -1434,6 +2406,32 @@ export default function StudyGameScreen() {
     if (test) openTestDetailFromTest(test);
   }, [continueSuggestion, lessonsData, openLessonDetail, openTestDetailFromTest, resumeSession, testsData]);
 
+  const getReviewMistakeIssuesById = useCallback(() => {
+    const issuesById = new Map<string, SessionIssue>();
+    const rememberIssue = (issue: SessionIssue | undefined) => {
+      if (!issue || !issue.id) return;
+      if (issue.kind !== "wrong" && issue.kind !== "close" && issue.kind !== "skip") return;
+      if (!issuesById.has(issue.id)) issuesById.set(issue.id, issue);
+    };
+
+    for (const issue of [...sessionIssuesRef.current].reverse()) {
+      rememberIssue(issue);
+    }
+
+    const records = [...(progress?.practiceHistory ?? []), ...(progress?.testHistory ?? [])].sort((a, b) => {
+      const left = typeof a.timestamp === "number" ? a.timestamp : Date.parse(a.date || "");
+      const right = typeof b.timestamp === "number" ? b.timestamp : Date.parse(b.date || "");
+      return (right || 0) - (left || 0);
+    });
+    for (const record of records) {
+      for (const issue of [...(record.issues ?? [])].reverse()) {
+        rememberIssue(issue);
+      }
+    }
+
+    return issuesById;
+  }, [progress?.practiceHistory, progress?.testHistory]);
+
   const startSession = useCallback(
     (
       type: StudySessionType,
@@ -1443,6 +2441,8 @@ export default function StudyGameScreen() {
       context?: { id?: string | null; name?: string | null }
     ) => {
       if (!progress) return;
+      clearAnswerTimers();
+      finishingSessionRef.current = false;
       const baseWords = scopedWords?.length ? scopedWords : allWords;
       const expandedBase = expandConjugationTablesForMode(baseWords, mode);
       const requestedLength =
@@ -1463,14 +2463,29 @@ export default function StudyGameScreen() {
         showToast("No words available for this mode yet.", "info");
         return;
       }
+      const reviewIssuesById = type === "review-mistakes" ? getReviewMistakeIssuesById() : null;
+      const selectedWords: GameWord[] =
+        reviewIssuesById == null
+          ? selected
+          : selected.map((word) => {
+              const issue = reviewIssuesById.get(word.id);
+              return {
+                ...word,
+                reviewMode: getIssueReviewMode(issue) ?? "typing",
+                reviewIssue: issue,
+              } as ReviewableGameWord;
+            });
       setSessionType(type);
       setSessionMode(mode);
       setDirection(dir);
-      setActiveWords(selected);
+      setActiveWords(selectedWords);
       setIdx(0);
       setInput("");
+      setUseNativeAnswerKeyboard(false);
       setCorrectCountValue(0);
       setFeedback(null);
+      setMcqSelection(null);
+      mcqCorrectScale.setValue(1);
       setShowHint(false);
       setNeedsRetype(false);
       setShowInfinitiveNote(false);
@@ -1478,17 +2493,21 @@ export default function StudyGameScreen() {
       setConjugationInputs([]);
       setConjugationRowFeedback([]);
       clearSessionIssues();
+      setMistakeWordIds([]);
       sessionStreakRef.current = 0;
       setSessionStreak(0);
       setSessionContext({ id: context?.id ?? null, name: context?.name ?? null });
       setSessionPool(expandedBase);
       setRuntimeScreen("session");
     },
-    [allWords, clearSessionIssues, mistakeWordIds, progress, setCorrectCountValue, showToast]
+    [allWords, clearAnswerTimers, clearSessionIssues, getReviewMistakeIssuesById, mcqCorrectScale, mistakeWordIds, progress, setCorrectCountValue, showToast]
   );
 
   const finishSession = useCallback(async () => {
-    if (!progress) return;
+    const latestProgress = progressRef.current;
+    if (!latestProgress || finishingSessionRef.current) return;
+    finishingSessionRef.current = true;
+    clearAnswerTimers();
     const total = activeWords.length;
     const finalCorrectCount = correctCountRef.current;
     const finalIssues = [...sessionIssuesRef.current];
@@ -1516,14 +2535,14 @@ export default function StudyGameScreen() {
       issues: finalIssues,
     });
 
-    const practiceHistory = sessionType === "test" ? progress.practiceHistory : [rec, ...progress.practiceHistory];
-    const testHistory = sessionType === "test" ? [rec, ...progress.testHistory] : progress.testHistory;
+    const practiceHistory = sessionType === "test" ? latestProgress.practiceHistory : [rec, ...latestProgress.practiceHistory];
+    const testHistory = sessionType === "test" ? [rec, ...latestProgress.testHistory] : latestProgress.testHistory;
     const streak = calculateStreak(practiceHistory, testHistory);
-    const userStats = updateUserStats(progress.userStats, rec, streak);
-    const achievements = unlockAchievements(userStats, progress.achievements);
+    const userStats = updateUserStats(latestProgress.userStats, rec, streak);
+    const achievements = unlockAchievements(userStats, latestProgress.achievements);
 
     const nextProgress: StudyProgress = {
-      ...progress,
+      ...latestProgress,
       practiceHistory,
       testHistory,
       userStats,
@@ -1531,11 +2550,12 @@ export default function StudyGameScreen() {
       dailyChallenge:
         sessionType === "daily-challenge"
           ? { date: new Date().toISOString().slice(0, 10), completed: true, score: percentage }
-          : progress.dailyChallenge,
+          : latestProgress.dailyChallenge,
     };
+    progressRef.current = nextProgress;
     setProgress(nextProgress);
-    await saveLocalProgress(nextProgress);
     if (sessionId) {
+      await saveLocalProgress(sessionId, nextProgress);
       try {
         await flushProgressSync(sessionId, nextProgress);
       } catch {
@@ -1546,12 +2566,12 @@ export default function StudyGameScreen() {
     if (sessionType === "practice" || sessionType === "smart-review") callTeacherCompletionEdge("lesson_completed").catch(() => {});
     setResultRecord({ score: finalCorrectCount, total, percentage, passed, issues: finalIssues });
     setSavedResume(null);
-    AsyncStorage.removeItem("eluency_lesson_resume").catch(() => {});
+    if (sessionId) AsyncStorage.removeItem(studyResumeStorageKey(sessionId)).catch(() => {});
     setRuntimeScreen("results");
-  }, [activeWords, callTeacherCompletionEdge, direction, lessonsData, progress, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType, showToast]);
+  }, [activeWords, callTeacherCompletionEdge, clearAnswerTimers, direction, lessonsData, sessionContext.id, sessionContext.name, sessionId, sessionMode, sessionType, showToast]);
 
   const answerCurrent = useCallback(async () => {
-    if (!current || !progress) return;
+    if (!current || !progress || isResolvingAnswer || finishingSessionRef.current) return;
     const userAnswer = input.trim();
     if (!userAnswer) return;
 
@@ -1559,6 +2579,7 @@ export default function StudyGameScreen() {
     if (isOpenAnswer) {
       applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
       triggerHaptic("success").catch(() => {});
+      playCorrectDing().catch(() => {});
       incrementCorrectCount();
       sessionStreakRef.current += 1;
       setSessionStreak(sessionStreakRef.current);
@@ -1570,7 +2591,7 @@ export default function StudyGameScreen() {
         kind: "open_review",
       });
       setFeedback({ state: "correct", text: sessionType === "test" ? "Answer counted." : "Answer submitted." });
-      setTimeout(() => {
+      scheduleAnswerResolution(() => {
         setFeedback(null);
         setInput("");
         setShowHint(false);
@@ -1592,6 +2613,7 @@ export default function StudyGameScreen() {
         return;
       }
       triggerHaptic("success").catch(() => {});
+      playCorrectDing().catch(() => {});
       setFeedback(null);
       setInput("");
       setShowHint(false);
@@ -1609,13 +2631,15 @@ export default function StudyGameScreen() {
     const infinitiveNote = fallback.isCorrect && isInfinitiveWord(current, expected, prompt, targetLang);
     const correction = "";
 
-    const correctForStats = result === "correct" || result === "close";
+    const closeCountsForScore = sessionType !== "test";
+    const correctForStats = result === "correct" || (result === "close" && closeCountsForScore);
     applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, correctForStats) });
     setShowInfinitiveNote(infinitiveNote);
     setGeminiCorrection(correction);
 
     if (result === "correct") {
       triggerHaptic("success").catch(() => {});
+      playCorrectDing().catch(() => {});
       incrementCorrectCount();
       sessionStreakRef.current += 1;
       setSessionStreak(sessionStreakRef.current);
@@ -1623,7 +2647,7 @@ export default function StudyGameScreen() {
       setFeedback({ state: "correct", text: "Correct!" });
     } else if (result === "close") {
       triggerHaptic("warning").catch(() => {});
-      incrementCorrectCount();
+      if (closeCountsForScore) incrementCorrectCount();
       sessionStreakRef.current = 0;
       setSessionStreak(0);
       setFeedback({ state: "close", text: sessionType === "test" ? `Almost! Expected: ${feedbackExpected}` : "Almost there. Type the expected answer to continue." });
@@ -1639,7 +2663,7 @@ export default function StudyGameScreen() {
     }
 
     if (exactMatch) {
-      setTimeout(() => {
+      scheduleAnswerResolution(() => {
         setFeedback(null);
         setInput("");
         setShowHint(false);
@@ -1653,7 +2677,7 @@ export default function StudyGameScreen() {
     }
 
     if (sessionType === "test") {
-      setTimeout(() => {
+      scheduleAnswerResolution(() => {
         setFeedback(null);
         setInput("");
         setShowHint(false);
@@ -1678,17 +2702,20 @@ export default function StudyGameScreen() {
     finishSession,
     idx,
     input,
+    isResolvingAnswer,
     needsRetype,
+    playCorrectDing,
     progress,
     prompt,
     recordSessionIssue,
+    scheduleAnswerResolution,
     targetLang,
     triggerHaptic,
     sessionType,
   ]);
 
   const submitConjugationTable = useCallback(async () => {
-    if (!current || !progress || current.practiceKind !== "conjugation-table" || !current.conjugationTable) return;
+    if (!current || !progress || isResolvingAnswer || finishingSessionRef.current || current.practiceKind !== "conjugation-table" || !current.conjugationTable) return;
     if (conjugationRowFeedback.length > 0) return;
     const entries = current.conjugationTable.entries;
     const results = entries.map((entry, i) => {
@@ -1702,6 +2729,7 @@ export default function StudyGameScreen() {
     applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, done) });
     if (done) {
       triggerHaptic("success").catch(() => {});
+      playCorrectDing().catch(() => {});
       incrementCorrectCount();
       recordSessionIssue({
         id: current.id,
@@ -1728,7 +2756,7 @@ export default function StudyGameScreen() {
       setFeedback({ state: "wrong", text: `Expected: ${lines}` });
       recordSessionIssue({ id: current.id, prompt: current.conjugationTable.infinitive, expected: lines, kind: "wrong" });
     }
-    setTimeout(() => {
+    scheduleAnswerResolution(() => {
       setFeedback(null);
       setConjugationRowFeedback([]);
       if (idx + 1 >= activeWords.length) finishSession().catch(() => {});
@@ -1743,8 +2771,11 @@ export default function StudyGameScreen() {
     finishSession,
     incrementCorrectCount,
     idx,
+    isResolvingAnswer,
     progress,
+    playCorrectDing,
     recordSessionIssue,
+    scheduleAnswerResolution,
     triggerHaptic,
   ]);
 
@@ -1760,7 +2791,7 @@ export default function StudyGameScreen() {
       return;
     }
     const structuredMcq = current.answerFormat === "mcq" && Array.isArray(current.mcqOptions) && current.mcqOptions.length >= 2;
-    const modeMcq = sessionMode === "multiple-choice";
+    const modeMcq = currentSessionMode === "multiple-choice";
     if (structuredMcq && current.mcqOptions) {
       setMcqChoiceOptions(shuffle(current.mcqOptions.map((o) => ({ id: String(o.id), text: String(o.text ?? "") }))));
       setMcqChoiceTexts([]);
@@ -1798,15 +2829,24 @@ export default function StudyGameScreen() {
     }
     setMcqChoiceOptions(null);
     setMcqChoiceTexts(choices);
-  }, [activeWords, current, direction, idx, runtimeScreen, sessionMode, sessionPool]);
+  }, [activeWords, current, currentSessionMode, direction, idx, runtimeScreen, sessionPool]);
 
   const handleMcqPick = useCallback(
-    async (choiceText: string, optionId?: string) => {
-      if (!current || !progress || feedback) return;
+    async (choiceText: string, optionId?: string, selectionKey?: string) => {
+      if (!current || !progress || feedback || isResolvingAnswer || finishingSessionRef.current) return;
       const isOpen = current.answerFormat === "open";
       if (isOpen) {
+        if (selectionKey) {
+          setMcqSelection({ key: selectionKey, correct: true });
+          mcqCorrectScale.setValue(0.98);
+          Animated.sequence([
+            Animated.spring(mcqCorrectScale, { toValue: 1.035, friction: 4, tension: 180, useNativeDriver: true }),
+            Animated.spring(mcqCorrectScale, { toValue: 1, friction: 5, tension: 140, useNativeDriver: true }),
+          ]).start();
+        }
         applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, true) });
         triggerHaptic("success").catch(() => {});
+        playCorrectDing().catch(() => {});
         incrementCorrectCount();
         recordSessionIssue({
           id: current.id,
@@ -1814,9 +2854,10 @@ export default function StudyGameScreen() {
           expected: feedbackExpected || expected,
           answer: choiceText,
           kind: "open_review",
+          selectedOptionId: optionId ?? null,
         });
         setFeedback({ state: "correct", text: sessionType === "test" ? "Answer counted." : "Answer submitted." });
-        setTimeout(() => {
+        scheduleAnswerResolution(() => {
           setFeedback(null);
           setInput("");
           setShowHint(false);
@@ -1841,25 +2882,34 @@ export default function StudyGameScreen() {
         isCorrect = accepted.some((a) => normalizeText(String(a)) === normalizeText(choiceText));
       }
 
+      if (selectionKey) {
+        setMcqSelection({ key: selectionKey, correct: isCorrect });
+      }
       applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, isCorrect) });
 
       if (isCorrect) {
+        mcqCorrectScale.setValue(0.98);
+        Animated.sequence([
+          Animated.spring(mcqCorrectScale, { toValue: 1.035, friction: 4, tension: 180, useNativeDriver: true }),
+          Animated.spring(mcqCorrectScale, { toValue: 1, friction: 5, tension: 140, useNativeDriver: true }),
+        ]).start();
         setShowInfinitiveNote(isInfinitiveWord(current, expected, prompt, targetLang));
         triggerHaptic("success").catch(() => {});
+        playCorrectDing().catch(() => {});
         incrementCorrectCount();
-        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected || expected, answer: choiceText, kind: "correct" });
+        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected || expected, answer: choiceText, kind: "correct", selectedOptionId: optionId ?? null });
         setFeedback({ state: "correct", text: "Correct!" });
       } else {
         setShowInfinitiveNote(false);
         triggerHaptic("error").catch(() => {});
         setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
         setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
-        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: choiceText, kind: "wrong" });
+        recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, answer: choiceText, kind: "wrong", selectedOptionId: optionId ?? null });
       }
 
       setInput("");
       const delay = isCorrect ? 700 : 1500;
-      setTimeout(() => {
+      scheduleAnswerResolution(() => {
         setFeedback(null);
         setShowHint(false);
         setNeedsRetype(false);
@@ -1879,9 +2929,13 @@ export default function StudyGameScreen() {
       finishSession,
       incrementCorrectCount,
       idx,
+      isResolvingAnswer,
+      mcqCorrectScale,
       progress,
+      playCorrectDing,
       prompt,
       recordSessionIssue,
+      scheduleAnswerResolution,
       sessionType,
       targetLang,
       triggerHaptic,
@@ -2045,6 +3099,10 @@ export default function StudyGameScreen() {
         }
         setStudentName(session.student.name);
         setTeacherName(session.teacher?.name ?? "Teacher");
+        setStudentSession(session);
+        setOfflineMode(false);
+        await saveOfflineSessionSnapshot(sessionId, session).catch(() => {});
+        await refreshDownloadedLessons().catch(() => {});
         assetCatalogEpochRef.current += 1;
         const epoch = assetCatalogEpochRef.current;
         setAssetRefreshEpoch(epoch);
@@ -2052,17 +3110,44 @@ export default function StudyGameScreen() {
         setTestsData(tests);
         setLessonsWords(normalizeLessonsToWords(lessons, epoch));
         setTestsWords(normalizeTestsToWords(tests, epoch));
+        progressRef.current = hydrated;
         setProgress(hydrated);
         initialCatalogLoadedRef.current = true;
-        const raw = await AsyncStorage.getItem("eluency_lesson_resume").catch(() => null);
+        const raw = await AsyncStorage.getItem(studyResumeStorageKey(sessionId)).catch(() => null);
         if (raw && mounted) {
           try { setSavedResume(JSON.parse(raw)); } catch {}
         }
       } catch (e) {
         if (!mounted) return;
-        clearStoredStudentSessionId().catch(() => {});
-        Alert.alert("Error", e instanceof Error ? e.message : "Failed to load study game");
-        navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+        const [offlineCatalog, localProgress, downloaded] = await Promise.all([
+          loadOfflineStudyCatalog(sessionId).catch(() => ({ session: null, lessons: [], tests: [] })),
+          loadLocalProgress(sessionId),
+          getOfflineLessonSummaries(sessionId).catch(() => ({})),
+        ]);
+        if (offlineCatalog.lessons.length > 0) {
+          const epoch = bumpAssetCatalogEpoch();
+          setOfflineMode(true);
+          setStudentSession(offlineCatalog.session);
+          setStudentName(offlineCatalog.session?.student.name ?? "Student");
+          setTeacherName(offlineCatalog.session?.teacher?.name ?? "Teacher");
+          setDownloadedLessons(downloaded);
+          setLessonsData(offlineCatalog.lessons);
+          setTestsData(offlineCatalog.tests);
+          setLessonsWords(normalizeLessonsToWords(offlineCatalog.lessons, epoch));
+          setTestsWords(normalizeTestsToWords(offlineCatalog.tests, epoch));
+          progressRef.current = localProgress;
+          setProgress(localProgress);
+          initialCatalogLoadedRef.current = true;
+          const raw = await AsyncStorage.getItem(studyResumeStorageKey(sessionId)).catch(() => null);
+          if (raw && mounted) {
+            try { setSavedResume(JSON.parse(raw)); } catch {}
+          }
+          showToast("Offline mode: downloaded lessons are ready to play.", "info");
+        } else {
+          clearStoredStudentSessionId().catch(() => {});
+          Alert.alert("Error", e instanceof Error ? e.message : "Failed to load study game");
+          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -2072,6 +3157,8 @@ export default function StudyGameScreen() {
       try {
         audioPlayerRef.current?.pause?.();
         audioPlayerRef.current?.remove?.();
+        correctDingPlayerRef.current?.pause?.();
+        correctDingPlayerRef.current?.remove?.();
       } catch {}
     };
   }, [navigation, sessionId]);
@@ -2089,6 +3176,7 @@ export default function StudyGameScreen() {
       }
       if (resumeTimer) clearTimeout(resumeTimer);
       resumeTimer = setTimeout(() => {
+        flushQueuedProgressSync(sessionId, progress).catch(() => false);
         refreshCatalogRef.current?.().catch(() => {});
         resumeTimer = null;
       }, 400);
@@ -2098,6 +3186,14 @@ export default function StudyGameScreen() {
       if (resumeTimer) clearTimeout(resumeTimer);
     };
   }, [progress, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const retryTimer = setInterval(() => {
+      flushQueuedProgressSync(sessionId).catch(() => false);
+    }, 30000);
+    return () => clearInterval(retryTimer);
+  }, [sessionId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2111,10 +3207,10 @@ export default function StudyGameScreen() {
 
   useEffect(() => {
     if (runtimeScreen !== "session" || !current) return;
-    if (sessionMode === "listening") {
+    if (currentSessionMode === "listening") {
       playPromptAudio().catch(() => {});
     }
-  }, [current, playPromptAudio, runtimeScreen, sessionMode]);
+  }, [current, currentSessionMode, playPromptAudio, runtimeScreen]);
 
   useEffect(() => {
     return () => {
@@ -2182,6 +3278,51 @@ export default function StudyGameScreen() {
         danger: theme.colors.danger,
       };
   const reviewViewportMaxHeight = 488;
+  const renderMcqChoice = (choiceText: string, selectionKey: string, optionId?: string) => {
+    const selected = mcqSelection?.key === selectionKey;
+    const selectedCorrect = selected && mcqSelection.correct;
+    const selectedWrong = selected && !mcqSelection.correct && !!feedback;
+    const settled = !!feedback || isResolvingAnswer;
+    const borderColor = selectedCorrect ? ui.success : selectedWrong ? ui.danger : ui.border;
+    const textColor = selectedCorrect ? ui.success : selectedWrong ? ui.danger : ui.text;
+    const backgroundColor = selectedCorrect
+      ? `${ui.success}14`
+      : selectedWrong
+        ? `${ui.danger}10`
+        : ui.card;
+
+    return (
+      <Animated.View
+        key={selectionKey}
+        style={{
+          transform: [{ scale: selectedCorrect ? mcqCorrectScale : 1 }],
+          opacity: settled && !selected ? 0.62 : 1,
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => handleMcqPick(choiceText, optionId, selectionKey)}
+          disabled={settled}
+          activeOpacity={0.85}
+          style={{
+            borderRadius: 12,
+            borderWidth: selectedCorrect || selectedWrong ? 1.5 : 1,
+            borderColor,
+            backgroundColor,
+            paddingVertical: 14,
+            paddingHorizontal: 14,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Text style={{ color: textColor, fontWeight: "700", fontSize: 16, textAlign: isConjugationDrill ? "left" : "center", flexShrink: 1 }}>
+              {choiceText}
+            </Text>
+            {selectedCorrect ? <Ionicons name="checkmark-circle" size={18} color={ui.success} /> : null}
+            {selectedWrong ? <Ionicons name="close-circle" size={18} color={ui.danger} /> : null}
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
 
   return (
     <View className="flex-1" style={{ backgroundColor: ui.bg }}>
@@ -2310,11 +3451,11 @@ export default function StudyGameScreen() {
                       </Text>
                     </View>
                     <View style={{ backgroundColor: ui.primarySoft, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
-                      <Text style={{ color: ui.secondary, fontWeight: "800", fontSize: 13 }}>{totalXP} XP</Text>
+                      <AnimatedNumber value={totalXP} suffix=" XP" style={{ color: ui.secondary, fontWeight: "800", fontSize: 13 }} />
                     </View>
                   </View>
                   <View style={{ height: 8, backgroundColor: ui.borderSoft, borderRadius: 999, overflow: "hidden", marginTop: 12 }}>
-                    <View style={{ height: "100%", width: `${levelInfo.progress}%`, backgroundColor: ui.secondary }} />
+                    <AnimatedProgressFill progress={levelInfo.progress} color={ui.secondary} />
                   </View>
                 </GlassCard>
                 </ScreenReveal>
@@ -2390,7 +3531,7 @@ export default function StudyGameScreen() {
                           origin="52,52"
                         />
                       </Svg>
-                      <Text style={{ color: ui.primary, fontWeight: "900", fontSize: 24 }}>{overallProgress}%</Text>
+                      <AnimatedNumber value={overallProgress} suffix="%" style={{ color: ui.primary, fontWeight: "900", fontSize: 24 }} />
                       <Text style={{ fontSize: 9, color: ui.muted, fontWeight: "700", marginTop: -1 }}>PROGRESS</Text>
                     </View>
                     <View style={{ flex: 1 }}>
@@ -2542,7 +3683,9 @@ export default function StudyGameScreen() {
                     <IconTile icon="book-outline" size={42} iconSize={22} radius={12} backgroundColor={ui.primarySoft} borderColor={ui.borderStrong} color={ui.primary} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: "800", fontSize: 24, color: ui.text }}>Lessons</Text>
-                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>Select a lesson to study and practice.</Text>
+                      <Text style={{ color: ui.muted, fontSize: 14, marginTop: 4 }}>
+                        {offlineMode ? "Offline mode: downloaded lessons are available now." : "Select a lesson to study and practice."}
+                      </Text>
                     </View>
                   </View>
                 </GlassCard>
@@ -2559,8 +3702,70 @@ export default function StudyGameScreen() {
                     onSecondaryAction={testsData.length > 0 ? () => setActiveTab("tests") : undefined}
                   />
                 ) : null}
-                {lessonsData.map((lesson) => (
-                  <GlassCard
+                {lessonLanguageGroups.length >= 2 ? (
+                  <View style={{ marginBottom: 14 }}>
+                    <Text style={{ fontSize: 11, fontWeight: "700", color: ui.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Filter by language</Text>
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      <TouchableOpacity
+                        onPress={() => setLessonLanguageKey(null)}
+                        activeOpacity={0.85}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 14,
+                          borderRadius: 999,
+                          borderWidth: 1.5,
+                          backgroundColor: lessonLanguageKey == null ? ui.primary : ui.card,
+                          borderColor: lessonLanguageKey == null ? ui.primary : ui.border,
+                        }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: "800", color: lessonLanguageKey == null ? "#fff" : ui.muted }}>All</Text>
+                      </TouchableOpacity>
+                      {lessonLanguageGroups.map((group) => {
+                        const active = lessonLanguageKey === group.key;
+                        return (
+                          <TouchableOpacity
+                            key={group.key}
+                            onPress={() => setLessonLanguageKey(group.key)}
+                            activeOpacity={0.85}
+                            style={{
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              borderRadius: 999,
+                              borderWidth: 1.5,
+                              backgroundColor: active ? ui.primary : ui.card,
+                              borderColor: active ? ui.primary : ui.border,
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 7,
+                            }}
+                          >
+                            <View style={{
+                              minWidth: 24,
+                              height: 24,
+                              borderRadius: 12,
+                              backgroundColor: active ? "rgba(255,255,255,0.18)" : ui.primarySoft,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              paddingHorizontal: 6,
+                            }}>
+                              <Text style={{ fontSize: 10, fontWeight: "900", color: active ? "#fff" : ui.primary }}>{group.short}</Text>
+                            </View>
+                            <Text style={{ fontSize: 13, fontWeight: "800", color: active ? "#fff" : ui.muted }}>{group.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {filteredLessonsData.map((lesson) => {
+                  const lessonMeta = getDisplayLanguageMeta(lesson.language_pair, lesson.language);
+                  const lessonLanguageLabel = lesson.language?.trim() || lessonMeta.labelA;
+                  const offlineSummary = downloadedLessons[lesson.id];
+                  const downloadState = lessonDownloadState[lesson.id];
+                  const downloadBusy = downloadState === "downloading" || downloadState === "success";
+                  const staleDownload = isDownloadedLessonStale(lesson, offlineSummary);
+                  return (
+                    <GlassCard
                     key={`${lesson.id}-${lesson.updated_at ?? ""}-${assetRefreshEpoch}`}
                     style={{ borderRadius: 16, marginBottom: 10 }}
                     padding={12}
@@ -2582,15 +3787,40 @@ export default function StudyGameScreen() {
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: "700", fontSize: 16, color: ui.text }}>{lesson.name}</Text>
-                        <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>{safeLength(lesson.words)} words</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <Text style={{ fontWeight: "700", fontSize: 16, color: ui.text }}>{lesson.name}</Text>
+                          <View style={{ borderRadius: 999, backgroundColor: ui.primarySoft, borderWidth: 1, borderColor: ui.borderStrong, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ color: ui.primary, fontSize: 10, fontWeight: "900", letterSpacing: 0.4 }}>{lessonMeta.shortA}</Text>
+                          </View>
+                        </View>
+                        <Text style={{ color: ui.muted, fontSize: 13, marginTop: 2 }}>{safeLength(lesson.words)} words - {lessonLanguageLabel}</Text>
                       </View>
-                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}>
-                        <Ionicons name="arrow-forward" size={17} color={ui.primary} />
-                      </View>
+                      <TouchableOpacity
+                        disabled={downloadBusy || (Boolean(offlineSummary) && !staleDownload)}
+                        onPress={(event) => {
+                          event.stopPropagation?.();
+                          downloadLesson(lesson);
+                        }}
+                        activeOpacity={0.85}
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 13,
+                          borderWidth: 1,
+                          borderColor: offlineSummary && !staleDownload ? "rgba(34,197,94,0.28)" : ui.borderStrong,
+                          backgroundColor: offlineSummary && !staleDownload ? "rgba(34,197,94,0.12)" : ui.primarySoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: downloadState === "downloading" ? 0.9 : 1,
+                        }}
+                        accessibilityLabel={offlineSummary && !staleDownload ? "Lesson downloaded" : staleDownload ? "Update downloaded lesson" : "Download lesson"}
+                      >
+                        <LessonDownloadStatusIcon state={downloadState} downloaded={Boolean(offlineSummary)} stale={staleDownload} ui={ui} />
+                      </TouchableOpacity>
                     </TouchableOpacity>
-                  </GlassCard>
-                ))}
+                    </GlassCard>
+                  );
+                })}
               </>
             ) : null}
 
@@ -2757,8 +3987,9 @@ export default function StudyGameScreen() {
                         iconBg: theme.isDark ? "#2E2436" : "#F8EEFF",
                         iconColor: theme.isDark ? "#E3B7FF" : "#8A3FB0",
                       },
-                    ].map((item) => (
-                      <GlassCard key={item.label} style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
+                    ].map((item, itemIndex) => (
+                      <ScreenReveal key={item.label} delay={40 + itemIndex * 26} distance={10} scaleFrom={0.994} duration={260}>
+                      <GlassCard style={{ borderRadius: 16, marginBottom: 10 }} padding={12} variant="strong">
                         <TouchableOpacity
                           onPress={() => {
                             const pool = quickPlayShuffledPool;
@@ -2793,6 +4024,7 @@ export default function StudyGameScreen() {
                           <Ionicons name="chevron-forward" size={18} color={ui.primary} />
                         </TouchableOpacity>
                       </GlassCard>
+                      </ScreenReveal>
                     ))}
                   </>
                 )}
@@ -3089,6 +4321,48 @@ export default function StudyGameScreen() {
                   <Ionicons name="document-attach-outline" size={18} color="#fff" />
                   <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}>View Lesson PDF</Text>
                 </TouchableOpacity>
+                {(() => {
+                  const offlineSummary = downloadedLessons[selectedLessonDetail.id];
+                  const downloadState = lessonDownloadState[selectedLessonDetail.id];
+                  const staleDownload = isDownloadedLessonStale(selectedLessonDetail, offlineSummary);
+                  const isBusy = downloadState === "downloading" || downloadState === "success";
+                  const label =
+                    downloadState === "downloading"
+                      ? "Downloading"
+                      : downloadState === "success"
+                        ? "Saved"
+                        : offlineSummary && !staleDownload
+                          ? "Downloaded"
+                          : staleDownload
+                            ? "Update Download"
+                            : "Download Lesson";
+                  return (
+                    <TouchableOpacity
+                      disabled={isBusy || (Boolean(offlineSummary) && !staleDownload)}
+                      onPress={() => downloadLesson(selectedLessonDetail)}
+                      activeOpacity={0.85}
+                      style={{
+                        marginTop: 10,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: offlineSummary && !staleDownload ? "rgba(34,197,94,0.28)" : ui.borderStrong,
+                        backgroundColor: offlineSummary && !staleDownload ? "rgba(34,197,94,0.12)" : ui.primarySoft,
+                        paddingHorizontal: 16,
+                        paddingVertical: 13,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        opacity: downloadState === "downloading" ? 0.9 : 1,
+                      }}
+                    >
+                      <LessonDownloadStatusIcon state={downloadState} downloaded={Boolean(offlineSummary)} stale={staleDownload} ui={ui} />
+                      <Text style={{ color: offlineSummary && !staleDownload ? ui.success : ui.primary, fontSize: 14, fontWeight: "900" }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </GlassCard>
             ) : null}
 
@@ -3449,21 +4723,25 @@ export default function StudyGameScreen() {
             onExit={() =>
               Alert.alert(
                 "Exit Session?",
-                "Your progress in this session will be lost.",
+                sessionType === "test" ? "Your progress in this test will be lost." : "Your session will be saved so you can return to this lesson.",
                 [
                   { text: "Keep Going", style: "cancel" },
                   {
                     text: "Exit",
                     style: "destructive",
                     onPress: () => {
+                      clearAnswerTimers();
+                      finishingSessionRef.current = false;
                       if (sessionType === "test" && selectedTestDetail) {
                         setRuntimeScreen("test-detail");
                       } else if (selectedLessonDetail) {
                         saveResumeData();
-                        setRuntimeScreen("lesson-detail");
+                        setActiveTab("practice");
+                        setRuntimeScreen("dashboard");
                       } else if (selectedTestDetail) {
                         setRuntimeScreen("test-detail");
                       } else {
+                        setActiveTab("practice");
                         setRuntimeScreen("dashboard");
                       }
                     },
@@ -3485,20 +4763,20 @@ export default function StudyGameScreen() {
               keyboardDismissMode="interactive"
               showsVerticalScrollIndicator={false}
             >
-              <ScreenReveal key={`session-${sessionType}-${sessionMode}-${sessionContext.id ?? "general"}`} delay={14} distance={16} scaleFrom={0.994}>
+              <ScreenReveal key={`session-${sessionType}-${currentSessionMode}-${current.id}-${idx}`} delay={10} distance={14} scaleFrom={0.992} duration={300}>
               <GlassCard style={{ borderRadius: 22, backgroundColor: ui.card }} padding={14}>
                 {current.imageUrl && !showSessionIllustration ? (
                   <View style={{ alignSelf: "center", marginBottom: 10 }}>
                     <RemoteLessonImage uri={current.imageUrl} style={{ width: 88, height: 88, borderRadius: 16 }} resizeMode="cover" />
                   </View>
                 ) : null}
-                {(sessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
+                {(currentSessionMode !== "listening" || current.imageUrl) && showSessionIllustration ? (
                   <View style={{ alignItems: "center", marginBottom: 10 }}>
                     <View
                       style={{
-                        width: sessionMode === "image" || !!current.imageUrl ? 198 : 135,
-                        height: sessionMode === "image" || !!current.imageUrl ? 198 : 135,
-                        borderRadius: sessionMode === "image" || !!current.imageUrl ? 25 : 20,
+                        width: currentSessionMode === "image" || !!current.imageUrl ? 198 : 135,
+                        height: currentSessionMode === "image" || !!current.imageUrl ? 198 : 135,
+                        borderRadius: currentSessionMode === "image" || !!current.imageUrl ? 25 : 20,
                         backgroundColor: ui.borderSoft,
                         alignItems: "center",
                         justifyContent: "center",
@@ -3508,7 +4786,7 @@ export default function StudyGameScreen() {
                       {current.imageUrl ? (
                         <RemoteLessonImage uri={current.imageUrl} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                       ) : (
-                        <Text style={{ fontSize: sessionMode === "image" || !!current.imageUrl ? 54 : 43 }}>
+                        <Text style={{ fontSize: currentSessionMode === "image" || !!current.imageUrl ? 54 : 43 }}>
                           {current.sourceType === "test" ? "📝" : "📚"}
                         </Text>
                       )}
@@ -3674,7 +4952,7 @@ export default function StudyGameScreen() {
                         textAlign: "center",
                       }}
                     >
-                      {sessionMode === "listening" ? "Tap to listen" : prompt}
+                      {currentSessionMode === "listening" ? "Tap to listen" : prompt}
                     </Text>
                     <TouchableOpacity
                       onPress={() => playPromptAudio().catch(() => {})}
@@ -3687,16 +4965,43 @@ export default function StudyGameScreen() {
                 )}
 
                 {sessionType !== "test" && !isConjugationTable && !isConjugationDrill ? (
-                  <TouchableOpacity
-                    onPress={() => setShowHint((v) => !v)}
-                    style={{ borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, paddingVertical: 11, alignItems: "center" }}
-                  >
-                    <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 13 }}>Hint {showHint ? "Hide Hint" : "Show Hint"}</Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                    <TouchableOpacity
+                      onPress={() => setShowHint((v) => !v)}
+                      style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: ui.border, backgroundColor: ui.card, paddingVertical: 11, alignItems: "center" }}
+                    >
+                      <Text style={{ color: ui.muted, fontWeight: "600", fontSize: 13 }}>{showHint ? "Hide hint" : "Show hint"}</Text>
+                    </TouchableOpacity>
+                    {canUseAnswerPad ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (useAnswerPad) {
+                            setUseNativeAnswerKeyboard(true);
+                            return;
+                          }
+                          Keyboard.dismiss();
+                          setUseNativeAnswerKeyboard(false);
+                        }}
+                        style={{
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          borderColor: ui.border,
+                          backgroundColor: ui.card,
+                          paddingVertical: 11,
+                          paddingHorizontal: 14,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text style={{ color: ui.primary, fontWeight: "700", fontSize: 13 }}>{useAnswerPad ? "Keyboard" : "Answer pad"}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                 ) : null}
 
                 {showHint && sentenceHint ? (
-                  <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <ScreenReveal key="session-hint" distance={8} scaleFrom={0.992} duration={240} style={{ marginTop: 10 }}>
+                  <View style={{ borderRadius: 10, backgroundColor: ui.primarySoft, padding: 10, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                     <Text style={{ flex: 1, color: ui.text, fontSize: 13 }}>{sentenceHint}</Text>
                     <TouchableOpacity
                       onPress={() => playStudyTextAudio(sentenceHint, direction === "pt-en" ? "b" : "a").catch(() => {})}
@@ -3705,74 +5010,25 @@ export default function StudyGameScreen() {
                       <Ionicons name="volume-medium-outline" size={14} color={ui.primary} />
                     </TouchableOpacity>
                   </View>
+                  </ScreenReveal>
                 ) : null}
 
                 {/* Same flow as typing/listening: prompt (+ hint) first, then answer area - MCQ options stay high in the card. */}
                 {showMcq ? (
                   <View style={{ gap: 8, marginTop: sessionType === "test" ? 12 : showHint && sentenceHint ? 12 : isConjugationDrill ? 14 : 10 }}>
                     {mcqChoiceOptions && mcqChoiceOptions.length >= 2
-                      ? mcqChoiceOptions.map((opt) => (
-                          <TouchableOpacity
-                            key={opt.id}
-                            onPress={() => handleMcqPick(opt.text, opt.id)}
-                            disabled={!!feedback}
-                            activeOpacity={0.85}
-                            style={{
-                              borderRadius: 12,
-                              borderWidth: 1,
-                              borderColor: ui.border,
-                              backgroundColor: ui.card,
-                              paddingVertical: 14,
-                              paddingHorizontal: 14,
-                            }}
-                          >
-                            <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: isConjugationDrill ? "left" : "center" }}>{opt.text}</Text>
-                          </TouchableOpacity>
-                        ))
+                      ? mcqChoiceOptions.map((opt) => renderMcqChoice(opt.text, `option:${opt.id}`, opt.id))
                       : mcqChoiceTexts.length >= 2
-                        ? mcqChoiceTexts.map((choice, ci) => (
-                            <TouchableOpacity
-                              key={`${choice}-${ci}`}
-                              onPress={() => handleMcqPick(choice)}
-                              disabled={!!feedback}
-                              activeOpacity={0.85}
-                              style={{
-                                borderRadius: 12,
-                                borderWidth: 1,
-                                borderColor: ui.border,
-                                backgroundColor: ui.card,
-                                paddingVertical: 14,
-                                paddingHorizontal: 14,
-                              }}
-                            >
-                              <Text style={{ color: ui.text, fontWeight: "700", fontSize: 16, textAlign: isConjugationDrill ? "left" : "center" }}>{choice}</Text>
-                            </TouchableOpacity>
-                          ))
+                        ? mcqChoiceTexts.map((choice, ci) => renderMcqChoice(choice, `choice:${ci}:${choice}`))
                         : (
-                          <Text style={{ color: ui.muted, textAlign: "center", fontSize: 14 }}>Preparing choices...</Text>
+                          <PreparingChoicesPulse color={ui.borderSoft} />
                         )}
                   </View>
                 ) : null}
 
                 {showMcq && feedback ? (
-                  <View
-                    style={{
-                      marginTop: 10,
-                      padding: 10,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontWeight: "700",
-                        fontSize: 13,
-                        color: feedback.state === "correct" ? ui.success : feedback.state === "close" ? ui.warning : ui.danger,
-                      }}
-                    >
-                      {feedback.text}
-                    </Text>
+                  <View style={{ marginTop: 10 }}>
+                    <FeedbackPanel ui={ui} feedback={feedback} />
                   </View>
                 ) : null}
 
@@ -3809,21 +5065,25 @@ export default function StudyGameScreen() {
               showInput={!showMcq && !isConjugationTable}
               input={input}
               onInputChange={setInput}
+              useAnswerPad={useAnswerPad}
+              answerPadTarget={expected}
+              answerPadDisabled={(!!feedback && !needsRetype) || isResolvingAnswer}
               needsRetype={needsRetype}
-              feedback={!showMcq ? feedback : null}
+              feedback={!showMcq && feedback?.state !== "correct" ? feedback : null}
               showSubmit={!showMcq && !isConjugationTable}
-              submitDisabled={!input.trim() || (!!feedback && !needsRetype)}
+              submitDisabled={!input.trim() || (!!feedback && !needsRetype) || isResolvingAnswer}
               onSubmit={() => answerCurrent().catch(() => {})}
-              showSkip={sessionMode !== "listening" || sessionType === "test"}
+              showSkip={!feedback && !isResolvingAnswer && (currentSessionMode !== "listening" || sessionType === "test")}
               skipFullWidth={showMcq || isConjugationTable}
               onSkip={() => {
+                if (feedback || isResolvingAnswer || finishingSessionRef.current) return;
                 applyProgress({ ...progress, wordStats: updateWordStats(progress.wordStats, current.id, false) });
                 triggerHaptic("error").catch(() => {});
                 setMistakeWordIds((prev) => (prev.includes(current.id) ? prev : [...prev, current.id]));
                 setFeedback({ state: "wrong", text: `Expected: ${feedbackExpected}` });
                 recordSessionIssue({ id: current.id, prompt, expected: feedbackExpected, kind: "skip" });
                 const skipDelay = sessionType === "test" || current.practiceKind === "conjugation-table" ? 2000 : 900;
-                setTimeout(() => {
+                scheduleAnswerResolution(() => {
                   setFeedback(null);
                   setInput("");
                   setShowHint(false);
@@ -3838,6 +5098,9 @@ export default function StudyGameScreen() {
             />
             
           </KeyboardAvoidingView>
+          {feedback?.state === "correct" && !showMcq ? (
+            <CorrectAnswerCelebration key={`correct-${current.id}-${idx}`} ui={ui} />
+          ) : null}
         </View>
       ) : null}
 
@@ -3890,6 +5153,7 @@ export default function StudyGameScreen() {
           >
               {tabs.map((tab) => {
                 if (tab.id === "__play__") {
+                  const playActive = effectiveTab === "practice";
                   return (
                     <TouchableOpacity
                       key="play"
@@ -3910,6 +5174,7 @@ export default function StudyGameScreen() {
                         elevation: 8,
                         borderWidth: 3,
                         borderColor: uiIsDark ? theme.colors.background : theme.colors.surface,
+                        transform: [{ translateY: playActive ? -3 : 0 }, { scale: playActive ? 1.03 : 1 }],
                       }}
                     >
                       <Ionicons name="play" size={31} color="#fff" style={{ marginLeft: 2 }} />
@@ -3932,6 +5197,7 @@ export default function StudyGameScreen() {
                       paddingHorizontal: 6,
                       borderRadius: 18,
                       backgroundColor: "transparent",
+                      transform: [{ translateY: active ? -2 : 0 }],
                     }}
                   >
                     <View
@@ -4011,14 +5277,17 @@ export default function StudyGameScreen() {
                   {resultRecord ? (
                     <>
                       <View style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                        <View style={{ flex: 1, paddingRight: 10 }}>
-                          <Text style={[theme.typography.title, { fontSize: 18 }]}>Session complete</Text>
-                          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
-                            {sessionType === "test" ? "Test" : "Lesson"} - {sessionContext.name || "General practice"}
-                          </Text>
+                        <View style={{ flex: 1, paddingRight: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                          <CompletionBadge passed={resultRecord.passed} theme={theme} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[theme.typography.title, { fontSize: 18 }]}>Session complete</Text>
+                            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
+                              {sessionType === "test" ? "Test" : "Lesson"} - {sessionContext.name || "General practice"}
+                            </Text>
+                          </View>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
-                          <Text style={[theme.typography.title, { fontSize: 24 }]}>{resultRecord.percentage}%</Text>
+                          <AnimatedNumber value={resultRecord.percentage} suffix="%" style={[theme.typography.title, { fontSize: 24 }]} />
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                             {resultRecord.score}/{resultRecord.total} correct
                           </Text>
@@ -4119,7 +5388,7 @@ export default function StudyGameScreen() {
                           </Text>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
-                          <Text style={[theme.typography.title, { fontSize: 24 }]}>{selectedHistoryRecord.percentage}%</Text>
+                          <AnimatedNumber value={selectedHistoryRecord.percentage} suffix="%" style={[theme.typography.title, { fontSize: 24 }]} />
                           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                             {typeof selectedHistoryRecord.score === "number" ? selectedHistoryRecord.score : (selectedHistoryRecord.score as any)?.correct ?? 0}/{selectedHistoryRecord.totalWords} correct
                           </Text>

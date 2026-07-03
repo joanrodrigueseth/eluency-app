@@ -1,9 +1,8 @@
-import Constants from "expo-constants";
-
 import { cacheBustAssetUrl } from "../imageCacheBust";
+import { getApiBaseUrl } from "../api/config";
 import type { GameWord, LessonGamePayload, StudySessionMode, TestGamePayload } from "../../types/study-game";
 
-const API_BASE = (Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com").replace(/\/$/, "");
+const API_BASE = getApiBaseUrl();
 
 /**
  * React Native Image requires an absolute http(s) URL. API may return /api/lesson-asset?... paths.

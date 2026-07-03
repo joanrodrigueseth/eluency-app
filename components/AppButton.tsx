@@ -1,5 +1,5 @@
-import { ReactNode } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ReactNode, useRef } from "react";
+import { ActivityIndicator, Animated, Text, TouchableOpacity, View } from "react-native";
 import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 
@@ -23,6 +23,7 @@ export default function AppButton({
   fullWidth = true,
 }: AppButtonProps) {
   const theme = useAppTheme();
+  const pressScale = useRef(new Animated.Value(1)).current;
   const { spacing, radii } = theme;
   const isSecondary = variant === "secondary";
   const isDangerSoft = variant === "dangerSoft";
@@ -53,67 +54,86 @@ export default function AppButton({
         ? darkPrimaryText
         : theme.colors.primaryText;
 
+  const animatePress = (toValue: number) => {
+    Animated.spring(pressScale, {
+      toValue,
+      friction: 7,
+      tension: 220,
+      useNativeDriver: true,
+    }).start();
+  };
+
   return (
-    <TouchableOpacity
-      onPress={() => {
-        triggerLightImpact();
-        onPress();
-      }}
-      disabled={isDisabled}
-      activeOpacity={0.9}
+    <Animated.View
       style={{
         alignSelf: fullWidth ? "stretch" : "flex-start",
-        borderRadius: radii.pill,
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.md,
-        backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
-        borderWidth: 1,
-        borderColor: isSecondary
-          ? theme.colors.border
-          : isDangerSoft
-            ? "rgba(229, 91, 107, 0.28)"
-            : isPrimary && theme.isDark
-              ? darkPrimaryBorder
-              : "transparent",
-        minHeight: 56,
-        shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.isDark ? "#000" : theme.colors.shadow,
-        shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.08 : 0.18,
-        shadowRadius: theme.isDark ? 10 : 20,
-        shadowOffset: { width: 0, height: 12 },
-        elevation: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 3 : 6,
+        transform: [{ scale: pressScale }],
       }}
     >
-      <View
+      <TouchableOpacity
+        onPress={() => {
+          triggerLightImpact();
+          onPress();
+        }}
+        onPressIn={() => {
+          if (!isDisabled) animatePress(0.985);
+        }}
+        onPressOut={() => animatePress(1)}
+        disabled={isDisabled}
+        activeOpacity={0.92}
         style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: spacing.xs,
+          borderRadius: radii.pill,
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.md,
+          backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
+          borderWidth: 1,
+          borderColor: isSecondary
+            ? theme.colors.border
+            : isDangerSoft
+              ? "rgba(229, 91, 107, 0.28)"
+              : isPrimary && theme.isDark
+                ? darkPrimaryBorder
+                : "transparent",
+          minHeight: 56,
+          shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.isDark ? "#000" : theme.colors.shadow,
+          shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.08 : 0.18,
+          shadowRadius: theme.isDark ? 10 : 20,
+          shadowOffset: { width: 0, height: 12 },
+          elevation: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 3 : 6,
         }}
       >
-        {loading ? (
-          <ActivityIndicator color={textColor} />
-        ) : icon ? (
-          <View>{icon}</View>
-        ) : null}
-        <Text
-          style={[
-            theme.typography.bodyStrong,
-            {
-              color: textColor,
-              fontSize: 14,
-              lineHeight: 18,
-              textTransform: "uppercase",
-              letterSpacing: 1.2,
-              textAlign: "center",
-              flexShrink: 1,
-            },
-          ]}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: spacing.xs,
+          }}
         >
-          {label}
-        </Text>
-      </View>
-    </TouchableOpacity>
+          {loading ? (
+            <ActivityIndicator color={textColor} />
+          ) : icon ? (
+            <View>{icon}</View>
+          ) : null}
+          <Text
+            style={[
+              theme.typography.bodyStrong,
+              {
+                color: textColor,
+                fontSize: 14,
+                lineHeight: 18,
+                textTransform: "uppercase",
+                letterSpacing: 1.2,
+                textAlign: "center",
+                flexShrink: 1,
+              },
+            ]}
+          >
+            {label}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 

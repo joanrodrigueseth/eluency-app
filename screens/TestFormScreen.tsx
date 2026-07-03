@@ -20,7 +20,6 @@ import {
 import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -41,11 +40,11 @@ import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
+import { getApiBaseUrl } from "../lib/api/config";
 
 import type { RootTestsStackParams } from "./TestsScreen";
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const TEST_CATEGORIES = [
   "Vocabulary",
@@ -95,6 +94,63 @@ type QRow = {
   teacher_reference_answer: string;
   fill_blank_character_count?: number;
 };
+
+function getStringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getTestConfigValidationError(tests: Record<string, unknown>[]) {
+  if (!tests.length) return "Add at least one complete question before saving.";
+
+  for (let index = 0; index < tests.length; index += 1) {
+    const question = tests[index];
+    const number = index + 1;
+    const promptFormat = getStringValue(question.prompt_format);
+    const answerFormat = getStringValue(question.answer_format);
+    const promptText = getStringValue(question.prompt_text);
+    const imageUrl = getStringValue(question.image_url);
+    const audioUrl = getStringValue(question.audio_url);
+    const audioTranscript = getStringValue(question.audio_transcript);
+    const correctText = getStringValue(question.correct_text);
+    const teacherReference = getStringValue(question.teacher_reference_answer);
+
+    if (promptFormat === "audio") {
+      if (!audioUrl && !audioTranscript && !promptText) {
+        return `Question ${number} needs audio, a transcript, or prompt text.`;
+      }
+    } else if (promptFormat === "image") {
+      if (!imageUrl && !promptText) {
+        return `Question ${number} needs an image or prompt text.`;
+      }
+    } else if (!promptText) {
+      return `Question ${number} needs prompt text.`;
+    }
+
+    if (answerFormat === "mcq") {
+      const options = Array.isArray(question.mcq_options)
+        ? question.mcq_options
+            .map((option) => (option && typeof option === "object" ? option : null))
+            .filter(Boolean) as Record<string, unknown>[]
+        : [];
+      const nonEmptyOptions = options.filter((option) => getStringValue(option.text));
+      const correctOptionId = getStringValue(question.mcq_correct_option_id);
+      const correctOption = options.find((option) => getStringValue(option.id) === correctOptionId);
+      if (nonEmptyOptions.length < 2) return `Question ${number} needs at least two answer options.`;
+      if (!correctOptionId || !correctOption || !getStringValue(correctOption.text)) {
+        return `Question ${number} needs a selected correct option.`;
+      }
+    } else if (answerFormat === "open") {
+      if (!teacherReference && !correctText) {
+        return `Question ${number} needs a reference answer.`;
+      }
+    } else if (!correctText) {
+      return `Question ${number} needs a correct answer.`;
+    }
+  }
+
+  return null;
+}
+
 type LessonOpt = {
   id: string;
   title: string;
@@ -1321,6 +1377,11 @@ export default function TestFormScreen() {
       return;
     }
     const config_json = buildConfigJson();
+    const configValidationError = getTestConfigValidationError(config_json.tests as Record<string, unknown>[]);
+    if (configValidationError) {
+      showToast(configValidationError, "danger");
+      return;
+    }
     const fillErr = (config_json.tests as Record<string, unknown>[]).find((t) => {
       if (t.prompt_format !== "fill_blank") return false;
       const cnt = (t.fill_blank_character_count as number) ?? 4;

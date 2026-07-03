@@ -4,6 +4,15 @@ import { getRemoteProgress, saveRemoteProgress } from "../api/study";
 import type { StudyProgress } from "../../types/study-game";
 
 const STORAGE_KEY = "eluency-study-game-progress-v1";
+const PENDING_SYNC_KEY = "eluency-study-game-pending-sync-v1";
+
+function progressStorageKey(sessionId: string): string {
+  return `${STORAGE_KEY}:${sessionId}`;
+}
+
+function pendingSyncStorageKey(sessionId: string): string {
+  return `${PENDING_SYNC_KEY}:${sessionId}`;
+}
 
 export const DEFAULT_PROGRESS: StudyProgress = {
   preferences: { darkMode: false, hapticEnabled: true, practiceLength: 15 },
@@ -26,9 +35,9 @@ export const DEFAULT_PROGRESS: StudyProgress = {
   achievements: [],
 };
 
-export async function loadLocalProgress(): Promise<StudyProgress> {
+export async function loadLocalProgress(sessionId: string): Promise<StudyProgress> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(progressStorageKey(sessionId));
     if (!raw) return DEFAULT_PROGRESS;
     const parsed = JSON.parse(raw) as Partial<StudyProgress>;
     return {
@@ -48,16 +57,61 @@ export async function loadLocalProgress(): Promise<StudyProgress> {
   }
 }
 
-export async function saveLocalProgress(progress: StudyProgress): Promise<void> {
+export async function saveLocalProgress(sessionId: string, progress: StudyProgress): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+    await AsyncStorage.setItem(progressStorageKey(sessionId), JSON.stringify(progress));
   } catch {
     // no-op
   }
 }
 
+async function loadPendingProgressSync(sessionId: string): Promise<StudyProgress | null> {
+  try {
+    const raw = await AsyncStorage.getItem(pendingSyncStorageKey(sessionId));
+    return raw ? (JSON.parse(raw) as StudyProgress) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function queueProgressSync(sessionId: string, progress: StudyProgress): Promise<void> {
+  try {
+    await AsyncStorage.setItem(pendingSyncStorageKey(sessionId), JSON.stringify(progress));
+  } catch {
+    // no-op
+  }
+}
+
+async function clearQueuedProgressSync(sessionId: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(pendingSyncStorageKey(sessionId));
+  } catch {
+    // no-op
+  }
+}
+
+export async function flushQueuedProgressSync(sessionId: string, fallbackProgress?: StudyProgress): Promise<boolean> {
+  const pending = (await loadPendingProgressSync(sessionId)) ?? fallbackProgress ?? null;
+  if (!pending) return true;
+  try {
+    await saveRemoteProgress(sessionId, pending);
+    await clearQueuedProgressSync(sessionId);
+    return true;
+  } catch {
+    await queueProgressSync(sessionId, pending);
+    return false;
+  }
+}
+
 export async function hydrateProgress(sessionId: string): Promise<StudyProgress> {
-  const local = await loadLocalProgress();
+  const local = await loadLocalProgress(sessionId);
+  const pending = await loadPendingProgressSync(sessionId);
+  if (pending) {
+    const synced = await flushQueuedProgressSync(sessionId, pending);
+    if (!synced) return pending;
+    await saveLocalProgress(sessionId, pending);
+    return pending;
+  }
   const remote = await getRemoteProgress(sessionId);
   if (!remote) return local;
   const merged: StudyProgress = {
@@ -72,7 +126,7 @@ export async function hydrateProgress(sessionId: string): Promise<StudyProgress>
     wordMeta: remote.wordMeta ?? local.wordMeta,
     achievements: Array.isArray(remote.achievements) ? remote.achievements : local.achievements,
   };
-  await saveLocalProgress(merged);
+  await saveLocalProgress(sessionId, merged);
   return merged;
 }
 
@@ -81,7 +135,11 @@ let progressSaveTimer: ReturnType<typeof setTimeout> | null = null;
 export function scheduleProgressSync(sessionId: string, progress: StudyProgress, delayMs = 1200) {
   if (progressSaveTimer) clearTimeout(progressSaveTimer);
   progressSaveTimer = setTimeout(() => {
-    saveRemoteProgress(sessionId, progress).catch(() => {});
+    saveRemoteProgress(sessionId, progress)
+      .then(() => clearQueuedProgressSync(sessionId))
+      .catch(() => {
+        queueProgressSync(sessionId, progress).catch(() => {});
+      });
     progressSaveTimer = null;
   }, delayMs);
 }
@@ -91,6 +149,12 @@ export async function flushProgressSync(sessionId: string, progress: StudyProgre
     clearTimeout(progressSaveTimer);
     progressSaveTimer = null;
   }
-  await saveRemoteProgress(sessionId, progress);
+  try {
+    await saveRemoteProgress(sessionId, progress);
+    await clearQueuedProgressSync(sessionId);
+  } catch (e) {
+    await queueProgressSync(sessionId, progress);
+    throw e;
+  }
 }
 

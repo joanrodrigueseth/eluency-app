@@ -11,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
-import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,13 +19,8 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  LessonForm: { lessonId?: string } | undefined;
-  TestForm: { testId?: string } | undefined;
-  StudentForm: { studentId?: string } | undefined;
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
 type NotificationType = "lesson_completed" | "test_completed" | "admin_announcement";
 type TabType = "student" | "system";
@@ -74,7 +68,7 @@ export default function NotificationsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+  const apiBaseUrl = getApiBaseUrl();
 
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);

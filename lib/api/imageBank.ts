@@ -1,9 +1,7 @@
-import Constants from "expo-constants";
+import { getApiBaseUrl } from "./config";
 
 function apiBase(): string {
-  const fromExtra = Constants.expoConfig?.extra?.apiBaseUrl?.toString();
-  const fromEnv = process.env.EXPO_PUBLIC_API_BASE_URL;
-  return (fromExtra || fromEnv || "https://www.eluency.com").replace(/\/$/, "");
+  return getApiBaseUrl();
 }
 
 export type ImageBankRequest = {

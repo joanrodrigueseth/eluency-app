@@ -10,7 +10,6 @@ import {
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
-import Constants from "expo-constants";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
@@ -21,12 +20,8 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import GlassCard from "../components/GlassCard";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Subscription: undefined;
-  Notifications: undefined;
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
 const MONTHLY_PRICE = 19.99;
 const YEARLY_PRICE_PER_MONTH = 15.99;
@@ -78,7 +73,7 @@ export default function SubscriptionScreen() {
   const theme = useAppTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+  const apiBaseUrl = getApiBaseUrl();
 
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [currentTierId, setCurrentTierId] = useState("basic");
@@ -539,4 +534,3 @@ export default function SubscriptionScreen() {
     </View>
   );
 }
-

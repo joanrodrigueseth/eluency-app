@@ -27,7 +27,6 @@ import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) UIManager.setLayoutAnimationEnabledExperimental?.(true);
 const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import {
   NavigationProp,
   useFocusEffect,
@@ -44,15 +43,8 @@ import IconTile from "../components/IconTile";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import ScreenHeader, { useScreenHeaderHeight } from "../components/ScreenHeader";
-
-export type RootLessonsStackParams = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Lessons: undefined;
-  LessonForm: { lessonId?: string } | undefined;
-  LessonPacks: undefined;
-  Subscription: undefined;
-  Notifications: undefined;
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootLessonsStackParams } from "../types/lessons-navigation";
 
 type LessonRow = {
   id: string;
@@ -75,9 +67,7 @@ type TeacherOption = {
   count: number;
 };
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() ||
-  "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const PAGE_SIZE = 10;
 const LESSON_LANGUAGES = [

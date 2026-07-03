@@ -22,7 +22,6 @@ import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
 if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) UIManager.setLayoutAnimationEnabledExperimental?.(true);
 const layoutEase = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { NavigationProp, RouteProp, useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -33,21 +32,19 @@ import IconTile from "../components/IconTile";
 import ScreenReveal from "../components/ScreenReveal";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import ScreenHeader, { useScreenHeaderHeight } from "../components/ScreenHeader";
-import type { FloatingToastTone } from "../components/FloatingToast";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { createAdminTest, deleteTestCascade } from "../lib/api/admin";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { normalizePlanUi } from "../lib/teacherRolePlanRules";
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
-export type RootTestsStackParams = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Tests: { flashMessage?: string; flashTone?: FloatingToastTone } | undefined;
-  TestForm: { testId?: string } | undefined;
-  Subscription: undefined;
-  Notifications: undefined;
-};
+export type RootTestsStackParams = Pick<
+  RootStackParamList,
+  "Dashboard" | "Tests" | "TestForm" | "Subscription" | "Notifications"
+>;
 
 const VOCAB_TYPES = ["Vocabulary", "False Cognates", "Cognates", "Idioms & Expressions"];
 
@@ -67,8 +64,7 @@ type TestRow = {
 type SortKey = "name" | "type" | "wordCount" | "questionCount";
 type SortDir = "asc" | "desc";
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 const LINEN_BG = "#F7F2EA";
 const LINEN_CARD = "#FCFAF6";
 const AZULEJO_BLUE = "#9050E7";

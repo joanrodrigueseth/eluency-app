@@ -12,6 +12,7 @@ export function cacheBustAssetUrl(
   if (url == null || typeof url !== "string") return undefined;
   const t = url.trim();
   if (!t) return undefined;
+  if (/^(file|content|asset):\/\//i.test(t)) return t;
   if (t === "📄") return t;
   const vk = versionKey?.trim() ?? "";
   const epochPart = refreshEpoch != null && refreshEpoch > 0 ? `r${refreshEpoch}` : "";

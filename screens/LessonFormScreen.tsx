@@ -34,7 +34,6 @@ const layoutSpring = () =>
     update: { type: LayoutAnimation.Types.spring, springDamping: 0.78 },
     delete: { type: LayoutAnimation.Types.spring, property: LayoutAnimation.Properties.scaleXY, springDamping: 0.78 },
   });
-import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -51,6 +50,7 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
 import { triggerLightImpact, triggerSuccessHaptic } from "../lib/haptics";
 import GlassCard from "../components/GlassCard";
+import { getApiBaseUrl } from "../lib/api/config";
 import { getOrCreateVocabImage } from "../lib/api/imageBank";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -63,10 +63,7 @@ type LessonFlashParams = {
   flashTone: FloatingToastTone;
 };
 
-const apiBaseUrl =
-  process.env.EXPO_PUBLIC_API_BASE_URL?.toString().trim() ||
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() ||
-  "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -94,6 +91,57 @@ type WordRow = {
   prepositionTemplateId: string;
   prepositions: PrepositionEntry[];
 };
+
+function getLessonContentValidationError(words: WordRow[]) {
+  const hasCompleteRow = words.some((word) => {
+    if (word.rowType === "vocab") {
+      return !!word.termA.trim() && !!word.termB.trim();
+    }
+    if (word.rowType === "conjugation") {
+      return (
+        !!word.infinitive.trim() &&
+        word.conjugations.some((entry) => !!entry.pronoun.trim() && !!entry.form_a.trim())
+      );
+    }
+    return (
+      !!word.prepositionTitle.trim() &&
+      word.prepositions.some((entry) => !!entry.left.trim() && !!entry.right.trim() && !!entry.answer.trim())
+    );
+  });
+
+  if (!hasCompleteRow) {
+    return "Add at least one complete vocabulary, conjugation, or preposition row before saving.";
+  }
+
+  const incompleteVocab = words.find(
+    (word) =>
+      word.rowType === "vocab" &&
+      (!!word.termA.trim() || !!word.termB.trim() || !!word.contextA.trim() || !!word.contextB.trim()) &&
+      (!word.termA.trim() || !word.termB.trim())
+  );
+  if (incompleteVocab) return "Complete both sides of each vocabulary row before saving.";
+
+  const incompleteConjugation = words.find(
+    (word) =>
+      word.rowType === "conjugation" &&
+      (!!word.infinitive.trim() || word.conjugations.some((entry) => !!entry.form_a.trim() || !!entry.form_b?.trim())) &&
+      (!word.infinitive.trim() ||
+        !word.conjugations.some((entry) => !!entry.pronoun.trim() && !!entry.form_a.trim()))
+  );
+  if (incompleteConjugation) return "Conjugation rows need an infinitive and at least one pronoun/form pair.";
+
+  const incompletePreposition = words.find(
+    (word) =>
+      word.rowType === "preposition" &&
+      (!!word.prepositionTitle.trim() ||
+        word.prepositions.some((entry) => !!entry.left.trim() || !!entry.right.trim() || !!entry.answer.trim())) &&
+      (!word.prepositionTitle.trim() ||
+        !word.prepositions.some((entry) => !!entry.left.trim() && !!entry.right.trim() && !!entry.answer.trim()))
+  );
+  if (incompletePreposition) return "Preposition rows need a title and at least one complete A/B/answer entry.";
+
+  return null;
+}
 
 const CATEGORY_OPTIONS = [
   "Vocabulary",
@@ -1278,6 +1326,11 @@ export default function LessonFormScreen() {
     }
     if (coverUploading) {
       showToast("Please wait for the cover image to finish uploading.", "info");
+      return;
+    }
+    const validationError = getLessonContentValidationError(words);
+    if (validationError) {
+      showToast(validationError, "danger");
       return;
     }
     const serializedWords = words

@@ -1,8 +1,7 @@
-import Constants from "expo-constants";
-
+import { getApiBaseUrl } from "./config";
 import { supabase } from "../supabase";
 
-const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 type JsonRecord = Record<string, unknown>;
 

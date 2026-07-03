@@ -16,20 +16,14 @@ import {
 import { TouchableOpacity } from "../lib/hapticPressables";
 import { NavigationProp, RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Constants from "expo-constants";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AppButton from "../components/AppButton";
 import { clearStoredStudentSessionId, setStoredStudentSessionId } from "../lib/studentSession";
 import { signInWithSupabaseOAuth } from "../lib/oauth";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
-
-type RootStackParamList = {
-  Login: { initialView?: LoginView } | undefined;
-  Register: undefined;
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  StudyGame: { sessionId: string };
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
 type LoginView = "student" | "teacher";
 
@@ -40,8 +34,7 @@ type VerifyAccessCodeResponse = {
   };
 };
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const LOGO_SRC = require("../assets/wordslogo.png");
 const LOGO_DARK_SRC = require("../assets/wordslogow.png");

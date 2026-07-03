@@ -22,18 +22,7 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
 import { sendAdminNotifications } from "../lib/sendAdminNotifications";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  SendNotifications:
-    | {
-        targetTeacherId?: string;
-        targetTeacherName?: string;
-        targetTeacherEmail?: string;
-      }
-    | undefined;
-  Notifications: undefined;
-};
+import type { RootStackParamList } from "../types/navigation";
 
 type Audience = "teachers" | "principals" | "both";
 

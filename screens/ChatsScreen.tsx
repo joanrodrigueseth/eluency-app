@@ -1,10 +1,12 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   ScrollView,
   Switch,
   Text,
@@ -12,10 +14,9 @@ import {
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
-import { NavigationProp, useNavigation } from "@react-navigation/native";
+import { NavigationProp, useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
@@ -23,22 +24,15 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
 import { supabase } from "../lib/supabase";
-
-type RootStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Chats: undefined;
-  Notifications: undefined;
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
 type PublicConversationMessagesResponse = {
   messages?: ChatMessage[];
   error?: string;
 };
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 async function fetchConversationMessages(conversationId: string): Promise<ChatMessage[]> {
   const urls = [
@@ -242,21 +236,6 @@ export default function ChatsScreen() {
   }, []);
 
   useEffect(() => {
-    if (!hasAdminAccess) return;
-    const interval = setInterval(() => {
-      (supabase.from("chat_conversations") as any)
-        .select("id, visitor_name, visitor_email, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(100)
-        .then(({ data }: { data: Conversation[] | null }) => setConversations((data ?? []) as Conversation[]))
-        .catch((error: unknown) => {
-          if (__DEV__) console.warn("chat conversations poll failed", error);
-        });
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [hasAdminAccess]);
-
-  useEffect(() => {
     if (!selectedId) {
       setMessages([]);
       return;
@@ -264,17 +243,40 @@ export default function ChatsScreen() {
     loadMessages(selectedId);
   }, [selectedId]);
 
-  useEffect(() => {
-    if (!selectedId || !hasAdminAccess) return;
-    const interval = setInterval(() => {
-      fetchConversationMessages(selectedId)
-        .then((messagesData) => setMessages(messagesData))
-        .catch((error: unknown) => {
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasAdminAccess) return undefined;
+      let active = true;
+      const poll = async () => {
+        if (!active || AppState.currentState !== "active") return;
+        try {
+          const { data } = await (supabase.from("chat_conversations") as any)
+            .select("id, visitor_name, visitor_email, created_at, updated_at")
+            .order("updated_at", { ascending: false })
+            .limit(100);
+          if (active) setConversations((data ?? []) as Conversation[]);
+        } catch (error: unknown) {
+          if (__DEV__) console.warn("chat conversations poll failed", error);
+        }
+
+        if (!selectedId) return;
+        try {
+          const messagesData = await fetchConversationMessages(selectedId);
+          if (active) setMessages(messagesData);
+        } catch (error: unknown) {
           if (__DEV__) console.warn("chat messages poll failed", error);
-        });
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [selectedId, hasAdminAccess]);
+        }
+      };
+
+      const interval = setInterval(() => {
+        poll();
+      }, 30_000);
+      return () => {
+        active = false;
+        clearInterval(interval);
+      };
+    }, [hasAdminAccess, selectedId])
+  );
 
   const toggleAi = async () => {
     const next = !aiEnabled;

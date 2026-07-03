@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Constants from "expo-constants";
-const apiBaseUrl: string =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+import { getApiBaseUrl } from "../lib/api/config";
+const apiBaseUrl: string = getApiBaseUrl();
 
 import {
   Animated,
@@ -29,14 +28,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import FloatingToast from "../components/FloatingToast";
 import ThemeToggleButton from "../components/ThemeToggleButton";
-import type { FloatingToastTone } from "../components/FloatingToast";
 import GlassCard from "../components/GlassCard";
 import IconTile from "../components/IconTile";
 import ScreenHeader, { useScreenHeaderHeight } from "../components/ScreenHeader";
 import ScreenReveal from "../components/ScreenReveal";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import { useFeedbackToast } from "../hooks/useFeedbackToast";
-import { getRemoteProgress } from "../lib/api/study";
 import { triggerLightImpact } from "../lib/haptics";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
@@ -45,16 +42,13 @@ import {
   getStudentLimitForPlan,
   normalizePlanUi,
 } from "../lib/teacherRolePlanRules";
+import type { RootStackParamList } from "../types/navigation";
 import type { StudyDirection, StudyRecordIssue, StudySessionMode } from "../types/study-game";
 
-export type RootStudentsStackParams = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Students: { flashMessage?: string; flashTone?: FloatingToastTone; openStudentId?: string } | undefined;
-  StudentForm: { studentId?: string } | undefined;
-  StudentResults: undefined;
-  Subscription: undefined;
-  Notifications: undefined;
-};
+export type RootStudentsStackParams = Pick<
+  RootStackParamList,
+  "Dashboard" | "Students" | "StudentForm" | "StudentResults" | "Subscription" | "Notifications"
+>;
 
 type StudentRow = {
   id: string;
@@ -279,13 +273,6 @@ type StudentProgressRow = {
   student_id: string;
   practiceHistory: any[];
   testHistory: any[];
-};
-
-type VerifyAccessCodeResponse = {
-  error?: string;
-  session?: {
-    id?: string;
-  };
 };
 
 type TeacherActivityNotificationRow = {
@@ -654,7 +641,6 @@ export default function StudentsScreen() {
   const [activitySearch, setActivitySearch] = useState("");
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [activityDetailLoadingId, setActivityDetailLoadingId] = useState<string | null>(null);
-  const activitySessionIdCacheRef = useRef<Map<string, string>>(new Map());
   const activityProgressCacheRef = useRef<Map<string, ActivityRow[]>>(new Map());
 
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
@@ -783,7 +769,9 @@ export default function StudentsScreen() {
         for (const row of progressRowsByStudent.values()) {
           if (!row) continue;
           const name = nameMap.get(row.student_id) ?? "Student";
-          sessionActivities.push(...buildActivitiesFromProgress(row.student_id, name, row));
+          const studentActivities = buildActivitiesFromProgress(row.student_id, name, row);
+          activityProgressCacheRef.current.set(row.student_id, studentActivities);
+          sessionActivities.push(...studentActivities);
         }
         sessionActivities.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -814,52 +802,6 @@ export default function StudentsScreen() {
 
       setActivities(sessionActivities.slice(0, 100));
 
-      // Background-enrich all student activities with full session data so
-      // scores/percentages are visible without requiring a tap.
-      const studentsWithCodes = loadedStudents.filter((s) => s.code);
-      if (studentsWithCodes.length > 0) {
-        (async () => {
-          for (const student of studentsWithCodes) {
-            try {
-              let sessionId = activitySessionIdCacheRef.current.get(student.id);
-              if (!sessionId) {
-                const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ accessCode: student.code.trim().toUpperCase() }),
-                });
-                let result: VerifyAccessCodeResponse | null = null;
-                try { result = (await response.json()) as VerifyAccessCodeResponse; } catch { result = null; }
-                sessionId = result?.session?.id?.trim() || "";
-                if (!response.ok || !sessionId) continue;
-                activitySessionIdCacheRef.current.set(student.id, sessionId);
-              }
-              const progress = await getRemoteProgress(sessionId);
-              if (!progress) continue;
-              const detailedRows = buildActivitiesFromProgress(student.id, student.name, progress);
-              activityProgressCacheRef.current.set(student.id, detailedRows);
-              setActivities((prev) =>
-                prev.map((activity) => {
-                  if (activity.metadata?.student_id !== student.id) return activity;
-                  const match = findMatchingDetailedActivity(detailedRows, activity);
-                  if (!match) return activity;
-                  return {
-                    ...activity,
-                    metadata: {
-                      ...(activity.metadata ?? {}),
-                      ...(match.metadata ?? {}),
-                      student_id: activity.metadata?.student_id ?? match.metadata?.student_id,
-                      student_name: activity.metadata?.student_name ?? match.metadata?.student_name,
-                    },
-                  };
-                })
-              );
-            } catch {
-              // Best-effort G�� skip students whose progress can't be enriched.
-            }
-          }
-        })();
-      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load students";
       Alert.alert("Error", msg);
@@ -979,41 +921,14 @@ export default function StudentsScreen() {
     }
 
     const studentId = typeof activity.metadata?.student_id === "string" ? activity.metadata.student_id : null;
-    const student = studentId ? students.find((row) => row.id === studentId) ?? null : null;
-    if (!student || !student.code) {
+    if (!studentId) {
       setSelectedActivity(activity);
       return;
     }
 
     setActivityDetailLoadingId(activity.id);
     try {
-      let detailedRows = activityProgressCacheRef.current.get(student.id);
-
-      if (!detailedRows) {
-        let sessionId = activitySessionIdCacheRef.current.get(student.id);
-        if (!sessionId) {
-          const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accessCode: student.code.trim().toUpperCase() }),
-          });
-          let result: VerifyAccessCodeResponse | null = null;
-          try {
-            result = (await response.json()) as VerifyAccessCodeResponse;
-          } catch {
-            result = null;
-          }
-          sessionId = result?.session?.id?.trim() || "";
-          if (!response.ok || !sessionId) throw new Error(result?.error || "Could not load session details.");
-          activitySessionIdCacheRef.current.set(student.id, sessionId);
-        }
-
-        const progress = await getRemoteProgress(sessionId);
-        if (progress) {
-          detailedRows = buildActivitiesFromProgress(student.id, student.name, progress);
-          activityProgressCacheRef.current.set(student.id, detailedRows);
-        }
-      }
+      const detailedRows = activityProgressCacheRef.current.get(studentId);
 
       const detailedActivity = detailedRows ? findMatchingDetailedActivity(detailedRows, activity) : null;
       if (detailedActivity) {

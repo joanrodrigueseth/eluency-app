@@ -28,10 +28,11 @@ import { ThemeProvider, useAppTheme } from "./lib/theme";
 import { clearSupabaseAuthStorage, supabase } from "./lib/supabase";
 import { ensureLocalNotificationsReady, registerStudentPushToken } from "./lib/mobileNotifications";
 import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from "./lib/notificationWatchers";
-import Constants from "expo-constants";
+import { getApiBaseUrl } from "./lib/api/config";
+import type { RootStackParamList } from "./types/navigation";
 
-const Stack = createNativeStackNavigator();
-const navigationRef = createNavigationContainerRef<any>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export default function App() {
   return (
@@ -43,10 +44,28 @@ export default function App() {
 
 function AppShell() {
   const theme = useAppTheme();
-  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+  const apiBaseUrl = getApiBaseUrl();
   const [authBootstrapped, setAuthBootstrapped] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [studentSessionId, setStudentSessionId] = useState<string | null>(null);
+  const pendingNotificationStudentIdRef = useRef<string | null>(null);
+
+  const navigateToStudentNotification = (studentId: string) => {
+    if (navigationRef.isReady()) {
+      pendingNotificationStudentIdRef.current = null;
+      navigationRef.navigate("Students", { openStudentId: studentId });
+      return;
+    }
+
+    pendingNotificationStudentIdRef.current = studentId;
+  };
+
+  const flushPendingNotificationNavigation = () => {
+    const studentId = pendingNotificationStudentIdRef.current;
+    if (!studentId || !navigationRef.isReady()) return;
+    pendingNotificationStudentIdRef.current = null;
+    navigationRef.navigate("Students", { openStudentId: studentId });
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -124,9 +143,7 @@ function AppShell() {
           const data = response?.notification?.request?.content?.data ?? {};
           const studentId = typeof data.student_id === "string" ? data.student_id : null;
           if (!studentId) return;
-          if (navigationRef.isReady()) {
-            navigationRef.navigate("Students", { openStudentId: studentId });
-          }
+          navigateToStudentNotification(studentId);
         };
 
         // Cold-start: app opened via notification tap
@@ -193,7 +210,7 @@ function AppShell() {
           backgroundColor={theme.colors.background}
         />
         {authBootstrapped ? (
-          <NavigationContainer ref={navigationRef}>
+          <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation}>
             <Stack.Navigator
               initialRouteName={hasSession ? "Dashboard" : studentSessionId ? "StudyGame" : "Register"}
               screenOptions={{

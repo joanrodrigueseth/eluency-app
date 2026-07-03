@@ -18,7 +18,6 @@ import {
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,6 +29,8 @@ import ThemeToggleButton from "../components/ThemeToggleButton";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
 import { coercePlanForRole } from "../lib/teacherRolePlanRules";
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 import {
   AccessType,
   CATEGORY_OPTIONS,
@@ -42,12 +43,6 @@ import {
   slugifyTitle,
   TeacherPackAction,
 } from "../lib/lessonPacksHelpers";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  LessonPacks: undefined;
-  Notifications: undefined;
-};
 
 type LessonPackLessonRow = { pack_id: string; lesson_id: string; sort_order: number | null };
 type LessonPackRow = {
@@ -67,8 +62,7 @@ type LessonPackRow = {
   created_at?: string | null;
 };
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const NEW_PACK_CEFR = ["A1", "A1–A2", "A2", "A2–B1", "B1", "B1–B2", "B2", "C1"];
 

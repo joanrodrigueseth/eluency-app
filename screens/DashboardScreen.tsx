@@ -16,7 +16,6 @@ import {
   View,
 } from "react-native";
 import { Pressable, TouchableOpacity } from "../lib/hapticPressables";
-import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationProp, RouteProp, useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,39 +24,13 @@ import AppButton from "../components/AppButton";
 import GlassCard from "../components/GlassCard";
 import { SkeletonBox } from "../components/SkeletonLoader";
 import ThemeToggleButton from "../components/ThemeToggleButton";
-import { getRemoteProgress } from "../lib/api/study";
 import { triggerLightImpact } from "../lib/haptics";
 import { getLanguageBadgeColors, normalizeLanguageBadge } from "../lib/languageBadges";
 import { supabase } from "../lib/supabase";
 import { useAppTheme } from "../lib/theme";
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 import type { StudyRecordIssue } from "../types/study-game";
- 
-type RootStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Notifications: undefined;
-  Chats: undefined;
-  SendNotifications:
-    | {
-        targetTeacherId?: string;
-        targetTeacherName?: string;
-        targetTeacherEmail?: string;
-      }
-    | undefined;
-  Teachers: undefined;
-  Settings: { initialTab?: "profile" | "security" | "terms" | "contact" } | undefined;
-  Subscription: undefined;
-  LessonPacks: undefined;
-  Lessons: undefined;
-  LessonForm: { lessonId?: string } | undefined;
-  Students: { openStudentId?: string } | undefined;
-  StudentForm: { studentId?: string } | undefined;
-  Tests: undefined;
-  TestForm: { testId?: string } | undefined;
-  StudentResults: undefined;
-  StudyGame: { sessionId: string };
-};
  
 type RecentLesson = {
   id: string;
@@ -125,13 +98,6 @@ type StudentSessionResponse = {
   error?: string;
 };
 
-type VerifyAccessCodeResponse = {
-  error?: string;
-  session?: {
-    id?: string;
-  };
-};
-
 type DashboardSummaryResponse = {
   role: string;
   isAdmin: boolean;
@@ -181,6 +147,12 @@ function formatDateTime(dateIso?: string | null) {
     month: "short",
     day: "numeric",
   });
+}
+
+function getSortableLoginTime(dateIso?: string | null) {
+  if (!dateIso) return null;
+  const time = new Date(dateIso).getTime();
+  return Number.isNaN(time) ? null : time;
 }
 
 function getStudentActivityTotal(rec: any, rawScore: any, rawAnswers: any[]) {
@@ -567,81 +539,32 @@ function AnimatedSection({
 }
  
 function DashboardBackground({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
-  const pulseA = useRef(new Animated.Value(0.96)).current;
-  const pulseB = useRef(new Animated.Value(1.04)).current;
- 
-  useEffect(() => {
-    const loopA = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseA, {
-          toValue: 1.05,
-          duration: 3200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseA, {
-          toValue: 0.96,
-          duration: 3200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    );
- 
-    const loopB = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseB, {
-          toValue: 0.98,
-          duration: 4200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseB, {
-          toValue: 1.06,
-          duration: 4200,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    );
- 
-    loopA.start();
-    loopB.start();
- 
-    return () => {
-      loopA.stop();
-      loopB.stop();
-    };
-  }, [pulseA, pulseB]);
- 
   return (
     <>
-      <Animated.View
+      <View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: 10,
-          right: -60,
-          height: 230,
-          width: 230,
+          top: -90,
+          right: -100,
+          height: 220,
+          width: 220,
           borderRadius: 999,
           backgroundColor: theme.colors.primarySoft,
-          opacity: 0.8,
-          transform: [{ scale: pulseA }],
+          opacity: theme.isDark ? 0.18 : 0.26,
         }}
       />
-      <Animated.View
+      <View
         pointerEvents="none"
         style={{
           position: "absolute",
-          bottom: 70,
-          left: -80,
+          bottom: 120,
+          left: -110,
           height: 190,
           width: 190,
           borderRadius: 999,
           backgroundColor: theme.colors.violetSoft,
-          opacity: 0.75,
-          transform: [{ scale: pulseB }],
+          opacity: theme.isDark ? 0.10 : 0.16,
         }}
       />
     </>
@@ -655,7 +578,7 @@ export default function DashboardScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "Dashboard">>();
  
   const sessionId = route.params?.sessionId;
-  const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+  const apiBaseUrl = getApiBaseUrl();
 
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -696,7 +619,6 @@ export default function DashboardScreen() {
     }, [apiBaseUrl])
   );
 
-  const [quickActionsOpen, setQuickActionsOpen] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPrincipal, setIsPrincipal] = useState(false);
   const [teacherName, setTeacherName] = useState("Teacher");
@@ -726,7 +648,6 @@ export default function DashboardScreen() {
   const [assignedTestsIds, setAssignedTestsIds] = useState<string[]>([]);
   const [studentExpiresAt, setStudentExpiresAt] = useState<string>("");
 
-  const studentAccessCodeMapRef = useRef(new Map<string, string>());
   const isCompactPhone = drawerWidth < 420;
  
   const isStudentMode = !!sessionId;
@@ -839,34 +760,24 @@ export default function DashboardScreen() {
       return;
     }
 
-    const accessCode = studentAccessCodeMapRef.current.get(activity.studentId)?.trim();
-    if (!accessCode) {
+    if (!activity.studentId) {
       setSelectedStudentActivity(activity);
       return;
     }
 
     setStudentActivityDetailLoadingId(activity.id);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/students/verify-access-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessCode: accessCode.toUpperCase() }),
-      });
+      const { data, error } = await (supabase.from("student_game_progress") as any)
+        .select("student_id, practice_history, test_history, progress")
+        .eq("student_id", activity.studentId)
+        .maybeSingle();
 
-      let result: VerifyAccessCodeResponse | null = null;
-      try {
-        result = (await response.json()) as VerifyAccessCodeResponse;
-      } catch {
-        result = null;
-      }
-
-      const sessionIdFromCode = result?.session?.id?.trim() || "";
-      if (!response.ok || !sessionIdFromCode) {
+      if (error || !data) {
         setSelectedStudentActivity(activity);
         return;
       }
 
-      const progress = await getRemoteProgress(sessionIdFromCode);
+      const progress = normalizeStudentActivityProgressPayload(data);
       const detailedRows = buildStudentActivitiesFromProgress(activity.studentId, activity.studentName, progress);
       const match = findMatchingStudentActivity(detailedRows, activity);
 
@@ -1014,9 +925,6 @@ export default function DashboardScreen() {
         setRecentTests(result.recentTests ?? []);
         setRecentStudentActivity(result.recentStudentActivity ?? []);
         setTeacherCapacity(result.teacherCapacity ?? []);
-        studentAccessCodeMapRef.current = new Map(
-          (result.studentAccessCodes ?? []).map((item) => [item.studentId, item.code ?? ""])
-        );
       } catch (err) {
         if (!isMounted) return;
         setFatalError(err instanceof Error ? err.message : "Unable to load dashboard.");
@@ -1259,11 +1167,11 @@ export default function DashboardScreen() {
   );
  
   const topBarHeight = Math.max(insets.top, 8) + 76;
-  const dashboardRadius = theme.radii.md;
-  const dashboardHeroRadius = theme.radii.lg;
-  const dashboardTileRadius = theme.radii.sm;
-  const dashboardRowRadius = theme.radii.sm;
-  const dashboardCardStyle = { marginBottom: 16, borderRadius: dashboardRadius };
+  const dashboardRadius = 16;
+  const dashboardHeroRadius = 18;
+  const dashboardTileRadius = 14;
+  const dashboardRowRadius = 12;
+  const dashboardCardStyle = { marginBottom: 14, borderRadius: dashboardRadius };
  
   const SectionHeader = ({
     eyebrow,
@@ -1320,129 +1228,55 @@ export default function DashboardScreen() {
     onPress: () => void;
     twoPerRow?: boolean;
   }) => (
-    <View style={{ width: twoPerRow ? "31%" : "100%", marginBottom: twoPerRow ? 6 : 0 }}>
+    <View style={{ width: twoPerRow ? "48.5%" : "100%", marginBottom: twoPerRow ? 10 : 0 }}>
       <AnimatedPressable
         onPress={onPress}
         style={{
           borderRadius: dashboardTileRadius,
-          padding: 6,
-          backgroundColor: theme.isDark ? iconBg + "33" : tint,
+          minHeight: 58,
+          paddingHorizontal: 11,
+          paddingVertical: 10,
+          backgroundColor: theme.colors.surfaceAlt,
           borderWidth: 1,
           borderColor: theme.colors.border,
-          shadowColor: "#000",
-          shadowOpacity: 0.04,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 2,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
         }}
       >
-        <View style={{ position: "absolute", top: 5, right: 5 }}>
-          <View style={{ width: 14, height: 14, borderRadius: 5, backgroundColor: theme.isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", alignItems: "center", justifyContent: "center" }}>
-            <Ionicons name="chevron-forward" size={8} color={theme.colors.textMuted} />
-          </View>
+        <View
+          style={{
+            height: 30,
+            width: 30,
+            borderRadius: 10,
+            backgroundColor: theme.isDark ? iconBg + "33" : tint,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 10,
+          }}
+        >
+          <Ionicons name={ICONS[icon]} size={14} color={theme.isDark ? iconColor : iconBg} />
         </View>
-        <View style={{ alignItems: "center" }}>
-          <View
-            style={{
-              height: 18,
-              width: 18,
-              borderRadius: 7,
-              backgroundColor: iconBg,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Ionicons name={ICONS[icon]} size={9} color={iconColor} />
-          </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[theme.typography.bodyStrong, { fontSize: 13, lineHeight: 16, color: theme.colors.text }]} numberOfLines={1}>
+            {label}
+          </Text>
           <Text
             style={{
-              marginTop: 5,
-              fontSize: 13,
-              lineHeight: 15,
-              fontWeight: "800",
-              color: theme.colors.text,
-              textAlign: "center",
+              marginTop: 1,
+              fontSize: 15,
+              lineHeight: 18,
+              fontWeight: "900",
+              color: theme.colors.primary,
             }}
           >
             {value}
           </Text>
-          <Text style={[theme.typography.bodyStrong, { marginTop: 1, fontSize: 10, color: theme.colors.textMuted, textAlign: "center" }]}>{label}</Text>
         </View>
+        <Ionicons name="chevron-forward" size={13} color={theme.colors.textMuted} />
       </AnimatedPressable>
     </View>
   );
- 
-  const QuickActionCard = ({
-    label,
-    icon,
-    twoPerRow,
-  }: {
-    label: string;
-    icon: keyof typeof ICONS;
-    twoPerRow?: boolean;
-  }) => {
-    const createMatch = label.match(/^Create\s+(.+)$/i);
-    const topLabel = createMatch ? "Create" : label;
-    const bottomLabel = createMatch ? createMatch[1] : "";
-
-    const colors = theme.isDark
-      ? icon === "book"
-        ? { bg: "rgba(55,119,201,0.20)", iconWrap: "rgba(55,119,201,0.35)", icon: "#60A5FA" }
-        : icon === "clipboard"
-        ? { bg: "rgba(144,80,231,0.20)", iconWrap: "rgba(144,80,231,0.35)", icon: "#C084FC" }
-        : icon === "school"
-        ? { bg: "rgba(62,163,112,0.20)", iconWrap: "rgba(62,163,112,0.35)", icon: "#34D399" }
-        : { bg: "rgba(227,169,31,0.20)", iconWrap: "rgba(227,169,31,0.35)", icon: "#FCD34D" }
-      : icon === "book"
-      ? { bg: "#EEF5FF", iconWrap: "#DDEBFF", icon: "#2D74BF" }
-      : icon === "clipboard"
-      ? { bg: "#F5EEFF", iconWrap: "#E8D7FF", icon: "#8B4EE2" }
-      : icon === "school"
-      ? { bg: "#EEF9F2", iconWrap: "#D6F0E0", icon: "#3A9E6A" }
-      : { bg: "#FFF8E7", iconWrap: "#FCEAB8", icon: "#B98A10" };
-
-    return (
-      <View style={{ width: twoPerRow ? "48.5%" : "100%", marginBottom: 10 }}>
-        <AnimatedPressable
-          onPress={() => handleActionPress(label)}
-          style={{
-            borderRadius: dashboardTileRadius,
-            padding: 12,
-            minHeight: 74,
-            backgroundColor: colors.bg,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            alignItems: "center",
-            justifyContent: "flex-start",
-            flexDirection: "row",
-          }}
-        >
-          <View
-            style={{
-              height: 30,
-              width: 30,
-              borderRadius: 10,
-              backgroundColor: colors.iconWrap,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Ionicons name={ICONS[icon]} size={14} color={colors.icon} />
-          </View>
-          <View style={{ marginLeft: 10, flex: 1 }}>
-            <Text style={[theme.typography.bodyStrong, { fontSize: 10, lineHeight: 12, textTransform: "uppercase", color: theme.colors.textMuted }]} numberOfLines={1}>
-              {topLabel}
-            </Text>
-            {bottomLabel ? (
-              <Text style={[theme.typography.bodyStrong, { marginTop: 1, fontSize: 13, lineHeight: 16, color: theme.colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
-                {bottomLabel}
-              </Text>
-            ) : null}
-          </View>
-        </AnimatedPressable>
-      </View>
-    );
-  };
  
   const CompactMetric = ({
     label,
@@ -2107,6 +1941,137 @@ export default function DashboardScreen() {
     );
   };
 
+  type UnifiedActivityItem =
+    | { kind: "student"; id: string; title: string; subtitle: string; date: string; result: string; resultColor: string; onPress: () => void }
+    | { kind: "lesson"; id: string; title: string; subtitle: string; date: string; result?: string; resultColor?: string; onPress: () => void }
+    | { kind: "test"; id: string; title: string; subtitle: string; date: string; result?: string; resultColor?: string; onPress: () => void };
+
+  const UnifiedActivityFeed = () => {
+    const lessonItems: UnifiedActivityItem[] = recentLessons.slice(0, 8).map((item) => ({
+      kind: "lesson",
+      id: `lesson-${item.id}`,
+      title: item.title,
+      subtitle: "Lesson updated",
+      date: formatDateTime(item.created_at),
+      result: inferLessonLanguageBadge(item),
+      resultColor: theme.colors.primary,
+      onPress: () => handleActionPress(`/dashboard/lessons/${item.id}/edit`),
+    }));
+
+    const testItems: UnifiedActivityItem[] = recentTests.slice(0, 8).map((item) => ({
+      kind: "test",
+      id: `test-${item.id}`,
+      title: item.name,
+      subtitle: `${getTestVocabCount(item)} words | ${getTestQuestionCount(item)} questions`,
+      date: formatDateTime(item.created_at),
+      result: "Test",
+      resultColor: theme.isDark ? "#C4B5FD" : "#7C3AED",
+      onPress: () => handleActionPress(`/dashboard/tests/${item.id}/edit`),
+    }));
+
+    const studentItems: UnifiedActivityItem[] = recentStudentActivity.slice(0, 8).map((item) => {
+      const resultColor = item.percentage !== null
+        ? item.percentage >= 80
+          ? theme.colors.success
+          : item.percentage >= 50
+            ? "#D97706"
+            : theme.colors.danger
+        : theme.colors.textMuted;
+      return {
+        kind: "student",
+        id: `student-${item.id}`,
+        title: item.studentName,
+        subtitle: item.contentName,
+        date: formatDateTime(item.created_at),
+        result: getStudentActivityResultLabel(item),
+        resultColor,
+        onPress: () => { openStudentActivity(item).catch(() => {}); },
+      };
+    });
+
+    const allItems = [...studentItems, ...lessonItems, ...testItems]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 8);
+    const visibleItems =
+      activityTab === "student_activity" ? studentItems :
+      activityTab === "lessons" ? lessonItems :
+      activityTab === "tests" ? testItems :
+      allItems;
+
+    const iconFor = (kind: UnifiedActivityItem["kind"]) => {
+      if (kind === "student") return "person-circle-outline" as const;
+      if (kind === "test") return "clipboard-outline" as const;
+      return "book-outline" as const;
+    };
+
+    return (
+      <GlassCard style={dashboardCardStyle}>
+        <SectionHeader eyebrow="Activity" title="Recent activity" subtitle="Student completions, lessons, and tests in one feed." />
+        <ActivityTabs />
+
+        {visibleItems.length > 0 ? (
+          <>
+            {visibleItems.slice(0, 6).map((item, index) => (
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={0.82}
+                onPress={item.onPress}
+                style={{
+                  marginTop: index === 0 ? 0 : 8,
+                  borderRadius: dashboardRowRadius,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surfaceAlt,
+                  padding: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    backgroundColor: item.kind === "test" ? theme.colors.violetSoft : theme.colors.primarySoft,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Ionicons name={iconFor(item.kind)} size={17} color={theme.colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[theme.typography.bodyStrong, { fontSize: 14 }]} numberOfLines={1}>{item.title}</Text>
+                  <Text style={[theme.typography.caption, { marginTop: 3, color: theme.colors.textMuted }]} numberOfLines={1}>
+                    {item.subtitle}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end", flexShrink: 0, maxWidth: 96 }}>
+                  {item.result ? (
+                    <Text style={{ fontSize: 11, fontWeight: "900", color: item.resultColor ?? theme.colors.primary }} numberOfLines={1}>
+                      {item.result}
+                    </Text>
+                  ) : null}
+                  <Text style={{ marginTop: 3, fontSize: 10, color: theme.colors.textMuted }} numberOfLines={1}>{item.date}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            <View style={{ alignItems: "flex-end", marginTop: 14 }}>
+              <TouchableOpacity onPress={() => navigation.navigate(activityTab === "tests" ? "Tests" : activityTab === "lessons" ? "Lessons" : "StudentResults")} activeOpacity={0.8}>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: "800" }]}>View all</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <View style={{ borderRadius: dashboardRowRadius, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, padding: 20, alignItems: "center" }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>No activity yet</Text>
+          </View>
+        )}
+      </GlassCard>
+    );
+  };
+
   const AssignmentCard = ({
     eyebrow,
     title,
@@ -2233,101 +2198,76 @@ export default function DashboardScreen() {
   const teacherDashboard = (
     <>
       <AnimatedSection delay={0}>
-        <GlassCard style={{ marginBottom: 18, borderRadius: dashboardHeroRadius, overflow: "hidden" }}>
-          <View
-            style={{
-              borderRadius: dashboardHeroRadius,
-              padding: 2,
-              backgroundColor: theme.colors.surfaceGlass,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <Text style={[theme.typography.label, { color: theme.colors.primary }]}>
-                  {isAdmin ? "Admin" : isPrincipal ? "Principal" : "Teacher"} workspace
-                </Text>
-                <Text style={[theme.typography.title, { marginTop: 8, fontSize: 24, lineHeight: 30 }]}>{`Welcome back, ${teacherName}`}</Text>
-                <Text style={[theme.typography.bodyStrong, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
+        <GlassCard style={{ marginBottom: 14, borderRadius: dashboardHeroRadius }} padding={18}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <View
+                  style={{
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: theme.colors.borderStrong,
+                    backgroundColor: theme.colors.primarySoft,
+                    paddingHorizontal: 9,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "900" }}>
+                    {isAdmin ? "Admin" : isPrincipal ? "Principal" : "Teacher"}
+                  </Text>
+                </View>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{todayLabel}</Text>
               </View>
-
-              <View
-                style={{
-                  height: 48,
-                  width: 48,
-                  borderRadius: dashboardTileRadius,
-                  backgroundColor: theme.colors.primarySoft,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <Ionicons name={isAdmin || isPrincipal ? "shield-checkmark" : "school"} size={22} color={theme.colors.primary} />
-              </View>
+              <Text style={[theme.typography.title, { marginTop: 12, fontSize: 25, lineHeight: 31 }]} numberOfLines={2}>
+                {`Welcome back, ${teacherName}`}
+              </Text>
+              <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>{welcomeSubtitle}</Text>
             </View>
 
-            <View style={{ marginTop: 16, alignItems: "flex-start" }}>
-              <TouchableOpacity
-                onPress={() => handleActionPress("Students Results")}
-                activeOpacity={0.85}
-                style={{ borderRadius: dashboardTileRadius, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceAlt, paddingVertical: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 }}
-              >
-                <Ionicons name="stats-chart-outline" size={16} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 16, fontWeight: "800" }} numberOfLines={1} adjustsFontSizeToFit>
-                  Students Results
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ marginTop: 14, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              {stats.map((s) => (
-                <StatCard
-                  key={s.label}
-                  label={s.label}
-                  value={s.animatedValue}
-                  icon={s.icon}
-                  iconBg={s.iconBg}
-                  iconColor={s.iconColor}
-                  tint={s.tint}
-                  onPress={s.onPress}
-                  twoPerRow
-                />
-              ))}
-            </View>
+            <TouchableOpacity
+              onPress={() => handleActionPress("Students Results")}
+              activeOpacity={0.85}
+              style={{
+                borderRadius: 14,
+                backgroundColor: theme.colors.primary,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                alignItems: "center",
+                justifyContent: "center",
+                flexDirection: "row",
+                gap: 7,
+                flexShrink: 0,
+              }}
+            >
+              <Ionicons name="stats-chart-outline" size={16} color={theme.colors.primaryText} />
+              <Text style={{ color: theme.colors.primaryText, fontSize: 12, lineHeight: 15, fontWeight: "900" }}>
+                Results
+              </Text>
+            </TouchableOpacity>
           </View>
         </GlassCard>
       </AnimatedSection>
 
       <AnimatedSection delay={80}>
-        <GlassCard style={dashboardCardStyle}>
-          <TouchableOpacity
-            onPress={() => setQuickActionsOpen((o) => !o)}
-            activeOpacity={0.8}
-            style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: quickActionsOpen ? 12 : 0 }}
-          >
-            <Text style={[theme.typography.label, { color: theme.colors.primary }]}>Quick actions</Text>
-            <Ionicons name={quickActionsOpen ? "chevron-up" : "chevron-down"} size={15} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-          {quickActionsOpen && (isAdmin ? (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="Create Lesson" icon="book" twoPerRow />
-              <QuickActionCard label="Create Student" icon="school" twoPerRow />
-              <QuickActionCard label="Create Teacher" icon="people" twoPerRow />
-              <QuickActionCard label="Create Test" icon="clipboard" twoPerRow />
-              <QuickActionCard label="Create Principal" icon="shield" twoPerRow />
-            </View>
-          ) : (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
-              <QuickActionCard label="Create Lesson" icon="book" twoPerRow />
-              <QuickActionCard label="Create Student" icon="school" twoPerRow />
-              {isAdmin || isPrincipal ? <QuickActionCard label="Create Teacher" icon="people" twoPerRow /> : null}
-              <QuickActionCard label="Create Test" icon="clipboard" twoPerRow />
-            </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 4 }}>
+          {stats.map((s) => (
+            <StatCard
+              key={s.label}
+              label={s.label}
+              value={s.animatedValue}
+              icon={s.icon}
+              iconBg={s.iconBg}
+              iconColor={s.iconColor}
+              tint={s.tint}
+              onPress={s.onPress}
+              twoPerRow
+            />
           ))}
-        </GlassCard>
+        </View>
       </AnimatedSection>
- 
+
       {isAdmin ? (
-        <AnimatedSection delay={200}>
+        <AnimatedSection delay={140}>
           <GlassCard style={dashboardCardStyle}>
             <SectionHeader eyebrow="Platform" title="Key KPIs" />
             <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
@@ -2372,7 +2312,7 @@ export default function DashboardScreen() {
       ) : null}
  
       {isAdmin || isPrincipal ? (
-        <AnimatedSection delay={260}>
+        <AnimatedSection delay={200}>
           <GlassCard style={dashboardCardStyle}>
             <View style={{ marginBottom: 16 }}>
               <SectionHeader eyebrow="Teachers" title="Capacity and activity" />
@@ -2425,8 +2365,11 @@ export default function DashboardScreen() {
               teacherCapacity
                 .sort((a, b) => {
                   if (!lastLoginSort) return 0;
-                  const aDate = new Date(a.last_login || a.created_at || 0).getTime();
-                  const bDate = new Date(b.last_login || b.created_at || 0).getTime();
+                  const aDate = getSortableLoginTime(a.last_login);
+                  const bDate = getSortableLoginTime(b.last_login);
+                  if (aDate === null && bDate === null) return a.name.localeCompare(b.name);
+                  if (aDate === null) return 1;
+                  if (bDate === null) return -1;
                   return lastLoginSort === 'asc' ? aDate - bDate : bDate - aDate;
                 })
                 .map((t) => <TeacherLoadRow key={t.id} item={t} />)
@@ -2446,19 +2389,11 @@ export default function DashboardScreen() {
             )}
           </GlassCard>
         </AnimatedSection>
-      ) : (
-        <>
-          <AnimatedSection delay={280}>
-            {activityTab === "lessons" ? (
-              <RecentLessonsCard items={recentLessons} />
-            ) : activityTab === "tests" ? (
-              <RecentTestsCard items={recentTests} />
-            ) : (
-              <StudentActivityPillCard items={recentStudentActivity} />
-            )}
-          </AnimatedSection>
-        </>
-      )}
+      ) : null}
+
+      <AnimatedSection delay={isAdmin || isPrincipal ? 260 : 140}>
+        <UnifiedActivityFeed />
+      </AnimatedSection>
     </>
   );
  

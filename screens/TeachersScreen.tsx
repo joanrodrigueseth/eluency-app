@@ -15,7 +15,6 @@ import {
 import { TouchableOpacity } from "../lib/hapticPressables";
 import { NavigationProp, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GlassCard from "../components/GlassCard";
@@ -31,22 +30,8 @@ import {
   getValidPlansForRole,
   normalizePlanUi,
 } from "../lib/teacherRolePlanRules";
-
-type RootStackParamList = {
-  Dashboard: { sessionId?: string; openDrawer?: boolean } | undefined;
-  Teachers: undefined;
-  Chats: undefined;
-  SendNotifications:
-    | {
-        targetTeacherId?: string;
-        targetTeacherName?: string;
-        targetTeacherEmail?: string;
-      }
-    | undefined;
-  Notifications: undefined;
-  Login: undefined;
-  Register: undefined;
-};
+import { getApiBaseUrl } from "../lib/api/config";
+import type { RootStackParamList } from "../types/navigation";
 
 type TeacherRow = {
   id: string;
@@ -64,8 +49,7 @@ type TeacherRow = {
   testCount?: number | null;
 };
 
-const apiBaseUrl =
-  Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 const PLAN_TYPES = [
   { id: "basic" as const, label: "Basic (Free)", icon: "person-outline" as const },
@@ -501,8 +485,8 @@ export default function TeachersScreen() {
       Alert.alert("Missing email", "Please enter an email address.");
       return;
     }
-    if (addPassword.length < 6) {
-      Alert.alert("Password", "Use at least 6 characters (same as web).");
+    if (addPassword.length < 8) {
+      Alert.alert("Password", "Use at least 8 characters.");
       return;
     }
 

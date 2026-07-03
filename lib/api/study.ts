@@ -1,5 +1,4 @@
-import Constants from "expo-constants";
-
+import { getApiBaseUrl } from "./config";
 import type {
   LessonGamePayload,
   StudentSessionPayload,
@@ -9,7 +8,7 @@ import type {
   VerifyAnswerResult,
 } from "../../types/study-game";
 
-const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl?.toString() || "https://www.eluency.com";
+const apiBaseUrl = getApiBaseUrl();
 
 /** RN-compatible random token. `crypto.randomUUID` may be unavailable on Hermes. */
 function randomToken(): string {

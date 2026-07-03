@@ -151,6 +151,12 @@ export type StudyRecordIssue = {
   expected: string;
   answer?: string;
   kind: "correct" | "wrong" | "close" | "skip" | "open_review";
+  mode?: StudySessionMode;
+  promptFormat?: GameWord["promptFormat"];
+  answerFormat?: GameWord["answerFormat"];
+  mcqOptions?: Array<{ id?: string; text: string; correct?: boolean }>;
+  selectedOptionId?: string | null;
+  mcqCorrectOptionId?: string | null;
 };
 
 export type StudyRecord = {
