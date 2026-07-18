@@ -53,6 +53,8 @@ import {
   getAssignedTests,
   getStudentSession,
   requestTtsBase64,
+  revokeStudentSession,
+  submitTestAttempt,
 } from "../lib/api/study";
 import {
   calculateStreak,
@@ -113,6 +115,10 @@ type LessonDownloadState = "downloading" | "removing" | "success";
 const studyApiBaseUrl = getApiBaseUrl();
 const studyResumeStorageKey = (sessionId: string) => `eluency_lesson_resume:${sessionId}`;
 const STUDY_SESSION_MODES = new Set<StudySessionMode>(["typing", "multiple-choice", "listening", "image"]);
+
+function createAttemptKey(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 type StudentEmptyStateProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -316,6 +322,8 @@ function StudentEmptyState({
         {actionLabel && onAction ? (
           <TouchableOpacity
             onPress={onAction}
+            accessibilityRole="button"
+            accessibilityLabel={actionLabel}
             activeOpacity={0.88}
             style={{
               marginTop: 16,
@@ -331,7 +339,13 @@ function StudentEmptyState({
           </TouchableOpacity>
         ) : null}
         {secondaryLabel && onSecondaryAction ? (
-          <TouchableOpacity onPress={onSecondaryAction} activeOpacity={0.8} style={{ marginTop: 10, padding: 4 }}>
+          <TouchableOpacity
+            onPress={onSecondaryAction}
+            accessibilityRole="button"
+            accessibilityLabel={secondaryLabel}
+            activeOpacity={0.8}
+            style={{ marginTop: 10, padding: 4 }}
+          >
             <Text style={{ color: ui.primary, fontSize: 13, fontWeight: "700" }}>{secondaryLabel}</Text>
           </TouchableOpacity>
         ) : null}
@@ -382,15 +396,25 @@ function DetailTopBar({
         alignItems: "center",
       }}
     >
-      <TouchableOpacity onPress={onBack} style={[iconButtonStyle, { marginRight: 12 }]}>
+      <TouchableOpacity
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        style={[iconButtonStyle, { marginRight: 12 }]}
+      >
         <Ionicons name="chevron-back" size={18} color={ui.muted} />
       </TouchableOpacity>
       <Text style={{ flex: 1, fontWeight: "800", fontSize: 18, color: ui.text }}>{title}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <TouchableOpacity activeOpacity={1} style={iconButtonStyle}>
+        <View accessible accessibilityLabel="Notifications" style={iconButtonStyle}>
           <Ionicons name="notifications-outline" size={18} color={ui.muted} />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onSettings} style={iconButtonStyle}>
+        </View>
+        <TouchableOpacity
+          onPress={onSettings}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+          style={iconButtonStyle}
+        >
           <Ionicons name="person-outline" size={18} color={ui.muted} />
         </TouchableOpacity>
       </View>
@@ -462,6 +486,8 @@ function SessionHeader({
     >
       <TouchableOpacity
         onPress={onExit}
+        accessibilityRole="button"
+        accessibilityLabel="Exit study session"
         style={{
           width: 31,
           height: 31,
@@ -547,7 +573,13 @@ function FeedbackPanel({
   }, [feedback.state, feedback.text, scale, translateX]);
 
   return (
-    <Animated.View style={{ padding: 11, borderRadius: studyRadii.row, borderWidth: 1, borderColor: color, backgroundColor: `${color}12`, transform: [{ translateX }, { scale }] }}>
+    <Animated.View
+      accessible
+      accessibilityRole="alert"
+      accessibilityLiveRegion="assertive"
+      accessibilityLabel={feedback.text}
+      style={{ padding: 11, borderRadius: studyRadii.row, borderWidth: 1, borderColor: color, backgroundColor: `${color}12`, transform: [{ translateX }, { scale }] }}
+    >
       <Text style={{ fontWeight: "800", fontSize: 13, lineHeight: 18, color }}>
         {feedback.text}
       </Text>
@@ -864,6 +896,8 @@ function StudyAnswerPad({
               <TouchableOpacity
                 key={key}
                 onPress={() => addText(key)}
+                accessibilityRole="button"
+                accessibilityLabel={`Letter ${key}`}
                 disabled={disabled}
                 style={{
                   flex: 1,
@@ -883,6 +917,8 @@ function StudyAnswerPad({
             {rowIndex === 2 ? (
               <TouchableOpacity
                 onPress={removeLast}
+                accessibilityRole="button"
+                accessibilityLabel="Delete last character"
                 disabled={disabled || !value}
                 style={{
                   flex: 1.18,
@@ -908,6 +944,8 @@ function StudyAnswerPad({
               <TouchableOpacity
                 key={key}
                 onPress={() => addText(key)}
+                accessibilityRole="button"
+                accessibilityLabel={`Character ${key}`}
                 disabled={disabled}
                 style={{
                   minWidth: 46,
@@ -931,6 +969,8 @@ function StudyAnswerPad({
       <View style={{ flexDirection: "row", gap: 7, opacity: answerPadOpacity }}>
         <TouchableOpacity
           onPress={() => addText(" ")}
+          accessibilityRole="button"
+          accessibilityLabel="Space"
           disabled={disabled}
           style={{
             flex: 1,
@@ -947,6 +987,8 @@ function StudyAnswerPad({
         </TouchableOpacity>
         <TouchableOpacity
           onPress={clear}
+          accessibilityRole="button"
+          accessibilityLabel="Clear answer"
           disabled={disabled || !value}
           style={{
             width: 72,
@@ -1031,6 +1073,8 @@ function SessionFooter({
           placeholderTextColor="#98A0B2"
           returnKeyType="done"
           onSubmitEditing={submitDisabled ? undefined : onSubmit}
+          accessibilityLabel="Your answer"
+          accessibilityHint="Enter the answer, then activate Submit"
           style={{
             minHeight: studyMetrics.footerInputHeight,
             borderWidth: 1,
@@ -1051,6 +1095,8 @@ function SessionFooter({
         {showSkip ? (
           <TouchableOpacity
             onPress={onSkip}
+            accessibilityRole="button"
+            accessibilityLabel="Skip question"
             style={{
               minHeight: studyMetrics.footerButtonHeight,
               borderRadius: studyRadii.control,
@@ -1069,6 +1115,9 @@ function SessionFooter({
         {showSubmit ? (
           <TouchableOpacity
             onPress={onSubmit}
+            accessibilityRole="button"
+            accessibilityLabel={needsRetype ? "Confirm corrected answer" : "Submit answer"}
+            accessibilityState={{ disabled: submitDisabled }}
             disabled={submitDisabled}
             style={{
               flex: 1,
@@ -1568,7 +1617,15 @@ export default function StudyGameScreen() {
   const [ttsLoading, setTtsLoading] = useState(false);
   const [lessonPdfViewerVisible, setLessonPdfViewerVisible] = useState(false);
   const [lessonPdfViewerUri, setLessonPdfViewerUri] = useState<string | null>(null);
-  const [resultRecord, setResultRecord] = useState<{ score: number; total: number; percentage: number; passed: boolean; issues: SessionIssue[] } | null>(null);
+  const [resultRecord, setResultRecord] = useState<{
+    score: number;
+    total: number;
+    percentage: number;
+    passed: boolean;
+    issues: SessionIssue[];
+    verified?: boolean;
+    requiresReview?: boolean;
+  } | null>(null);
   const [selectedHistoryRecord, setSelectedHistoryRecord] = useState<StudyRecord | null>(null);
   const [selectedLessonDetail, setSelectedLessonDetail] = useState<LessonGamePayload | null>(null);
   const [selectedTestDetail, setSelectedTestDetail] = useState<{ type: "test"; test: TestGamePayload } | { type: "lesson"; lesson: LessonGamePayload } | null>(null);
@@ -1599,6 +1656,8 @@ export default function StudyGameScreen() {
     sessionIssues?: SessionIssue[];
     sessionStreak?: number;
     mistakeWordIds?: string[];
+    attemptKey?: string | null;
+    startedAt?: string | null;
   } | null>(null);
   const [sessionIssues, setSessionIssues] = useState<SessionIssue[]>([]);
   const [sessionStreak, setSessionStreak] = useState(0);
@@ -1611,16 +1670,27 @@ export default function StudyGameScreen() {
   useEffect(() => {
     if (!sessionId) return;
     initialCatalogLoadedRef.current = false;
+    progressRef.current = null;
+    setProgress(null);
+    setStudentSession(null);
+    setSavedResume(null);
     setLessonsData([]);
     setTestsData([]);
     setLessonsWords([]);
     setTestsWords([]);
+    setSelectedLessonDetail(null);
+    setSelectedTestDetail(null);
+    setRuntimeScreen("dashboard");
+    sessionAttemptKeyRef.current = null;
+    sessionStartedAtRef.current = null;
   }, [sessionId]);
   const refreshCatalogRef = useRef<() => Promise<void>>(async () => {});
   const progressRef = useRef<StudyProgress | null>(null);
   const correctCountRef = useRef(0);
   const sessionIssuesRef = useRef<SessionIssue[]>([]);
   const sessionStreakRef = useRef(0);
+  const sessionAttemptKeyRef = useRef<string | null>(null);
+  const sessionStartedAtRef = useRef<string | null>(null);
   const answerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const mcqCorrectScale = useRef(new Animated.Value(1)).current;
   const downloadSuccessTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1677,8 +1747,8 @@ export default function StudyGameScreen() {
     if (!sessionId) return;
     const session = await getStudentSession(sessionId);
     const [lessons, tests] = await Promise.all([
-      getAssignedLessons(session.student.assigned_lessons ?? []),
-      getAssignedTests(session.student.assigned_tests ?? []),
+      getAssignedLessons(sessionId, session.student.assigned_lessons ?? []),
+      getAssignedTests(sessionId, session.student.assigned_tests ?? []),
     ]);
     if (__DEV__) {
       // Helps diagnose "web shows new title, app shows old title": prints what the API returned.
@@ -2290,18 +2360,28 @@ export default function StudyGameScreen() {
   }, []);
 
   const callTeacherCompletionEdge = useCallback(
-    async (type: "lesson_completed" | "test_completed") => {
+    async (
+      type: "lesson_completed" | "test_completed",
+      details: { attemptId: string; contentName?: string | null; score: number; passed: boolean }
+    ) => {
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
       const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
       if (!supabaseUrl || !anonKey || !sessionId) return;
       const edgeUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/send-teacher-completion-email`;
-      await fetch(edgeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
-        body: JSON.stringify({ sessionId, type, contentName: sessionContext.name || null }),
-      }).catch(() => {});
+      try {
+        const response = await fetch(edgeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${anonKey}` },
+          body: JSON.stringify({ sessionId, type, ...details }),
+        });
+        if (!response.ok && __DEV__) {
+          console.warn("Teacher completion notification failed", response.status, await response.text());
+        }
+      } catch (error) {
+        if (__DEV__) console.warn("Teacher completion notification failed", error);
+      }
     },
-    [sessionId, sessionContext.name]
+    [sessionId]
   );
 
   const openLessonDetail = useCallback((lesson: LessonGamePayload) => {
@@ -2312,10 +2392,10 @@ export default function StudyGameScreen() {
   }, []);
 
   const saveResumeData = useCallback(() => {
-    if (!sessionId || !selectedLessonDetail || !activeWords.length) return;
+    if (!sessionId || !sessionContext.id || !activeWords.length) return;
     const data = {
-      lessonId: selectedLessonDetail.id,
-      lessonName: selectedLessonDetail.name,
+      lessonId: sessionContext.id,
+      lessonName: sessionContext.name || (sessionType === "test" ? "Test" : "Lesson"),
       idx,
       correctCount,
       activeWords,
@@ -2326,10 +2406,12 @@ export default function StudyGameScreen() {
       sessionIssues,
       sessionStreak,
       mistakeWordIds,
+      attemptKey: sessionAttemptKeyRef.current,
+      startedAt: sessionStartedAtRef.current,
     };
     AsyncStorage.setItem(studyResumeStorageKey(sessionId), JSON.stringify(data)).catch(() => {});
     setSavedResume(data);
-  }, [activeWords, correctCount, direction, idx, mistakeWordIds, selectedLessonDetail, sessionId, sessionIssues, sessionMode, sessionPool, sessionStreak, sessionType]);
+  }, [activeWords, correctCount, direction, idx, mistakeWordIds, sessionContext.id, sessionContext.name, sessionId, sessionIssues, sessionMode, sessionPool, sessionStreak, sessionType]);
 
   const resumeSession = useCallback(() => {
     if (!savedResume) return;
@@ -2339,6 +2421,8 @@ export default function StudyGameScreen() {
     setSelectedLessonDetail(lesson);
     setSessionType(savedResume.sessionType);
     setSessionMode(savedResume.sessionMode);
+    sessionAttemptKeyRef.current = savedResume.attemptKey || (savedResume.sessionType === "test" ? createAttemptKey() : null);
+    sessionStartedAtRef.current = savedResume.startedAt || new Date().toISOString();
     setDirection(savedResume.direction);
     setActiveWords(savedResume.activeWords);
     setIdx(savedResume.idx);
@@ -2476,6 +2560,8 @@ export default function StudyGameScreen() {
               } as ReviewableGameWord;
             });
       setSessionType(type);
+      sessionAttemptKeyRef.current = type === "test" ? createAttemptKey() : null;
+      sessionStartedAtRef.current = new Date().toISOString();
       setSessionMode(mode);
       setDirection(dir);
       setActiveWords(selectedWords);
@@ -2508,20 +2594,62 @@ export default function StudyGameScreen() {
     if (!latestProgress || finishingSessionRef.current) return;
     finishingSessionRef.current = true;
     clearAnswerTimers();
-    const total = activeWords.length;
-    const finalCorrectCount = correctCountRef.current;
-    const finalIssues = [...sessionIssuesRef.current];
-    const percentage = gradePercentage(finalCorrectCount, total);
+    let total = activeWords.length;
+    let finalCorrectCount = correctCountRef.current;
+    let finalIssues = [...sessionIssuesRef.current];
+    let percentage = gradePercentage(finalCorrectCount, total);
     const allQuestionsAreOpenResponse =
       sessionType === "test" &&
       activeWords.length > 0 &&
       activeWords.every((word) => word.answerFormat === "open");
-    const passed =
+    let passed =
       sessionType === "test"
         ? (allQuestionsAreOpenResponse ? finalCorrectCount === activeWords.length : percentage >= 80)
         : percentage >= 80;
+    let attemptSubmitted = false;
+    let requiresReview = false;
+    if (sessionType === "test" && sessionId && sessionContext.id && sessionAttemptKeyRef.current) {
+      const wordsById = new Map(activeWords.map((word) => [word.id, word]));
+      const answers = finalIssues.flatMap((issue) => {
+        const word = wordsById.get(issue.id);
+        return word && Number.isInteger(word.questionIndex)
+          ? [{
+              questionIndex: word.questionIndex as number,
+              answer: issue.answer ?? "",
+              selectedOptionId: issue.selectedOptionId ?? null,
+            }]
+          : [];
+      });
+      try {
+        const attempt = await submitTestAttempt({
+          sessionId,
+          testId: sessionContext.id,
+          attemptKey: sessionAttemptKeyRef.current,
+          mode: sessionMode,
+          direction,
+          startedAt: sessionStartedAtRef.current,
+          answers,
+        });
+        attemptSubmitted = true;
+        requiresReview = attempt.requiresReview;
+        total = attempt.totalQuestions;
+        finalCorrectCount = attempt.score;
+        percentage = attempt.percentage;
+        passed = attempt.passed;
+        finalIssues = attempt.historyRecord.issues ?? finalIssues;
+        if (requiresReview) {
+          showToast("Open responses were submitted for teacher review.", "info");
+        }
+      } catch (error) {
+        showToast(
+          `${error instanceof Error ? error.message : "Verification unavailable"}. Result saved locally as unverified.`,
+          "info"
+        );
+      }
+    }
     const sessionLesson = sessionContext.id != null ? lessonsData.find((l) => l.id === sessionContext.id) : null;
-    const rec = createRecord({
+    const rec = {
+      ...createRecord({
       type: sessionType,
       mode: sessionMode,
       direction,
@@ -2533,7 +2661,11 @@ export default function StudyGameScreen() {
       total,
       passedOverride: passed,
       issues: finalIssues,
-    });
+      }),
+      id: sessionAttemptKeyRef.current || createAttemptKey(),
+      verified: sessionType === "test" ? attemptSubmitted && !requiresReview : undefined,
+      requiresReview: sessionType === "test" ? requiresReview : undefined,
+    };
 
     const practiceHistory = sessionType === "test" ? latestProgress.practiceHistory : [rec, ...latestProgress.practiceHistory];
     const testHistory = sessionType === "test" ? [rec, ...latestProgress.testHistory] : latestProgress.testHistory;
@@ -2554,17 +2686,38 @@ export default function StudyGameScreen() {
     };
     progressRef.current = nextProgress;
     setProgress(nextProgress);
+    let progressSynced = false;
     if (sessionId) {
       await saveLocalProgress(sessionId, nextProgress);
       try {
         await flushProgressSync(sessionId, nextProgress);
+        progressSynced = true;
       } catch {
         showToast("Result saved on this device. Sync will retry when your connection is ready.", "info");
       }
     }
-    if (sessionType === "test") callTeacherCompletionEdge("test_completed").catch(() => {});
-    if (sessionType === "practice" || sessionType === "smart-review") callTeacherCompletionEdge("lesson_completed").catch(() => {});
-    setResultRecord({ score: finalCorrectCount, total, percentage, passed, issues: finalIssues });
+    if (progressSynced) {
+      const completionDetails = {
+        attemptId: String(rec.id),
+        contentName: sessionContext.name || null,
+        score: percentage,
+        passed,
+      };
+      if (sessionType === "test" && attemptSubmitted) {
+        callTeacherCompletionEdge("test_completed", completionDetails).catch(() => {});
+      } else if (sessionType === "practice" && sessionContext.id) {
+        callTeacherCompletionEdge("lesson_completed", completionDetails).catch(() => {});
+      }
+    }
+    setResultRecord({
+      score: finalCorrectCount,
+      total,
+      percentage,
+      passed,
+      issues: finalIssues,
+      verified: sessionType === "test" ? attemptSubmitted && !requiresReview : undefined,
+      requiresReview: sessionType === "test" ? requiresReview : undefined,
+    });
     setSavedResume(null);
     if (sessionId) AsyncStorage.removeItem(studyResumeStorageKey(sessionId)).catch(() => {});
     setRuntimeScreen("results");
@@ -3080,8 +3233,8 @@ export default function StudyGameScreen() {
       try {
         const session = await getStudentSession(sessionId);
         const [lessons, tests, hydrated] = await Promise.all([
-          getAssignedLessons(session.student.assigned_lessons ?? []),
-          getAssignedTests(session.student.assigned_tests ?? []),
+          getAssignedLessons(sessionId, session.student.assigned_lessons ?? []),
+          getAssignedTests(sessionId, session.student.assigned_tests ?? []),
           hydrateProgress(sessionId),
         ]);
         if (!mounted) return;
@@ -3301,6 +3454,9 @@ export default function StudyGameScreen() {
       >
         <TouchableOpacity
           onPress={() => handleMcqPick(choiceText, optionId, selectionKey)}
+          accessibilityRole="button"
+          accessibilityLabel={`Answer ${choiceText}`}
+          accessibilityState={{ disabled: settled, selected }}
           disabled={settled}
           activeOpacity={0.85}
           style={{
@@ -4174,6 +4330,9 @@ export default function StudyGameScreen() {
                         preferences: { ...progress.preferences, darkMode: nextDarkMode },
                       });
                     }}
+                    accessibilityRole="switch"
+                    accessibilityLabel="Dark mode"
+                    accessibilityState={{ checked: theme.isDark }}
                     style={{ borderTopWidth: 1, borderTopColor: ui.borderSoft, paddingTop: 10, paddingBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                   >
                     <View>
@@ -4199,6 +4358,9 @@ export default function StudyGameScreen() {
                         preferences: { ...progress.preferences, hapticEnabled: !progress.preferences.hapticEnabled },
                       })
                     }
+                    accessibilityRole="switch"
+                    accessibilityLabel="Haptic feedback"
+                    accessibilityState={{ checked: progress.preferences.hapticEnabled }}
                     style={{ paddingTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
                   >
                     <View>
@@ -4223,10 +4385,13 @@ export default function StudyGameScreen() {
                 </GlassCard>
 
                 <TouchableOpacity
-                  onPress={() => {
-                    clearStoredStudentSessionId().catch(() => {});
+                  onPress={async () => {
+                    if (sessionId) await revokeStudentSession(sessionId);
+                    await clearStoredStudentSessionId();
                     navigation.reset({ index: 0, routes: [{ name: "Login" }] });
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Log out"
                   style={{ borderRadius: 14, borderWidth: 1, borderColor: ui.danger, backgroundColor: `${ui.danger}18`, paddingVertical: 14, alignItems: "center", marginBottom: 8 }}
                 >
                   <Text style={{ color: ui.danger, fontWeight: "700", fontSize: 15 }}>Log out</Text>
@@ -4275,6 +4440,36 @@ export default function StudyGameScreen() {
                 </View>
               </View>
             </GlassCard>
+
+            {(selectedLessonDetail.description ||
+              selectedLessonDetail.estimated_minutes ||
+              (selectedLessonDetail.learning_objectives?.length ?? 0) > 0) ? (
+              <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14} variant="strong">
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="flag-outline" size={18} color={ui.primary} />
+                    <Text style={{ color: ui.text, fontSize: 15, fontWeight: "900" }}>What you will learn</Text>
+                  </View>
+                  {selectedLessonDetail.estimated_minutes ? (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: ui.primarySoft, paddingHorizontal: 9, paddingVertical: 5 }}>
+                      <Ionicons name="time-outline" size={13} color={ui.primary} />
+                      <Text style={{ color: ui.primary, fontSize: 11, fontWeight: "900" }}>{selectedLessonDetail.estimated_minutes} min</Text>
+                    </View>
+                  ) : null}
+                </View>
+                {selectedLessonDetail.description ? (
+                  <Text style={{ color: ui.muted, fontSize: 13, lineHeight: 19, marginTop: 10 }}>{selectedLessonDetail.description}</Text>
+                ) : null}
+                {(selectedLessonDetail.learning_objectives ?? []).map((objective, objectiveIndex) => (
+                  <View key={`${selectedLessonDetail.id}-objective-${objectiveIndex}`} style={{ flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 }}>
+                    <View style={{ width: 22, height: 22, borderRadius: 7, backgroundColor: ui.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: ui.primary, fontSize: 10, fontWeight: "900" }}>{objectiveIndex + 1}</Text>
+                    </View>
+                    <Text style={{ flex: 1, color: ui.text, fontSize: 13, lineHeight: 19, fontWeight: "600" }}>{objective}</Text>
+                  </View>
+                ))}
+              </GlassCard>
+            ) : null}
 
             {selectedLessonDetail.document_url ? (
               <GlassCard style={{ borderRadius: 18, backgroundColor: ui.card, marginBottom: 12 }} padding={14} variant="strong">
@@ -5142,7 +5337,7 @@ export default function StudyGameScreen() {
               alignItems: "center",
               justifyContent: "space-around",
               paddingTop: 8,
-              paddingBottom: 8,
+              paddingBottom: Math.max(insets.bottom, 8),
               paddingHorizontal: 10,
               shadowColor: "#000",
               shadowOpacity: uiIsDark ? 0.18 : 0.1,
@@ -5158,6 +5353,9 @@ export default function StudyGameScreen() {
                     <TouchableOpacity
                       key="play"
                       onPress={() => handleTabPress("practice")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Practice"
+                      accessibilityState={{ selected: playActive }}
                       activeOpacity={0.85}
                       style={{
                         width: 64,
@@ -5187,6 +5385,9 @@ export default function StudyGameScreen() {
                   <TouchableOpacity
                     key={tab.id}
                     onPress={() => handleTabPress(tab.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={tab.label}
+                    accessibilityState={{ selected: active }}
                     activeOpacity={0.75}
                     style={{
                       alignItems: "center",
@@ -5284,6 +5485,29 @@ export default function StudyGameScreen() {
                             <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 3 }]}>
                               {sessionType === "test" ? "Test" : "Lesson"} - {sessionContext.name || "General practice"}
                             </Text>
+                            {sessionType === "test" ? (
+                              <Text
+                                accessibilityLiveRegion="polite"
+                                style={[
+                                  theme.typography.caption,
+                                  {
+                                    marginTop: 4,
+                                    color: resultRecord.requiresReview
+                                      ? ui.warning
+                                      : resultRecord.verified
+                                        ? ui.success
+                                        : ui.danger,
+                                    fontWeight: "800",
+                                  },
+                                ]}
+                              >
+                                {resultRecord.requiresReview
+                                  ? "Teacher review required"
+                                  : resultRecord.verified
+                                    ? "Server verified"
+                                    : "Saved locally - verification pending"}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>

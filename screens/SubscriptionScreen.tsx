@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useState } from "react";
 import {
   Alert,
@@ -23,21 +22,18 @@ import { useAppTheme } from "../lib/theme";
 import { getApiBaseUrl } from "../lib/api/config";
 import type { RootStackParamList } from "../types/navigation";
 
-const MONTHLY_PRICE = 19.99;
-const YEARLY_PRICE_PER_MONTH = 15.99;
-const YEARLY_TOTAL = 191.88;
-const YEARLY_SAVINGS = parseFloat((MONTHLY_PRICE * 12 - YEARLY_TOTAL).toFixed(2)); // $48.00
+const STANDARD_PRICE_LABEL = "$9.99 CAD";
 
 const STANDARD_FEATURES = [
   { icon: "users", text: "Up to 30 students included" },
-  { icon: "book-open", text: "Access to 100+ lessons & AI tools" },
+  { icon: "book-open", text: "All lesson, test, AI, and student practice tools" },
   { icon: "smartphone", text: "Full teacher & student app access" },
   { icon: "zap", text: "Instant feedback & grade tracking" },
 ];
 
 const BASIC_FEATURES = [
-  "Access to 100+ Lessons",
-  "Create and Edit Lessons and Tests",
+  "All lesson, test, AI, and student practice tools",
+  "Create and edit lessons and tests",
   "1 Student Seat",
   "No credit card required",
 ];
@@ -48,12 +44,6 @@ const SCHOOL_FEATURES = [
   "Teacher Management Tools",
   "Activity Reports",
 ];
-
-function getTrialEndDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 14);
-  return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
-}
 
 function FeatureRow({ label, color }: { label: string; color?: string }) {
   const theme = useAppTheme();
@@ -78,14 +68,9 @@ export default function SubscriptionScreen() {
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [currentTierId, setCurrentTierId] = useState("basic");
   const [error, setError] = useState("");
-  // Default to yearly — best deal, most conversions
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
 
-  const trialEndDate = useMemo(() => getTrialEndDate(), []);
   const isOnStandard = currentTierId === "standard";
   const isOnBasic = currentTierId === "basic";
-
-  const displayPrice = billingCycle === "yearly" ? YEARLY_PRICE_PER_MONTH : MONTHLY_PRICE;
 
   useEffect(() => {
     let mounted = true;
@@ -130,15 +115,10 @@ export default function SubscriptionScreen() {
     });
   };
 
-  const handleRestorePurchases = () => {
-    Alert.alert(
-      "Restore Subscription",
-      "Your subscription is tied to your Eluency account. Sign in with the same email you used when you subscribed and your plan will be restored automatically.",
-      [
-        { text: "Manage on Web", onPress: () => Linking.openURL(WEB_SUBSCRIPTION_URL).catch(() => {}) },
-        { text: "OK", style: "cancel" },
-      ]
-    );
+  const handleManageSubscription = () => {
+    Linking.openURL(WEB_SUBSCRIPTION_URL).catch(() => {
+      Alert.alert("Error", "Could not open the subscription page. Visit eluency.com to manage your plan.");
+    });
   };
 
   return (
@@ -189,76 +169,13 @@ export default function SubscriptionScreen() {
         {!isOnStandard ? (
           <View style={{ alignItems: "center", paddingVertical: 4 }}>
             <Text style={[theme.typography.title, { fontSize: 24, textAlign: "center", lineHeight: 30 }]}>
-              Teach more.{"\n"}Stress less.
+              Free to start.{"\n"}Upgrade for more students.
             </Text>
             <Text style={[theme.typography.body, { color: theme.colors.textMuted, textAlign: "center", marginTop: 6, maxWidth: 260 }]}>
-              Everything you need to run a full classroom — students, lessons, tests, and grades in one place.
+              Free includes all teaching tools with 1 student seat. Standard adds room for a larger student roster.
             </Text>
           </View>
         ) : null}
-
-        {/* ── Billing cycle toggle ── */}
-        <View style={{ alignItems: "center" }}>
-          <View style={{
-            flexDirection: "row",
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.surfaceAlt,
-            padding: 4,
-            gap: 4,
-          }}>
-            <TouchableOpacity
-              onPress={() => setBillingCycle("monthly")}
-              activeOpacity={0.85}
-              style={{
-                paddingHorizontal: 20,
-                paddingVertical: 9,
-                borderRadius: 999,
-                backgroundColor: billingCycle === "monthly" ? theme.colors.surface : "transparent",
-                borderWidth: billingCycle === "monthly" ? 1 : 0,
-                borderColor: billingCycle === "monthly" ? theme.colors.border : "transparent",
-              }}
-            >
-              <Text style={{ fontWeight: "700", fontSize: 13, color: billingCycle === "monthly" ? theme.colors.text : theme.colors.textMuted }}>
-                Monthly
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setBillingCycle("yearly")}
-              activeOpacity={0.85}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 16,
-                paddingVertical: 9,
-                borderRadius: 999,
-                backgroundColor: billingCycle === "yearly" ? theme.colors.primary : "transparent",
-              }}
-            >
-              <Text style={{ fontWeight: "800", fontSize: 13, color: billingCycle === "yearly" ? theme.colors.primaryText : theme.colors.textMuted }}>
-                Yearly
-              </Text>
-              <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: billingCycle === "yearly" ? "rgba(255,255,255,0.25)" : "#10b981" }}>
-                <Text style={{ fontSize: 10, fontWeight: "900", color: "#FFFFFF" }}>SAVE 20%</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {billingCycle === "yearly" ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 }}>
-              <Ionicons name="checkmark-circle" size={14} color="#10b981" />
-              <Text style={{ fontSize: 12, fontWeight: "700", color: "#10b981" }}>
-                You save ${YEARLY_SAVINGS.toFixed(2)}/year — like getting 2.5 months free
-              </Text>
-            </View>
-          ) : (
-            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 8 }]}>
-              Switch to yearly and save ${YEARLY_SAVINGS.toFixed(2)} per year
-            </Text>
-          )}
-        </View>
 
         {/* ── Standard plan hero card ── */}
         <GlassCard
@@ -291,11 +208,6 @@ export default function SubscriptionScreen() {
                 {isOnStandard ? "YOUR PLAN" : "MOST POPULAR"}
               </Text>
             </View>
-            {billingCycle === "yearly" && !isOnStandard ? (
-              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.25)" }}>
-                <Text style={{ fontSize: 10, fontWeight: "900", color: "#FFF" }}>BEST VALUE</Text>
-              </View>
-            ) : null}
           </View>
 
           <View style={{ padding: 20, gap: 16 }}>
@@ -308,73 +220,38 @@ export default function SubscriptionScreen() {
                 </Text>
               </View>
               <View style={{ alignItems: "flex-end" }}>
-                {billingCycle === "yearly" ? (
-                  <Text style={{ fontSize: 13, color: theme.colors.textMuted, textDecorationLine: "line-through" }}>
-                    ${MONTHLY_PRICE.toFixed(2)}/mo
-                  </Text>
-                ) : null}
                 <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 2 }}>
                   <Text style={[theme.typography.title, { fontSize: 36, lineHeight: 40, color: theme.colors.primary }]}>
-                    ${displayPrice.toFixed(2)}
+                    {STANDARD_PRICE_LABEL}
                   </Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 6 }]}>/mo</Text>
                 </View>
-                {billingCycle === "yearly" ? (
-                  <Text style={{ fontSize: 11, color: theme.colors.textMuted }}>
-                    billed ${YEARLY_TOTAL.toFixed(2)}/year
-                  </Text>
-                ) : null}
               </View>
             </View>
 
-            {/* "Pay 10 get 12" banner — yearly only */}
-            {billingCycle === "yearly" && !isOnStandard ? (
-              <View style={{
-                backgroundColor: "#10b981" + "18",
-                borderRadius: 12,
-                padding: 12,
-                borderWidth: 1,
-                borderColor: "#10b981" + "44",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-              }}>
-                <Text style={{ fontSize: 20 }}>🎉</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: "#10b981" }}>
-                    Pay for 10 months, get 12
-                  </Text>
-                  <Text style={{ fontSize: 12, color: "#10b981", opacity: 0.85, marginTop: 1 }}>
-                    That's ${YEARLY_SAVINGS.toFixed(2)} back in your pocket every year
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* Trial / current plan banner */}
             {isOnStandard ? (
               <View style={{ backgroundColor: theme.colors.successSoft, padding: 14, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
                 <View>
                   <Text style={[theme.typography.bodyStrong, { color: theme.colors.success }]}>You're on Standard</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.success, opacity: 0.8, marginTop: 1 }]}>Enjoying full access — nothing to do</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.success, opacity: 0.8, marginTop: 1 }]}>Your account has the larger student roster.</Text>
                 </View>
               </View>
             ) : (
               <View style={{ backgroundColor: theme.colors.primarySoft, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.primary + "44" }}>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={{ fontSize: 16 }}>✨</Text>
+                    <Ionicons name="people-outline" size={18} color={theme.colors.primary} />
                     <Text style={[theme.typography.bodyStrong, { color: theme.colors.primary, fontSize: 15 }]}>
-                      14-Day Free Trial
+                      Standard adds more student seats
                     </Text>
                   </View>
                   <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: theme.colors.primary }}>
-                    <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.primaryText }}>$0 today</Text>
+                    <Text style={{ fontSize: 12, fontWeight: "900", color: theme.colors.primaryText }}>{STANDARD_PRICE_LABEL}/mo</Text>
                   </View>
                 </View>
                 <Text style={[theme.typography.caption, { color: theme.colors.primary, marginTop: 6, lineHeight: 18 }]}>
-                  Free until {trialEndDate}. No charge until your trial ends — cancel anytime with one tap.
+                  Free already includes all tools with 1 student seat. Upgrade when you need to manage more active students.
                 </Text>
               </View>
             )}
@@ -386,7 +263,7 @@ export default function SubscriptionScreen() {
                   What you unlock vs. Basic:
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18 }]}>
-                  30 student seats · instant feedback · grade tracking · teacher management tools
+                  30 student seats · expanded roster capacity · progress reports · teacher management tools
                 </Text>
               </View>
             ) : null}
@@ -407,17 +284,17 @@ export default function SubscriptionScreen() {
             {isOnStandard ? null : (
               <View style={{ gap: 10, marginTop: 4 }}>
                 <AppButton
-                  label={`Start My Free 14-Day Trial →`}
+                  label="Upgrade on web"
                   onPress={() => handleUpgrade("standard")}
                   loading={false}
                 />
                 <View style={{ alignItems: "center", gap: 4 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Feather name="lock" size={11} color={theme.colors.textMuted} />
-                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Secure checkout · Powered by Stripe</Text>
+                    <Feather name="clock" size={11} color={theme.colors.textMuted} />
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>Standard billing is managed on the web</Text>
                   </View>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-                    Cancel anytime. No questions asked.
+                    Free stays available with all tools and 1 active student.
                   </Text>
                 </View>
               </View>
@@ -453,7 +330,7 @@ export default function SubscriptionScreen() {
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                 <View>
                   <Text style={[theme.typography.caption, { color: "#10b981", fontWeight: "700", letterSpacing: 1 }]}>STARTER</Text>
-                  <Text style={[theme.typography.title, { fontSize: 22 }]}>Basic</Text>
+                  <Text style={[theme.typography.title, { fontSize: 22 }]}>Free</Text>
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
                   {isOnBasic ? (
@@ -467,7 +344,7 @@ export default function SubscriptionScreen() {
               </View>
 
               <Text style={[theme.typography.caption, { color: theme.colors.textMuted, lineHeight: 18, marginBottom: 12 }]}>
-                Single-teacher pilot. All lessons and tests with one student — no credit card ever required.
+                All access for one active student. No credit card required.
               </Text>
 
               <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 12, gap: 8, marginBottom: 12 }}>
@@ -483,7 +360,7 @@ export default function SubscriptionScreen() {
                 </View>
               ) : (
                 <AppButton
-                  label="Continue with Basic (Free)"
+                  label="Continue with Free"
                   onPress={() => handleUpgrade("basic")}
                   loading={false}
                 />
@@ -522,12 +399,12 @@ export default function SubscriptionScreen() {
         </GlassCard>
 
         <TouchableOpacity
-          onPress={handleRestorePurchases}
+          onPress={handleManageSubscription}
           activeOpacity={0.7}
           style={{ alignSelf: "center", paddingVertical: 16, paddingHorizontal: 24, marginBottom: 8 }}
         >
           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textDecorationLine: "underline" }]}>
-            Restore Purchases
+            Manage subscription on web
           </Text>
         </TouchableOpacity>
       </ScrollView>

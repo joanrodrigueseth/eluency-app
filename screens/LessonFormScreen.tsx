@@ -22,6 +22,7 @@ import { Alert,
   View,
 } from "react-native";
 import { TouchableOpacity } from "../lib/hapticPressables";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 if (Platform.OS === "android" && UIManager.getViewManagerConfig?.("RCTLayoutAnimation")) {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -66,6 +67,7 @@ type LessonFlashParams = {
 const apiBaseUrl = getApiBaseUrl();
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 const uid = () => Math.random().toString(36).slice(2, 10);
+const NEW_LESSON_DRAFT_KEY = "eluency_mobile_new_lesson_draft_v1";
 
 type RowType = "vocab" | "conjugation" | "preposition";
 type ConjugationEntry = { pronoun: string; form_a: string; form_b?: string };
@@ -141,6 +143,21 @@ function getLessonContentValidationError(words: WordRow[]) {
   if (incompletePreposition) return "Preposition rows need a title and at least one complete A/B/answer entry.";
 
   return null;
+}
+
+function findDuplicateVocabularyRows(words: WordRow[]) {
+  const groups = new Map<string, { label: string; indexes: number[] }>();
+  words.forEach((word, index) => {
+    if (word.rowType !== "vocab") return;
+    const termA = word.termA.trim();
+    const termB = word.termB.trim();
+    if (!termA || !termB) return;
+    const key = `${termA.toLocaleLowerCase()}::${termB.toLocaleLowerCase()}`;
+    const existing = groups.get(key);
+    if (existing) existing.indexes.push(index);
+    else groups.set(key, { label: `${termA} / ${termB}`, indexes: [index] });
+  });
+  return Array.from(groups.values()).filter((group) => group.indexes.length > 1);
 }
 
 const CATEGORY_OPTIONS = [
@@ -688,6 +705,8 @@ export default function LessonFormScreen() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [learningObjectives, setLearningObjectives] = useState<string[]>([""]);
+  const [estimatedMinutes, setEstimatedMinutes] = useState(20);
   const [aiSubject, setAiSubject] = useState("");
   const [category, setCategory] = useState<string>("Vocabulary");
   const [lessonCategory, setLessonCategory] = useState("");
@@ -717,6 +736,8 @@ export default function LessonFormScreen() {
   const [wizardStep, setWizardStep] = useState(1);
   const [generatingAllImages, setGeneratingAllImages] = useState(false);
   const [buildMethod, setBuildMethod] = useState<"ai" | "upload" | "manual" | null>(null);
+  const [draftInitialized, setDraftInitialized] = useState(false);
+  const [lastDraftSavedAt, setLastDraftSavedAt] = useState<number | null>(null);
 
   /** Unset / placeholder → same defaults as web lesson editor (PT conjugation templates, prepositions). */
   const effectiveLessonLanguage = useMemo(() => {
@@ -744,6 +765,7 @@ export default function LessonFormScreen() {
   const specialRowCount = useMemo(() => words.filter((w) => w.rowType !== "vocab").length, [words]);
   const conjugationRowCount = useMemo(() => words.filter((w) => w.rowType === "conjugation").length, [words]);
   const prepositionRowCount = useMemo(() => words.filter((w) => w.rowType === "preposition").length, [words]);
+  const duplicateVocabulary = useMemo(() => findDuplicateVocabularyRows(words), [words]);
   const heroDescription = description.trim() || "Build a richer lesson with stronger metadata, cleaner cards, and vocabulary that is easier to scan.";
 
   const [pendingLanguage, setPendingLanguage] = useState<string | null>(null);
@@ -825,6 +847,16 @@ export default function LessonFormScreen() {
     setLanguagePair(savedPair);
     setDocUrl((cfg as any).document_url ?? "");
     setDocName((cfg as any).document_name ?? "");
+    setLearningObjectives(
+      Array.isArray((cfg as any).learning_objectives) && (cfg as any).learning_objectives.length > 0
+        ? (cfg as any).learning_objectives.filter((value: unknown): value is string => typeof value === "string")
+        : [""]
+    );
+    setEstimatedMinutes(
+      typeof (cfg as any).estimated_minutes === "number"
+        ? Math.min(240, Math.max(1, Math.round((cfg as any).estimated_minutes)))
+        : 20
+    );
     const rawWords = Array.isArray((cfg as any).words) ? (cfg as any).words : [];
     const mapped: WordRow[] = rawWords.map((w: any) => {
       const rt: RowType = w.rowType === "conjugation" ? "conjugation" : w.rowType === "preposition" ? "preposition" : "vocab";
@@ -883,88 +915,6 @@ export default function LessonFormScreen() {
     }
   }, [lessonId]);
 
-  const syncLessonCategoryLink = useCallback(async (savedLessonId: string, selectedLessonCategory: string, actingUserId: string) => {
-    const normalizedCategory = selectedLessonCategory.trim();
-    const { data: existingLinks, error: existingLinksError } = await (supabase.from("lesson_pack_lessons") as any)
-      .select("pack_id")
-      .eq("lesson_id", savedLessonId);
-    if (existingLinksError) throw existingLinksError;
-
-    const existingPackIds = Array.isArray(existingLinks)
-      ? existingLinks.map((link: any) => String(link.pack_id ?? "")).filter(Boolean)
-      : [];
-
-    let existingCategoryPackIds: string[] = [];
-    if (existingPackIds.length > 0) {
-      const { data: existingPacks, error: existingPacksError } = await (supabase.from("lesson_packs") as any)
-        .select("id, title, category")
-        .in("id", existingPackIds);
-      if (existingPacksError) throw existingPacksError;
-
-      existingCategoryPackIds = ((existingPacks || []) as any[])
-        .filter((pack) =>
-          LESSON_PACK_CATEGORIES.includes(String(pack.title ?? "") as (typeof LESSON_PACK_CATEGORIES)[number]) ||
-          LESSON_PACK_CATEGORIES.includes(String(pack.category ?? "") as (typeof LESSON_PACK_CATEGORIES)[number])
-        )
-        .map((pack) => String(pack.id ?? ""))
-        .filter(Boolean);
-    }
-
-    if (!normalizedCategory) {
-      if (existingCategoryPackIds.length > 0) {
-        const { error: deleteError } = await (supabase.from("lesson_pack_lessons") as any)
-          .delete()
-          .eq("lesson_id", savedLessonId)
-          .in("pack_id", existingCategoryPackIds);
-        if (deleteError) throw deleteError;
-      }
-      return;
-    }
-
-    let { data: pack, error: packLookupError } = await (supabase.from("lesson_packs") as any)
-      .select("id")
-      .eq("title", normalizedCategory)
-      .maybeSingle();
-    if (packLookupError) throw packLookupError;
-
-    if (!pack?.id) {
-      const categorySlug = normalizedCategory.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const { data: createdPack, error: createdPackError } = await (supabase.from("lesson_packs") as any)
-        .insert({
-          title: normalizedCategory,
-          slug: categorySlug,
-          category: normalizedCategory,
-          status: "published",
-          access_type: "free",
-          created_by: actingUserId,
-          updated_by: actingUserId,
-        })
-        .select("id")
-        .single();
-      if (createdPackError) throw createdPackError;
-      pack = createdPack;
-    }
-
-    const targetPackId = String(pack?.id ?? "");
-    const linksToRemove = existingCategoryPackIds.filter((packId) => packId !== targetPackId);
-    if (linksToRemove.length > 0) {
-      const { error: deleteError } = await (supabase.from("lesson_pack_lessons") as any)
-        .delete()
-        .eq("lesson_id", savedLessonId)
-        .in("pack_id", linksToRemove);
-      if (deleteError) throw deleteError;
-    }
-
-    if (targetPackId) {
-      const { error: upsertError } = await (supabase.from("lesson_pack_lessons") as any)
-        .upsert(
-          [{ pack_id: targetPackId, lesson_id: savedLessonId, sort_order: 0 }],
-          { onConflict: "pack_id,lesson_id" }
-        );
-      if (upsertError) throw upsertError;
-    }
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -980,7 +930,90 @@ export default function LessonFormScreen() {
           setIsAdmin((tr as any)?.role === "admin");
           setPlanRaw(String((tr as any)?.plan ?? ""));
         }
-        if (isEdit) await loadLesson();
+        if (isEdit) {
+          await loadLesson();
+        } else {
+          try {
+            const rawDraft = await AsyncStorage.getItem(NEW_LESSON_DRAFT_KEY);
+            let draft = rawDraft ? JSON.parse(rawDraft) as Record<string, any> : null;
+            try {
+              const cloudResponse = await authedJsonFetch("/api/lesson-drafts?key=new", undefined, "GET");
+              const cloudDraft = cloudResponse?.data?.payload;
+              if (cloudDraft && typeof cloudDraft === "object") {
+                const localSavedAt = typeof draft?.savedAt === "number" ? draft.savedAt : 0;
+                const cloudSavedAt = typeof cloudDraft.savedAt === "number"
+                  ? cloudDraft.savedAt
+                  : Date.parse(String(cloudResponse?.data?.updated_at ?? "")) || 0;
+                if (!draft || cloudSavedAt >= localSavedAt) draft = cloudDraft;
+              }
+            } catch {
+              // Cloud drafts are optional; the device draft remains the offline fallback.
+            }
+            if (cancelled) return;
+            if (!draft) {
+              setDraftInitialized(true);
+            } else {
+              Alert.alert(
+                "Restore lesson draft?",
+                "A lesson you started on this device or another signed-in device was not published.",
+                [
+                  {
+                    text: "Discard",
+                    style: "destructive",
+                    onPress: () => {
+                      void AsyncStorage.removeItem(NEW_LESSON_DRAFT_KEY);
+                      void authedJsonFetch("/api/lesson-drafts?key=new", undefined, "DELETE").catch(() => undefined);
+                      setDraftInitialized(true);
+                    },
+                  },
+                  {
+                    text: "Restore",
+                    onPress: () => {
+                      setTitle(typeof draft.title === "string" ? draft.title : "");
+                      setDescription(typeof draft.description === "string" ? draft.description : "");
+                      setLearningObjectives(
+                        Array.isArray(draft.learningObjectives) && draft.learningObjectives.length > 0
+                          ? draft.learningObjectives.filter((value: unknown): value is string => typeof value === "string")
+                          : [""]
+                      );
+                      setEstimatedMinutes(
+                        typeof draft.estimatedMinutes === "number"
+                          ? Math.min(240, Math.max(1, Math.round(draft.estimatedMinutes)))
+                          : 20
+                      );
+                      setAiSubject(typeof draft.aiSubject === "string" ? draft.aiSubject : "");
+                      setCategory(typeof draft.category === "string" ? draft.category : "Vocabulary");
+                      setLessonCategory(typeof draft.lessonCategory === "string" ? draft.lessonCategory : "");
+                      setLanguageLevel(typeof draft.languageLevel === "string" ? draft.languageLevel : "");
+                      setLanguage(typeof draft.language === "string" ? draft.language : CHOOSE_LANGUAGE_PLACEHOLDER);
+                      setLanguagePair(typeof draft.languagePair === "string" ? draft.languagePair : LANGUAGE_PAIR_FALLBACK);
+                      setCoverImageUrl(typeof draft.coverImageUrl === "string" ? draft.coverImageUrl : "");
+                      setCoverPreviewUri(typeof draft.coverImageUrl === "string" ? draft.coverImageUrl : "");
+                      setDocUrl(typeof draft.docUrl === "string" ? draft.docUrl : "");
+                      setDocName(typeof draft.docName === "string" ? draft.docName : "");
+                      setTeacherId(typeof draft.teacherId === "string" && draft.teacherId ? draft.teacherId : user.id);
+                      if (Array.isArray(draft.words) && draft.words.length > 0) {
+                        setWords(draft.words.map((word: WordRow) => ({ ...word, key: uid() })));
+                      }
+                      if (["ai", "upload", "manual"].includes(draft.buildMethod)) {
+                        setBuildMethod(draft.buildMethod);
+                      }
+                      const restoredStep = Number(draft.wizardStep);
+                      if (Number.isFinite(restoredStep)) setWizardStep(Math.min(4, Math.max(1, restoredStep)));
+                      setLastDraftSavedAt(typeof draft.savedAt === "number" ? draft.savedAt : null);
+                      setDraftInitialized(true);
+                      showToast("Lesson draft restored.", "success");
+                    },
+                  },
+                ],
+                { cancelable: false },
+              );
+            }
+          } catch {
+            await AsyncStorage.removeItem(NEW_LESSON_DRAFT_KEY).catch(() => undefined);
+            if (!cancelled) setDraftInitialized(true);
+          }
+        }
       } catch (e) {
         Alert.alert("Error", e instanceof Error ? e.message : "Load failed");
         navigation.goBack();
@@ -990,6 +1023,75 @@ export default function LessonFormScreen() {
     })();
     return () => { cancelled = true; };
   }, [isEdit, lessonId, loadLesson, navigation]);
+
+  useEffect(() => {
+    if (isEdit || bootLoading || !draftInitialized || saving) return;
+    const hasDraftContent = title.trim() || words.some((word) =>
+      word.termA.trim() ||
+      word.termB.trim() ||
+      word.infinitive.trim() ||
+      word.prepositions.some((entry) => entry.left.trim() || entry.right.trim() || entry.answer.trim())
+    );
+    if (!hasDraftContent) return;
+
+    const timer = setTimeout(() => {
+      const savedAt = Date.now();
+      const draftPayload = {
+        title,
+        description,
+        learningObjectives,
+        estimatedMinutes,
+        aiSubject,
+        category,
+        lessonCategory,
+        languageLevel,
+        language,
+        languagePair,
+        coverImageUrl,
+        docUrl,
+        docName,
+        teacherId,
+        words,
+        wizardStep,
+        buildMethod,
+        savedAt,
+      };
+      void Promise.allSettled([
+        AsyncStorage.setItem(NEW_LESSON_DRAFT_KEY, JSON.stringify(draftPayload)),
+        authedJsonFetch(
+          "/api/lesson-drafts",
+          { key: "new", lessonId: null, payload: draftPayload },
+          "PUT"
+        ),
+      ]).then((results) => {
+        if (results.some((result) => result.status === "fulfilled")) setLastDraftSavedAt(savedAt);
+      });
+    }, 900);
+
+    return () => clearTimeout(timer);
+  }, [
+    aiSubject,
+    bootLoading,
+    buildMethod,
+    category,
+    coverImageUrl,
+    description,
+    estimatedMinutes,
+    docName,
+    docUrl,
+    draftInitialized,
+    isEdit,
+    language,
+    languageLevel,
+    languagePair,
+    learningObjectives,
+    lessonCategory,
+    saving,
+    teacherId,
+    title,
+    wizardStep,
+    words,
+  ]);
 
   const inputStyle = {
     borderWidth: 1,
@@ -1015,9 +1117,9 @@ export default function LessonFormScreen() {
     return refreshed.session.access_token;
   };
 
-  const postAuthed = async (path: string, token: string, init: { body?: any; headers?: Record<string, string> }) =>
+  const postAuthed = async (path: string, token: string, init: { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: any; headers?: Record<string, string> }) =>
     fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
-      method: "POST",
+      method: init.method ?? "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         ...(supabaseAnonKey ? { apikey: supabaseAnonKey } : {}),
@@ -1026,10 +1128,11 @@ export default function LessonFormScreen() {
       body: init.body,
     });
 
-  const authedJsonFetch = async (path: string, body: unknown) => {
+  const authedJsonFetch = async (path: string, body: unknown, method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE" = "POST") => {
     const base = apiBaseUrl.replace(/\/$/, "");
     let token = await getAccessToken();
     let res = await postAuthed(path, token, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -1039,6 +1142,7 @@ export default function LessonFormScreen() {
       if (refreshError) throw refreshError;
       token = refreshed.session?.access_token || token;
       res = await postAuthed(path, token, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -1367,58 +1471,36 @@ export default function LessonFormScreen() {
     const content_json = {
       language_pair: languagePair,
       instructional_language: languageForSave,
-      instructional_category: category,
-      lesson_category: lessonCategory.trim() || null,
       document_url: docUrl.trim() || null,
       document_name: docName.trim() || null,
+      learning_objectives: learningObjectives.map((objective) => objective.trim()).filter(Boolean),
+      estimated_minutes: estimatedMinutes,
       words: serializedWords,
     };
 
     setSaving(true);
     try {
       const ownerId = isAdmin ? (teacherId || currentUserId) : currentUserId;
-      let savedLessonId = lessonId ?? "";
-      if (isEdit && lessonId) {
-        const payload: Record<string, unknown> = {
+      await authedJsonFetch(
+        isEdit && lessonId ? `/api/lessons/${lessonId}` : "/api/lessons",
+        {
           title: title.trim(),
-          description: description.trim() || null,
-          grade_range: category,
-          language_level: languageLevel || null,
+          description: description.trim(),
+          gradeRange: lessonCategory.trim() || category,
+          languageLevel: languageLevel || null,
           language: languageForSave,
-          cover_image_url: coverImageUrl.trim() || null,
-          content_json,
+          coverImageUrl: coverImageUrl.trim() || null,
+          categoryTitle: lessonCategory.trim() || null,
+          teacherId: isAdmin ? ownerId : undefined,
           status: "published",
-          updated_by: currentUserId,
-          updated_at: new Date().toISOString(),
-        };
-        if (isAdmin) {
-          payload.teacher_id = ownerId;
-          payload.created_by = ownerId;
-        }
-        const { error } = await (supabase.from("lessons") as any).update(payload).eq("id", lessonId);
-        if (error) throw error;
-      } else {
-        const slug = `${title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Math.random().toString(36).slice(2, 7)}`;
-        const { data: insertedLesson, error } = await (supabase.from("lessons") as any).insert({
-          title: title.trim(),
-          slug,
-          description: description.trim() || null,
-          grade_range: category,
-          language_level: languageLevel || null,
-          language: languageForSave,
-          cover_image_url: coverImageUrl.trim() || null,
-          content_json,
-          status: "published",
-          teacher_id: ownerId,
-          created_by: ownerId,
-          updated_by: currentUserId,
-        }).select("id").single();
-        if (error) throw error;
-        savedLessonId = String(insertedLesson?.id ?? "");
-      }
+          content: content_json,
+        },
+        isEdit ? "PATCH" : "POST"
+      );
 
-      if (isAdmin && savedLessonId && currentUserId) {
-        await syncLessonCategoryLink(savedLessonId, lessonCategory, currentUserId);
+      if (!isEdit) {
+        await AsyncStorage.removeItem(NEW_LESSON_DRAFT_KEY);
+        await authedJsonFetch("/api/lesson-drafts?key=new", undefined, "DELETE").catch(() => undefined);
       }
       triggerSuccessHaptic();
       const lessonsFlashParams: LessonFlashParams = {
@@ -1537,13 +1619,26 @@ export default function LessonFormScreen() {
           {/* Progress bar */}
           <View style={{ flexDirection: "row", gap: 6, marginBottom: 20 }}>
             {[1, 2, 3, 4].map((s) => (
-              <View key={s} style={{ flex: 1, height: 4, borderRadius: 999, backgroundColor: s <= wizardStep ? theme.colors.primary : theme.colors.border }} />
+              <TouchableOpacity
+                key={s}
+                onPress={() => s < wizardStep && setWizardStep(s)}
+                disabled={s >= wizardStep || saving}
+                accessibilityRole="button"
+                accessibilityLabel={`Go to step ${s}: ${WIZARD_TITLES[s]}`}
+                accessibilityState={{ disabled: s >= wizardStep || saving, selected: s === wizardStep }}
+                style={{ flex: 1, height: 12, justifyContent: "center" }}
+              >
+                <View style={{ height: 4, borderRadius: 999, backgroundColor: s <= wizardStep ? theme.colors.primary : theme.colors.border }} />
+              </TouchableOpacity>
             ))}
           </View>
 
-          <Text style={[theme.typography.label, { color: theme.colors.textMuted, marginBottom: 4 }]}>
-            Step {wizardStep} of 4
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>Step {wizardStep} of 4</Text>
+            <Text style={[theme.typography.caption, { color: lastDraftSavedAt ? theme.colors.success : theme.colors.textMuted, fontWeight: "700" }]}>
+              {lastDraftSavedAt ? "Draft saved" : "Saves automatically"}
+            </Text>
+          </View>
           <Text style={[theme.typography.display, { fontSize: 26, lineHeight: 32 }]}>
             {WIZARD_TITLES[wizardStep]}
           </Text>
@@ -1784,9 +1879,76 @@ export default function LessonFormScreen() {
                 ) : null}
               </View>
 
-              <AppButton label="Continue →" onPress={advanceWizard} />
             </>
           )}
+
+          {/* ── Step 2: Learning outcomes ── */}
+          {wizardStep === 2 ? (
+            <>
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+              <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Ionicons name="flag-outline" size={16} color={theme.colors.primary} />
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, textTransform: "uppercase" }}>Learning Outcomes</Text>
+                </View>
+                <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17, marginTop: 4 }}>
+                  Set clear learner goals and a realistic completion time.
+                </Text>
+              </View>
+              <View style={{ padding: 14, gap: 10 }}>
+                {learningObjectives.map((objective, objectiveIndex) => (
+                  <View key={`objective-${objectiveIndex}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "900" }}>{objectiveIndex + 1}</Text>
+                    </View>
+                    <TextInput
+                      value={objective}
+                      onChangeText={(value) => setLearningObjectives((previous) => previous.map((item, index) => index === objectiveIndex ? value : item))}
+                      placeholder="Use key vocabulary in a short conversation"
+                      placeholderTextColor={placeholderColor}
+                      maxLength={240}
+                      style={[inputStyle, { flex: 1, paddingVertical: 10, fontSize: 13 }]}
+                    />
+                    {learningObjectives.length > 1 ? (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove learning objective ${objectiveIndex + 1}`}
+                        onPress={() => setLearningObjectives((previous) => previous.filter((_, index) => index !== objectiveIndex))}
+                        style={{ width: 34, height: 34, borderRadius: 12, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}
+                      >
+                        <Ionicons name="close" size={17} color={theme.colors.danger} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ))}
+                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
+                  {learningObjectives.length < 8 ? (
+                    <TouchableOpacity
+                      onPress={() => setLearningObjectives((previous) => [...previous, ""])}
+                      style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, paddingVertical: 11, alignItems: "center" }}
+                    >
+                      <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>+ Add objective</Text>
+                    </TouchableOpacity>
+                  ) : <View style={{ flex: 1 }} />}
+                  <View style={{ width: 122 }}>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Minutes</Text>
+                    <TextInput
+                      value={String(estimatedMinutes)}
+                      onChangeText={(value) => {
+                        const parsed = Number(value.replace(/\D/g, ""));
+                        setEstimatedMinutes(Math.min(240, Math.max(1, parsed || 1)));
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      style={[inputStyle, { paddingVertical: 10, textAlign: "center", fontSize: 14, fontWeight: "800" }]}
+                    />
+                  </View>
+                </View>
+              </View>
+              </View>
+              <AppButton label="Continue →" onPress={advanceWizard} />
+            </>
+          ) : null}
 
           {/* ── Step 3: Build Method Choice ── */}
           {wizardStep === 3 && (
@@ -1940,6 +2102,17 @@ export default function LessonFormScreen() {
                 </View>
 
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
+                  {duplicateVocabulary.length > 0 ? (
+                    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: "#F59E0B66", backgroundColor: "#F59E0B14", padding: 12 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Ionicons name="warning-outline" size={17} color="#D97706" />
+                        <Text style={{ color: "#B45309", fontSize: 12, fontWeight: "900" }}>Duplicate vocabulary detected</Text>
+                      </View>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 5 }}>
+                        {duplicateVocabulary.map((group) => `${group.label} (rows ${group.indexes.map((index) => index + 1).join(", ")})`).join(" / ")}
+                      </Text>
+                    </View>
+                  ) : null}
                   {words.map((w, i) => {
                     const isOpen = !!advancedOpen[w.key];
                     return (
@@ -2264,6 +2437,68 @@ export default function LessonFormScreen() {
               </View>
 
               <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
+                <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="flag-outline" size={16} color={theme.colors.primary} />
+                    <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.primary, letterSpacing: 1.5, textTransform: "uppercase" }}>Learning Outcomes</Text>
+                  </View>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted, lineHeight: 17, marginTop: 4 }}>
+                    Set clear learner goals and a realistic completion time.
+                  </Text>
+                </View>
+                <View style={{ padding: 14, gap: 10 }}>
+                  {learningObjectives.map((objective, objectiveIndex) => (
+                    <View key={`edit-objective-${objectiveIndex}`} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: theme.colors.primary, fontSize: 11, fontWeight: "900" }}>{objectiveIndex + 1}</Text>
+                      </View>
+                      <TextInput
+                        value={objective}
+                        onChangeText={(value) => setLearningObjectives((previous) => previous.map((item, index) => index === objectiveIndex ? value : item))}
+                        placeholder="Use key vocabulary in a short conversation"
+                        placeholderTextColor={placeholderColor}
+                        maxLength={240}
+                        style={[inputStyle, { flex: 1, paddingVertical: 10, fontSize: 13 }]}
+                      />
+                      {learningObjectives.length > 1 ? (
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove learning objective ${objectiveIndex + 1}`}
+                          onPress={() => setLearningObjectives((previous) => previous.filter((_, index) => index !== objectiveIndex))}
+                          style={{ width: 34, height: 34, borderRadius: 12, backgroundColor: theme.colors.dangerSoft, alignItems: "center", justifyContent: "center" }}
+                        >
+                          <Ionicons name="close" size={17} color={theme.colors.danger} />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ))}
+                  <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 10 }}>
+                    {learningObjectives.length < 8 ? (
+                      <TouchableOpacity
+                        onPress={() => setLearningObjectives((previous) => [...previous, ""])}
+                        style={{ flex: 1, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft, paddingVertical: 11, alignItems: "center" }}
+                      >
+                        <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: "800" }}>+ Add objective</Text>
+                      </TouchableOpacity>
+                    ) : <View style={{ flex: 1 }} />}
+                    <View style={{ width: 122 }}>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Minutes</Text>
+                      <TextInput
+                        value={String(estimatedMinutes)}
+                        onChangeText={(value) => {
+                          const parsed = Number(value.replace(/\D/g, ""));
+                          setEstimatedMinutes(Math.min(240, Math.max(1, parsed || 1)));
+                        }}
+                        keyboardType="number-pad"
+                        maxLength={3}
+                        style={[inputStyle, { paddingVertical: 10, textAlign: "center", fontSize: 14, fontWeight: "800" }]}
+                      />
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <View style={{ borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 24, backgroundColor: theme.colors.surfaceGlass, overflow: "hidden" }}>
                 <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 }}>
                   <Text style={{ fontSize: 10, fontWeight: "800", color: theme.colors.textMuted, letterSpacing: 1.5, textTransform: "uppercase" }}>Settings</Text>
                 </View>
@@ -2406,6 +2641,17 @@ export default function LessonFormScreen() {
                 </View>
 
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 18 }}>
+                  {duplicateVocabulary.length > 0 ? (
+                    <View style={{ borderRadius: 16, borderWidth: 1, borderColor: "#F59E0B66", backgroundColor: "#F59E0B14", padding: 12 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Ionicons name="warning-outline" size={17} color="#D97706" />
+                        <Text style={{ color: "#B45309", fontSize: 12, fontWeight: "900" }}>Duplicate vocabulary detected</Text>
+                      </View>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 5 }}>
+                        {duplicateVocabulary.map((group) => `${group.label} (rows ${group.indexes.map((index) => index + 1).join(", ")})`).join(" / ")}
+                      </Text>
+                    </View>
+                  ) : null}
                   {words.map((w, i) => {
                     const isOpen = !!advancedOpen[w.key];
                     return (

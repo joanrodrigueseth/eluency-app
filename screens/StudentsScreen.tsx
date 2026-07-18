@@ -1254,9 +1254,9 @@ export default function StudentsScreen() {
 
         {!isAdmin && planName === "Basic" ? (
           <GlassCard style={{ borderRadius: 18, marginBottom: 14 }} padding={14}>
-            <Text style={theme.typography.bodyStrong}>You are on the Basic plan</Text>
+            <Text style={theme.typography.bodyStrong}>You are on the Free plan</Text>
             <Text style={[theme.typography.caption, { marginTop: 6, color: theme.colors.textMuted }]}>
-              Basic includes full lessons, tests, AI tools, and 1 active student. Upgrade when you need more seats.
+              Free includes full lessons, tests, AI tools, and 1 active student. Upgrade to Standard when you need more seats.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Subscription")}
@@ -1276,7 +1276,7 @@ export default function StudentsScreen() {
               }}
             >
               <Ionicons name="diamond-outline" size={14} color={theme.colors.success} />
-              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>View plans</Text>
+              <Text style={{ color: theme.colors.success, fontWeight: "800", fontSize: 13 }}>Add more students</Text>
             </TouchableOpacity>
           </GlassCard>
         ) : null}

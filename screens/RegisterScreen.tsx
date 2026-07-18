@@ -23,7 +23,6 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import type { User } from "@supabase/supabase-js";
 
 import AppButton from "../components/AppButton";
 import AppTextField from "../components/AppTextField";
@@ -39,9 +38,28 @@ const LOGO_DARK_SRC = require("../assets/wordslogow.png");
 const LOGO_DARK_XML = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1640" zoomAndPan="magnify" viewBox="0 0 1230 467.999983" height="624" preserveAspectRatio="xMidYMid meet" version="1.0"><defs><g/><clipPath id="81358943d2"><path d="M 0.839844 27 L 1027.078125 27 L 1027.078125 245 L 0.839844 245 Z M 0.839844 27 " clip-rule="nonzero"/></clipPath><clipPath id="4503a437f1"><rect x="0" width="1028" y="0" height="218"/></clipPath><clipPath id="626fddf5bb"><path d="M 337.71875 0.308594 L 426.523438 0.308594 L 426.523438 117.558594 L 337.71875 117.558594 Z M 337.71875 0.308594 " clip-rule="nonzero"/></clipPath><clipPath id="45e88c618b"><path d="M 396.46875 43.617188 L 396.46875 117.484375 L 367.78125 117.484375 L 367.78125 43.613281 L 337.71875 54.988281 L 382.121094 0.308594 L 426.523438 54.988281 Z M 396.46875 43.617188 " clip-rule="nonzero"/></clipPath><clipPath id="b2d141214c"><path d="M 0.71875 0.308594 L 89.523438 0.308594 L 89.523438 117.558594 L 0.71875 117.558594 Z M 0.71875 0.308594 " clip-rule="nonzero"/></clipPath><clipPath id="b4e470f895"><path d="M 59.46875 43.617188 L 59.46875 117.484375 L 30.78125 117.484375 L 30.78125 43.613281 L 0.71875 54.988281 L 45.121094 0.308594 L 89.523438 54.988281 Z M 59.46875 43.617188 " clip-rule="nonzero"/></clipPath><clipPath id="05a681e73c"><rect x="0" width="90" y="0" height="118"/></clipPath><clipPath id="e0372672ac"><path d="M 57 239 L 961 239 L 961 310.28125 L 57 310.28125 Z M 57 239 " clip-rule="nonzero"/></clipPath><clipPath id="477d1c2ee0"><rect x="0" width="904" y="0" height="72"/></clipPath><clipPath id="2a3a250323"><rect x="0" width="1028" y="0" height="311"/></clipPath></defs><g transform="matrix(1, 0, 0, 1, 111, 79)"><g clip-path="url(#2a3a250323)"><g clip-path="url(#81358943d2)"><g transform="matrix(1, 0, 0, 1, 0, 27)"><g clip-path="url(#4503a437f1)"><g fill="#ffffff" fill-opacity="1"><g transform="translate(1.723852, 172.619771)"><g><path d="M 111.421875 -23.171875 L 111.421875 0 L 14.796875 0 L 14.796875 -124.78125 L 109.09375 -124.78125 L 109.09375 -101.609375 L 43.5 -101.609375 L 43.5 -74.515625 L 101.4375 -74.515625 L 101.4375 -52.046875 L 43.5 -52.046875 L 43.5 -23.171875 Z M 111.421875 -23.171875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(141.663387, 172.619771)"><g><path d="M 14.796875 -124.78125 L 43.671875 -124.78125 L 43.671875 -23.53125 L 106.25 -23.53125 L 106.25 0 L 14.796875 0 Z M 14.796875 -124.78125 "/></g></g></g><g fill="#ff751f" fill-opacity="1"><g transform="translate(269.661335, 172.619771)"><g><path d="M 70.234375 2.140625 C 52.410156 2.140625 38.535156 -2.789062 28.609375 -12.65625 C 18.679688 -22.519531 13.71875 -36.601562 13.71875 -54.90625 L 13.71875 -124.78125 L 42.609375 -124.78125 L 42.609375 -55.96875 C 42.609375 -33.632812 51.878906 -22.46875 70.421875 -22.46875 C 79.453125 -22.46875 86.34375 -25.171875 91.09375 -30.578125 C 95.84375 -35.984375 98.21875 -44.445312 98.21875 -55.96875 L 98.21875 -124.78125 L 126.75 -124.78125 L 126.75 -54.90625 C 126.75 -36.601562 121.785156 -22.519531 111.859375 -12.65625 C 101.929688 -2.789062 88.054688 2.140625 70.234375 2.140625 Z M 70.234375 2.140625 "/></g></g></g><g fill="#ff751f" fill-opacity="1"><g transform="translate(430.457955, 172.619771)"><g><path d="M 111.421875 -23.171875 L 111.421875 0 L 14.796875 0 L 14.796875 -124.78125 L 109.09375 -124.78125 L 109.09375 -101.609375 L 43.5 -101.609375 L 43.5 -74.515625 L 101.4375 -74.515625 L 101.4375 -52.046875 L 43.5 -52.046875 L 43.5 -23.171875 Z M 111.421875 -23.171875 "/></g></g></g><g fill="#ff751f" fill-opacity="1"><g transform="translate(570.39749, 172.619771)"><g><path d="M 129.25 -124.78125 L 129.25 0 L 105.53125 0 L 43.3125 -75.765625 L 43.3125 0 L 14.796875 0 L 14.796875 -124.78125 L 38.6875 -124.78125 L 100.71875 -49.015625 L 100.71875 -124.78125 Z M 129.25 -124.78125 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(734.766764, 172.619771)"><g><path d="M 74.515625 2.140625 C 61.796875 2.140625 50.296875 -0.617188 40.015625 -6.140625 C 29.734375 -11.671875 21.648438 -19.335938 15.765625 -29.140625 C 9.890625 -38.953125 6.953125 -50.035156 6.953125 -62.390625 C 6.953125 -74.753906 9.890625 -85.835938 15.765625 -95.640625 C 21.648438 -105.441406 29.734375 -113.101562 40.015625 -118.625 C 50.296875 -124.15625 61.851562 -126.921875 74.6875 -126.921875 C 85.507812 -126.921875 95.285156 -125.019531 104.015625 -121.21875 C 112.753906 -117.414062 120.09375 -111.945312 126.03125 -104.8125 L 107.5 -87.703125 C 99.0625 -97.453125 88.601562 -102.328125 76.125 -102.328125 C 68.394531 -102.328125 61.5 -100.628906 55.4375 -97.234375 C 49.375 -93.847656 44.648438 -89.125 41.265625 -83.0625 C 37.878906 -77.007812 36.1875 -70.117188 36.1875 -62.390625 C 36.1875 -54.671875 37.878906 -47.78125 41.265625 -41.71875 C 44.648438 -35.65625 49.375 -30.929688 55.4375 -27.546875 C 61.5 -24.160156 68.394531 -22.46875 76.125 -22.46875 C 88.601562 -22.46875 99.0625 -27.394531 107.5 -37.25 L 126.03125 -20.140625 C 120.09375 -12.890625 112.722656 -7.363281 103.921875 -3.5625 C 95.128906 0.238281 85.328125 2.140625 74.515625 2.140625 Z M 74.515625 2.140625 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(885.75877, 172.619771)"><g><path d="M 74.6875 -44.203125 L 74.6875 0 L 45.8125 0 L 45.8125 -44.5625 L -2.5 -124.78125 L 28.171875 -124.78125 L 61.5 -69.34375 L 94.84375 -124.78125 L 123.1875 -124.78125 Z M 74.6875 -44.203125 "/></g></g></g></g></g></g><g clip-path="url(#626fddf5bb)"><g clip-path="url(#45e88c618b)"><g transform="matrix(1, 0, 0, 1, 337, 0)"><g clip-path="url(#05a681e73c)"><g clip-path="url(#b2d141214c)"><g clip-path="url(#b4e470f895)"><path fill="#ff751f" d="M 89.523438 0.308594 L 89.523438 117.558594 L 0.71875 117.558594 L 0.71875 0.308594 Z M 89.523438 0.308594 " fill-opacity="1" fill-rule="nonzero"/></g></g></g></g></g></g><g clip-path="url(#e0372672ac)"><g transform="matrix(1, 0, 0, 1, 57, 239)"><g clip-path="url(#477d1c2ee0)"><g fill="#ffffff" fill-opacity="1"><g transform="translate(0.723803, 56.217803)"><g><path d="M 36.078125 -7.5 L 36.078125 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 L 14.09375 -32.90625 L 14.09375 -24.140625 L 32.84375 -24.140625 L 32.84375 -16.859375 L 14.09375 -16.859375 L 14.09375 -7.5 Z M 36.078125 -7.5 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(49.503485, 56.217803)"><g><path d="M 4.796875 -40.421875 L 14.140625 -40.421875 L 14.140625 -7.625 L 34.40625 -7.625 L 34.40625 0 L 4.796875 0 Z M 4.796875 -40.421875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(94.415488, 56.217803)"><g><path d="M 36.078125 -7.5 L 36.078125 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 L 14.09375 -32.90625 L 14.09375 -24.140625 L 32.84375 -24.140625 L 32.84375 -16.859375 L 14.09375 -16.859375 L 14.09375 -7.5 Z M 36.078125 -7.5 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(143.19517, 56.217803)"><g><path d="M 43.640625 -40.421875 L 26.15625 0 L 16.921875 0 L -0.515625 -40.421875 L 9.578125 -40.421875 L 21.875 -11.546875 L 34.359375 -40.421875 Z M 43.640625 -40.421875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(196.304323, 56.217803)"><g><path d="M 31.40625 -8.65625 L 12.640625 -8.65625 L 9.0625 0 L -0.515625 0 L 17.5 -40.421875 L 26.734375 -40.421875 L 44.796875 0 L 34.984375 0 Z M 28.46875 -15.765625 L 22.046875 -31.234375 L 15.640625 -15.765625 Z M 28.46875 -15.765625 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(250.568037, 56.217803)"><g><path d="M 13.15625 -32.796875 L 0.234375 -32.796875 L 0.234375 -40.421875 L 35.453125 -40.421875 L 35.453125 -32.796875 L 22.515625 -32.796875 L 22.515625 0 L 13.15625 0 Z M 13.15625 -32.796875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(296.28821, 56.217803)"><g><path d="M 36.078125 -7.5 L 36.078125 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 L 14.09375 -32.90625 L 14.09375 -24.140625 L 32.84375 -24.140625 L 32.84375 -16.859375 L 14.09375 -16.859375 L 14.09375 -7.5 Z M 36.078125 -7.5 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(345.067892, 56.217803)"><g/></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(371.44968, 56.217803)"><g><path d="M 13.15625 -32.796875 L 0.234375 -32.796875 L 0.234375 -40.421875 L 35.453125 -40.421875 L 35.453125 -32.796875 L 22.515625 -32.796875 L 22.515625 0 L 13.15625 0 Z M 13.15625 -32.796875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(417.169876, 56.217803)"><g><path d="M 41.859375 -40.421875 L 41.859375 0 L 32.5 0 L 32.5 -16.5625 L 14.140625 -16.5625 L 14.140625 0 L 4.796875 0 L 4.796875 -40.421875 L 14.140625 -40.421875 L 14.140625 -24.484375 L 32.5 -24.484375 L 32.5 -40.421875 Z M 41.859375 -40.421875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(473.858089, 56.217803)"><g><path d="M 36.078125 -7.5 L 36.078125 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 L 14.09375 -32.90625 L 14.09375 -24.140625 L 32.84375 -24.140625 L 32.84375 -16.859375 L 14.09375 -16.859375 L 14.09375 -7.5 Z M 36.078125 -7.5 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(522.637749, 56.217803)"><g/></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(549.019537, 56.217803)"><g><path d="M 14.140625 -32.90625 L 14.140625 -22.234375 L 32.84375 -22.234375 L 32.84375 -14.71875 L 14.140625 -14.71875 L 14.140625 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 Z M 14.140625 -32.90625 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(595.951982, 56.217803)"><g><path d="M 4.796875 -40.421875 L 14.140625 -40.421875 L 14.140625 -7.625 L 34.40625 -7.625 L 34.40625 0 L 4.796875 0 Z M 4.796875 -40.421875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(640.863996, 56.217803)"><g><path d="M 22.75 0.6875 C 16.976562 0.6875 12.484375 -0.90625 9.265625 -4.09375 C 6.054688 -7.289062 4.453125 -11.851562 4.453125 -17.78125 L 4.453125 -40.421875 L 13.796875 -40.421875 L 13.796875 -18.125 C 13.796875 -10.894531 16.800781 -7.28125 22.8125 -7.28125 C 25.726562 -7.28125 27.957031 -8.15625 29.5 -9.90625 C 31.039062 -11.65625 31.8125 -14.394531 31.8125 -18.125 L 31.8125 -40.421875 L 41.046875 -40.421875 L 41.046875 -17.78125 C 41.046875 -11.851562 39.4375 -7.289062 36.21875 -4.09375 C 33.007812 -0.90625 28.519531 0.6875 22.75 0.6875 Z M 22.75 0.6875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(696.397684, 56.217803)"><g><path d="M 36.078125 -7.5 L 36.078125 0 L 4.796875 0 L 4.796875 -40.421875 L 35.328125 -40.421875 L 35.328125 -32.90625 L 14.09375 -32.90625 L 14.09375 -24.140625 L 32.84375 -24.140625 L 32.84375 -16.859375 L 14.09375 -16.859375 L 14.09375 -7.5 Z M 36.078125 -7.5 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(745.177343, 56.217803)"><g><path d="M 41.859375 -40.421875 L 41.859375 0 L 34.171875 0 L 14.03125 -24.53125 L 14.03125 0 L 4.796875 0 L 4.796875 -40.421875 L 12.53125 -40.421875 L 32.625 -15.875 L 32.625 -40.421875 Z M 41.859375 -40.421875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(801.865556, 56.217803)"><g><path d="M 24.140625 0.6875 C 20.015625 0.6875 16.285156 -0.203125 12.953125 -1.984375 C 9.628906 -3.773438 7.015625 -6.257812 5.109375 -9.4375 C 3.203125 -12.613281 2.25 -16.203125 2.25 -20.203125 C 2.25 -24.210938 3.203125 -27.800781 5.109375 -30.96875 C 7.015625 -34.144531 9.628906 -36.628906 12.953125 -38.421875 C 16.285156 -40.210938 20.03125 -41.109375 24.1875 -41.109375 C 27.6875 -41.109375 30.851562 -40.488281 33.6875 -39.25 C 36.519531 -38.019531 38.894531 -36.253906 40.8125 -33.953125 L 34.8125 -28.40625 C 32.082031 -31.5625 28.695312 -33.140625 24.65625 -33.140625 C 22.15625 -33.140625 19.921875 -32.585938 17.953125 -31.484375 C 15.992188 -30.390625 14.460938 -28.859375 13.359375 -26.890625 C 12.265625 -24.929688 11.71875 -22.703125 11.71875 -20.203125 C 11.71875 -17.703125 12.265625 -15.46875 13.359375 -13.5 C 14.460938 -11.539062 15.992188 -10.015625 17.953125 -8.921875 C 19.921875 -7.828125 22.15625 -7.28125 24.65625 -7.28125 C 28.695312 -7.28125 32.082031 -8.875 34.8125 -12.0625 L 40.8125 -6.53125 C 38.894531 -4.175781 36.507812 -2.382812 33.65625 -1.15625 C 30.8125 0.0703125 27.640625 0.6875 24.140625 0.6875 Z M 24.140625 0.6875 "/></g></g></g><g fill="#ffffff" fill-opacity="1"><g transform="translate(854.224287, 56.217803)"><g><path d="M 24.1875 -14.3125 L 24.1875 0 L 14.84375 0 L 14.84375 -14.4375 L -0.8125 -40.421875 L 9.125 -40.421875 L 19.921875 -22.453125 L 30.71875 -40.421875 L 39.890625 -40.421875 Z M 24.1875 -14.3125 "/></g></g></g></g></g></g></g></g></svg>`;
 const apiBaseUrl = getApiBaseUrl();
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
+
+async function requestRegistrationEmail(accessToken: string): Promise<void> {
+  if (!supabaseUrl || !accessToken) return;
+  try {
+    const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/send-registration-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: "{}",
+    });
+    if (!response.ok && __DEV__) {
+      console.warn("send-registration-email failed", response.status, await response.text());
+    }
+  } catch (error) {
+    if (__DEV__) console.warn("send-registration-email failed", error);
+  }
+}
 
 type Option = { value: string; label: string };
+type OnboardingResponse = { error?: string };
 
 /* ─── Language Options ─── */
 type LanguageOption = { code: string; label: string };
@@ -464,14 +482,6 @@ function hasCompletedTeacherOnboarding(rawMetadata: unknown): boolean {
   );
 }
 
-function isExistingOAuthAccount(user: User): boolean {
-  const createdAt = Date.parse(user.created_at ?? "");
-  if (Number.isNaN(createdAt)) return true;
-
-  // Fresh OAuth registrations are created moments before onboarding begins.
-  return Date.now() - createdAt > 2 * 60 * 1000;
-}
-
 function ChoiceGroup({
   title,
   options,
@@ -843,8 +853,6 @@ export default function RegisterScreen() {
   const [error, setError] = useState("");
   const [oauthLoading, setOauthLoading] = useState<"google" | "apple" | null>(null);
   const [isOAuthOnboarding, setIsOAuthOnboarding] = useState(false);
-  const [showSchoolModal, setShowSchoolModal] = useState(false);
-
   // Step 1 — account
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -914,6 +922,62 @@ export default function RegisterScreen() {
     setStep(2);
   };
 
+  const buildTeacherOnboardingPayload = (plan: string, cleanedName: string, timezone: string | null) => ({
+    fullName: cleanedName,
+    countryCode: countryCode || null,
+    timezone: timezone || null,
+    profession,
+    studentCount,
+    referralSource: referralSource || null,
+    plan,
+    teachingLanguages: selectedLanguages.map((code, i) => ({
+      code,
+      isPrimary: i === 0,
+    })),
+  });
+
+  const getTeacherOnboardingError = (
+    status: number,
+    result: OnboardingResponse,
+    accountAlreadyCreated: boolean
+  ) => {
+    if (status === 401 || status === 403) {
+      return accountAlreadyCreated
+        ? "Account created, but setup is blocked by the server. Please sign in after the setup API is fixed."
+        : "Account setup is blocked by the server. Please try signing in again after the setup API is fixed.";
+    }
+
+    return result.error || "Account setup did not finish. Please try again.";
+  };
+
+  const completeTeacherOnboarding = async ({
+    accessToken,
+    plan,
+    cleanedName,
+    timezone,
+    accountAlreadyCreated,
+  }: {
+    accessToken: string;
+    plan: string;
+    cleanedName: string;
+    timezone: string | null;
+    accountAlreadyCreated: boolean;
+  }) => {
+    const onboardingResponse = await fetch(`${String(apiBaseUrl)}/api/onboarding/teacher/complete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(buildTeacherOnboardingPayload(plan, cleanedName, timezone)),
+    });
+
+    const onboardingResult = (await onboardingResponse.json().catch(() => ({}))) as OnboardingResponse;
+    if (!onboardingResponse.ok) {
+      throw new Error(getTeacherOnboardingError(onboardingResponse.status, onboardingResult, accountAlreadyCreated));
+    }
+  };
+
   const handleCreateAccount = async (plan: string) => {
     if (loading) return;
     setError("");
@@ -926,6 +990,7 @@ export default function RegisterScreen() {
         email: cleanedEmail,
         password,
         options: {
+          emailRedirectTo: `${apiBaseUrl.replace(/\/$/, "")}/auth/callback?next=/dashboard&welcome=1`,
           data: {
             role: "teacher",
             name: cleanedName,
@@ -943,19 +1008,38 @@ export default function RegisterScreen() {
           },
         },
       });
-      if (signUpError) throw signUpError;
+      if (signUpError) {
+        const signUpMessage = signUpError.message.toLowerCase();
+        const isAlreadyRegistered =
+          signUpMessage.includes("already registered") ||
+          signUpMessage.includes("already exists") ||
+          signUpMessage.includes("user already");
 
-      if (supabaseUrl && anonKey) {
-        fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/send-registration-email`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${anonKey}`,
-          },
-          body: JSON.stringify({ email: cleanedEmail, name: cleanedName }),
-        }).catch((error) => {
-          if (__DEV__) console.warn("send-registration-email failed", error);
+        if (!isAlreadyRegistered) throw signUpError;
+
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: cleanedEmail,
+          password,
         });
+
+        if (signInError) {
+          throw new Error("This email is already registered. Please sign in instead, or use the original password to finish setup.");
+        }
+
+        if (!signInData.session?.access_token) {
+          throw new Error("This email is already registered. Please sign in to continue.");
+        }
+
+        await completeTeacherOnboarding({
+          accessToken: signInData.session.access_token,
+          plan,
+          cleanedName,
+          timezone,
+          accountAlreadyCreated: false,
+        });
+
+        goToDashboard();
+        return;
       }
 
       const session = signUpData.session;
@@ -970,31 +1054,15 @@ export default function RegisterScreen() {
         return;
       }
 
-      // Finish teacher onboarding before entering the app so profile data exists.
-      const onboardingResponse = await fetch(`${String(apiBaseUrl)}/api/onboarding/teacher/complete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          fullName: cleanedName,
-          countryCode: countryCode || null,
-          timezone: timezone || null,
-          profession,
-          studentCount,
-          referralSource: referralSource || null,
-          plan,
-          teachingLanguages: selectedLanguages.map((code, i) => ({
-            code,
-            isPrimary: i === 0,
-          })),
-        }),
+      await completeTeacherOnboarding({
+        accessToken: session.access_token,
+        plan,
+        cleanedName,
+        timezone,
+        accountAlreadyCreated: true,
       });
-      const onboardingResult = (await onboardingResponse.json().catch(() => ({}))) as { error?: string };
-      if (!onboardingResponse.ok) {
-        throw new Error(onboardingResult.error || "Account created, but setup did not finish. Please try signing in again.");
-      }
+
+      await requestRegistrationEmail(session.access_token);
 
       goToDashboard();
     } catch (err: unknown) {
@@ -1056,30 +1124,15 @@ export default function RegisterScreen() {
       });
       if (updateUserError) throw updateUserError;
 
-      const onboardingResponse = await fetch(`${String(apiBaseUrl)}/api/onboarding/teacher/complete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          fullName: cleanedName,
-          countryCode: countryCode || null,
-          timezone: timezone || null,
-          profession,
-          studentCount,
-          referralSource: referralSource || null,
-          plan,
-          teachingLanguages: selectedLanguages.map((code, i) => ({
-            code,
-            isPrimary: i === 0,
-          })),
-        }),
+      await completeTeacherOnboarding({
+        accessToken: session.access_token,
+        plan,
+        cleanedName,
+        timezone,
+        accountAlreadyCreated: false,
       });
-      const onboardingResult = (await onboardingResponse.json().catch(() => ({}))) as { error?: string };
-      if (!onboardingResponse.ok) {
-        throw new Error(onboardingResult.error || "Account setup did not finish. Please try again.");
-      }
+
+      await requestRegistrationEmail(session.access_token);
 
       goToDashboard();
     } catch (err: unknown) {
@@ -1110,7 +1163,7 @@ export default function RegisterScreen() {
       const user = userData.user;
       if (!user) throw new Error("Unable to load account after sign in.");
 
-      if (isExistingOAuthAccount(user) || hasCompletedTeacherOnboarding(user.user_metadata)) {
+      if (hasCompletedTeacherOnboarding(user.user_metadata)) {
         await supabase.auth.signOut();
         Alert.alert(
           "Account already exists",
@@ -1701,7 +1754,83 @@ export default function RegisterScreen() {
   <>
     {error ? <ErrorBanner message={error} theme={theme} /> : null}
 
-    {/* Featured Plan: Standard with 14-Day Trial */}
+    <TouchableOpacity
+      onPress={() => (isOAuthOnboarding ? handleCompleteOAuthOnboarding("basic") : handleCreateAccount("basic"))}
+      activeOpacity={0.86}
+      disabled={loading}
+      style={{
+        borderRadius: 22,
+        borderWidth: 2,
+        borderColor: theme.colors.success,
+        backgroundColor: theme.isDark ? "rgba(16,185,129,0.10)" : "#F0FDF6",
+        padding: 18,
+        marginBottom: 14,
+        opacity: loading ? 0.72 : 1,
+      }}
+    >
+      <View style={{ gap: 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  backgroundColor: theme.colors.successSoft,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="leaf-outline" size={18} color={theme.colors.success} />
+              </View>
+              <Text style={[theme.typography.label, { color: theme.colors.success, fontWeight: "900" }]}>
+                START HERE
+              </Text>
+            </View>
+            <Text style={[theme.typography.title, { fontSize: 30, lineHeight: 34 }]}>Free</Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted, lineHeight: 21 }]}>
+              Full access for one active student. No credit card required.
+            </Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={[theme.typography.title, { fontSize: 30, lineHeight: 34 }]}>$0</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>forever</Text>
+          </View>
+        </View>
+
+        <View style={{ gap: 9 }}>
+          {[
+            "1 active student",
+            "Lessons, tests, AI tools, and student practice",
+            "Upgrade later when your roster grows",
+          ].map((feature) => (
+            <View key={feature} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Feather name="check-circle" size={17} color={theme.colors.success} />
+              <Text style={[theme.typography.body, { flex: 1 }]}>{feature}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View
+          style={{
+            borderRadius: 14,
+            backgroundColor: theme.colors.success,
+            paddingVertical: 13,
+            alignItems: "center",
+            justifyContent: "center",
+            flexDirection: "row",
+            gap: 8,
+          }}
+        >
+          {loading ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+          <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "900" }}>Continue with Free</Text>
+          {!loading ? <Feather name="arrow-right" size={16} color="#FFFFFF" /> : null}
+        </View>
+      </View>
+    </TouchableOpacity>
+
+    {/* Featured Plan: Standard */}
     <GlassCard 
       style={{ 
         borderRadius: 20, 
@@ -1716,39 +1845,38 @@ export default function RegisterScreen() {
       <View style={{ gap: 14 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ gap: 4 }}>
-            <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', letterSpacing: 1 }]}>RECOMMENDED</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', letterSpacing: 1 }]}>MOST POPULAR</Text>
             <Text style={[theme.typography.title, { fontSize: 28 }]}>Standard</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[theme.typography.title, { fontSize: 28 }]}>$14.99</Text>
+            <Text style={[theme.typography.title, { fontSize: 28 }]}>$9.99 CAD</Text>
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>per month</Text>
           </View>
         </View>
 
-        {/* Risk Reversal Banner */}
         <View style={{ backgroundColor: theme.colors.primarySoft, padding: 12, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: theme.colors.primary }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={[theme.typography.bodyStrong, { color: theme.colors.primary, fontSize: 14 }]}>
-              ✨ 14-Day Free Trial
+              More room for your students
             </Text>
             <Text style={[theme.typography.bodyStrong, { color: theme.colors.primary, fontSize: 14 }]}>
-              $0 due today
+              30 seats
             </Text>
           </View>
           <Text style={[theme.typography.caption, { color: theme.colors.primary, marginTop: 4 }]}>
-            Cancel anytime before your trial ends.
+            Free includes all tools with 1 student. Standard expands your active student capacity.
           </Text>
         </View>
 
         <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
-          The complete toolkit for independent teachers and classroom educators.
+          The same full-access toolkit with more student seats for independent teachers and classroom educators.
         </Text>
 
         {/* Condensed Feature Highlights */}
         <View style={{ gap: 9, marginVertical: 2 }}>
           {[
-            "Up to 30 Students included",
-            "Access to 100+ Lessons & AI Tools",
+            "Up to 30 active students",
+            "All lesson, test, AI, and student practice tools",
             "Full Teacher & Student App Access",
             "Instant Feedback & Grade Tracking"
           ].map((feature, i) => (
@@ -1761,133 +1889,21 @@ export default function RegisterScreen() {
 
         <View style={{ gap: 3, marginTop: 10 }}>
           <AppButton 
-            label="Start My 14-Day Free Trial" 
+            label="Choose Standard"
             onPress={() => (isOAuthOnboarding ? handleCompleteOAuthOnboarding("standard") : handleCreateAccount("standard"))} 
             loading={loading} 
           />
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
-            <Feather name="lock" size={12} color={theme.colors.textMuted} />
+            <Feather name="arrow-up-right" size={12} color={theme.colors.textMuted} />
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              Secure checkout via Stripe
+              Standard includes all Free tools and expands your roster to 30 active students.
             </Text>
           </View>
         </View>
 
-{/* Secondary Plans: Basic and School - Condensed */}
-<View style={{ paddingVertical: 1, marginTop: 1 }}>
-  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-    <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
-    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginHorizontal: 12, fontWeight: '600' }]}>OR</Text>
-    <View style={{ flex: 1, height: 1, backgroundColor: theme.colors.border }} />
-  </View>
-
-  <View style={{ flexDirection: 'row', gap: 8 }}>
-    {/* School Plan */}
-    <TouchableOpacity 
-      onPress={() => setShowSchoolModal(true)}
-      activeOpacity={0.6}
-      style={{ 
-        flex: 1, 
-        padding: 10, 
-        borderRadius: 12, 
-        backgroundColor: theme.colors.background, 
-        borderWidth: 2, 
-        borderColor: '#8b5cf6',
-        justifyContent: 'center'
-      }}
-    >
-      <Text 
-        numberOfLines={1} 
-        adjustsFontSizeToFit 
-        style={[theme.typography.caption, { fontWeight: '700', fontSize: 13, color: '#000' }]}
-      >
-        Schools/Organization
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-        <Text 
-          numberOfLines={1} 
-          adjustsFontSizeToFit
-          style={{ color: theme.colors.textMuted, fontSize: 10.5, flexShrink: 1 }}
-        >
-          Click for more info
-        </Text>
-        <Feather name="chevron-right" size={12} color={theme.colors.primary} style={{ marginLeft: 2 }} />
-      </View>
-    </TouchableOpacity>
-
-    {/* Basic Plan */}
-    <TouchableOpacity 
-      onPress={() => (isOAuthOnboarding ? handleCompleteOAuthOnboarding("basic") : handleCreateAccount("basic"))}
-      activeOpacity={0.6}
-      style={{ 
-        flex: 1, 
-        padding: 10, 
-        borderRadius: 12, 
-        backgroundColor: theme.colors.background, 
-        borderWidth: 2, 
-        borderColor: '#10b981',
-        justifyContent: 'center'
-      }}
-    >
-      <Text 
-        numberOfLines={1} 
-        adjustsFontSizeToFit 
-        style={[theme.typography.caption, { fontWeight: '700', fontSize: 13, color: theme.colors.text }]}
-      >
-        Start with Basic
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-        {/* We use a nested text component to keep the full "1 Student" wording together */}
-        <Text 
-          numberOfLines={1} 
-          adjustsFontSizeToFit 
-          minimumFontScale={0.8}
-          style={{ fontSize: 10.5, flexShrink: 1 }}
-        >
-          <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>$0/mo </Text>
-          <Text style={{ color: theme.colors.textMuted }}>| 1 Student</Text>
-        </Text>
-        <Feather name="chevron-right" size={12} color={theme.colors.primary} style={{ marginLeft: 2 }} />
-      </View>
-    </TouchableOpacity>
-  </View>
-</View>
       </View>
     </GlassCard>
 
-    {/* School Modal */}
-    <Modal visible={showSchoolModal} animationType="fade" transparent>
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
-        <View style={{ backgroundColor: theme.colors.background, borderRadius: 16, padding: 20, maxHeight: '80%' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Text style={theme.typography.title}>School & Organizations</Text>
-            <TouchableOpacity onPress={() => setShowSchoolModal(false)} style={{ padding: 4 }}>
-              <Ionicons name="close" size={24} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={[theme.typography.body, { marginBottom: 16 }]}>
-              Designed for educational institutions looking for comprehensive language solutions.
-            </Text>
-            <Text style={theme.typography.bodyStrong}>Key Features:</Text>
-            <View style={{ gap: 8, marginVertical: 12 }}>
-              {["Unlimited Students", "Multiple Teacher Accounts", "Advanced Analytics", "Priority Support", "Bulk Management"].map((f, i) => (
-                <Text key={i} style={theme.typography.caption}>• {f}</Text>
-              ))}
-            </View>
-            <AppButton
-              label="Contact for Quote"
-              onPress={async () => {
-                const mailto = "mailto:nathan@eluency.com?subject=School%20Plan%20Quote";
-                const ok = await Linking.canOpenURL(mailto);
-                if (ok) await Linking.openURL(mailto);
-                setShowSchoolModal(false);
-              }}
-            />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
   </>
 )}
       </ScrollView>

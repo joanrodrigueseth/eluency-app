@@ -131,7 +131,7 @@ function AppShell() {
     };
   }, [hasSession]);
 
-  // Handle notification taps — navigate teacher to Students screen
+  // Handle notification taps - navigate teacher to Students screen
   useEffect(() => {
     let sub: { remove: () => void } | null = null;
 

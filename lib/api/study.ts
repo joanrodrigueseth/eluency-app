@@ -4,6 +4,7 @@ import type {
   StudentSessionPayload,
   StudyProgress,
   TestGamePayload,
+  VerifiedTestAttempt,
   VerifyAnswerPayload,
   VerifyAnswerResult,
 } from "../../types/study-game";
@@ -51,17 +52,17 @@ export async function getStudentSession(sessionId: string): Promise<StudentSessi
   return json;
 }
 
-export async function getAssignedLessons(lessonIds: string[]): Promise<LessonGamePayload[]> {
+export async function getAssignedLessons(sessionId: string, lessonIds: string[]): Promise<LessonGamePayload[]> {
   if (!lessonIds.length) return [];
-  const res = await fetchNoStore(`/api/lessons?lessonIds=${encodeURIComponent(lessonIds.join(","))}`);
+  const res = await fetchNoStore(`/api/lessons?session=${encodeURIComponent(sessionId)}&lessonIds=${encodeURIComponent(lessonIds.join(","))}`);
   const json = await parseJsonSafe<{ data?: LessonGamePayload[]; error?: string }>(res);
   if (!res.ok || !json || json.error) throw new Error(json?.error ?? "Failed to load lessons");
   return Array.isArray(json.data) ? json.data : [];
 }
 
-export async function getAssignedTests(testIds: string[]): Promise<TestGamePayload[]> {
+export async function getAssignedTests(sessionId: string, testIds: string[]): Promise<TestGamePayload[]> {
   if (!testIds.length) return [];
-  const res = await fetchNoStore(`/api/tests?testIds=${encodeURIComponent(testIds.join(","))}`);
+  const res = await fetchNoStore(`/api/tests?session=${encodeURIComponent(sessionId)}&testIds=${encodeURIComponent(testIds.join(","))}`);
   const json = await parseJsonSafe<{ data?: TestGamePayload[]; error?: string }>(res);
   if (!res.ok || !json || json.error) throw new Error(json?.error ?? "Failed to load tests");
   return Array.isArray(json.data) ? json.data : [];
@@ -84,6 +85,33 @@ export async function saveRemoteProgress(sessionId: string, progress: StudyProgr
     const json = await parseJsonSafe<{ error?: string }>(res);
     throw new Error(json?.error ?? "Failed to sync progress");
   }
+}
+
+export async function revokeStudentSession(sessionId: string): Promise<void> {
+  await fetch(`${apiBaseUrl}/api/students/session`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  }).catch(() => {});
+}
+
+export async function submitTestAttempt(input: {
+  sessionId: string;
+  testId: string;
+  attemptKey: string;
+  mode: "typing" | "multiple-choice" | "listening" | "image";
+  direction: "pt-en" | "en-pt";
+  startedAt?: string | null;
+  answers: Array<{ questionIndex: number; answer: string; selectedOptionId?: string | null }>;
+}): Promise<VerifiedTestAttempt> {
+  const res = await fetch(`${apiBaseUrl}/api/game/test-attempts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, completedAt: new Date().toISOString() }),
+  });
+  const json = await parseJsonSafe<{ attempt?: VerifiedTestAttempt; error?: string }>(res);
+  if (!res.ok || !json?.attempt) throw new Error(json?.error ?? "Test attempt could not be verified");
+  return json.attempt;
 }
 
 export async function verifyAnswer(payload: VerifyAnswerPayload): Promise<VerifyAnswerResult | null> {

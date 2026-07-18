@@ -5,7 +5,7 @@
     "scheme": "eluency",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/favicon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -23,9 +23,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/favicon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "versionCode": 1,
       "package": "com.eluency.mobile",
@@ -55,7 +54,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/favicon.png",
           "color": "#3B5EDB",
           "sounds": []
         }
@@ -69,13 +68,17 @@
           "recordAudioAndroid": false
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "expo-web-browser"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "apiBaseUrl": "https://www.eluency.com"
+      "apiBaseUrl": "https://www.eluency.com",
+      "eas": {
+        "projectId": "0ac23162-f89b-4ed5-a5be-b433c2a2d700"
+      }
     }
   }
 }

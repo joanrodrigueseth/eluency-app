@@ -11,6 +11,7 @@ import {
   Easing,
   Linking,
   Modal,
+  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -581,6 +582,8 @@ export default function DashboardScreen() {
   const apiBaseUrl = getApiBaseUrl();
 
   const [loading, setLoading] = useState(true);
+  const [refreshingDashboard, setRefreshingDashboard] = useState(false);
+  const [dashboardReloadKey, setDashboardReloadKey] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
  
@@ -730,15 +733,15 @@ export default function DashboardScreen() {
       return;
     }
     if (label === "New Lesson" || label === "New Lessons" || label === "Create Lesson") {
-      navigation.navigate("Lessons");
+      navigation.navigate("LessonForm");
       return;
     }
     if (label === "New Test" || label === "New Tests" || label === "Create Test") {
-      navigation.navigate("Tests");
+      navigation.navigate("TestForm");
       return;
     }
     if (label === "Add Student" || label === "Add Students" || label === "Create Student") {
-      navigation.navigate("Students");
+      navigation.navigate("StudentForm");
       return;
     }
     if (label === "Add Teacher" || label === "Add Principal" || label === "Create Teacher" || label === "Create Principal") {
@@ -869,6 +872,7 @@ export default function DashboardScreen() {
       } finally {
         if (!isMounted) return;
         setLoading(false);
+        setRefreshingDashboard(false);
       }
     }
  
@@ -931,6 +935,7 @@ export default function DashboardScreen() {
       } finally {
         if (!isMounted) return;
         setLoading(false);
+        setRefreshingDashboard(false);
       }
     }
  
@@ -940,7 +945,12 @@ export default function DashboardScreen() {
     return () => {
       isMounted = false;
     };
-  }, [apiBaseUrl, isStudentMode, navigation, sessionId]);
+  }, [apiBaseUrl, dashboardReloadKey, isStudentMode, navigation, sessionId]);
+
+  const refreshDashboard = useCallback(() => {
+    setRefreshingDashboard(true);
+    setDashboardReloadKey((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -3029,6 +3039,14 @@ export default function DashboardScreen() {
             paddingBottom: 36,
           }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshingDashboard}
+              onRefresh={refreshDashboard}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
+          }
         >
           {loading ? (
             <View>

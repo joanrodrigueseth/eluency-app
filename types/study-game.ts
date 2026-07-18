@@ -12,7 +12,6 @@ export type StudentSessionPayload = {
   student: {
     id: string;
     name: string;
-    code: string;
     assigned_lessons: string[];
     assigned_tests: string[];
   };
@@ -55,6 +54,8 @@ export type LessonGamePayload = {
   tags?: string[];
   document_url?: string;
   document_name?: string;
+  learning_objectives?: string[];
+  estimated_minutes?: number;
 };
 
 export type TestGamePayload = {
@@ -64,6 +65,7 @@ export type TestGamePayload = {
   updated_at?: string;
   cover_image_url?: string | null;
   words: Array<{
+    question_index?: number;
     pt?: string;
     en?: string;
     /** Signed or absolute URL when API includes it alongside img. */
@@ -92,6 +94,7 @@ export type TestGamePayload = {
 
 export type GameWord = {
   id: string;
+  questionIndex?: number;
   lessonId?: string;
   lessonName?: string;
   lessonLanguagePair?: string;
@@ -129,6 +132,7 @@ export type GameWord = {
 };
 
 export type VerifyAnswerPayload = {
+  sessionId: string;
   correctAnswer: string;
   userAnswer: string;
   sourceText?: string;
@@ -176,8 +180,21 @@ export type StudyRecord = {
   totalWords: number;
   percentage: number;
   passed?: boolean;
+  verified?: boolean;
+  requiresReview?: boolean;
   direction: StudyDirection;
   issues?: StudyRecordIssue[];
+};
+
+export type VerifiedTestAttempt = {
+  id: string;
+  score: number;
+  totalQuestions: number;
+  percentage: number;
+  passed: boolean;
+  requiresReview: boolean;
+  grading: unknown[];
+  historyRecord: StudyRecord;
 };
 
 export type WordStatsItem = {

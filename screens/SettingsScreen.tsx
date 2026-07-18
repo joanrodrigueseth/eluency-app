@@ -351,7 +351,7 @@ export default function SettingsScreen() {
   const profilePlanPillText = theme.isDark ? planColorDark.text : planColor.text;
   const effectiveStudentLimit =
     planKey === "basic" ? 1 : planKey === "standard" ? 30 : (planInfo?.student_limit ?? null);
-  const planCtaLabel = planKey === "basic" ? "Upgrade Now!" : "View Plans";
+  const planCtaLabel = planKey === "basic" ? "Add more students" : "Manage plan";
   const studentUsageLabel =
     effectiveStudentLimit === 999 || effectiveStudentLimit === -1
       ? `${studentCount} / Unlimited`

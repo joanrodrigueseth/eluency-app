@@ -783,7 +783,7 @@ export default function TestsScreen() {
         {!isAdmin && isBasicPlan ? (
           <GlassCard style={{ borderRadius: 16, marginBottom: 14 }} padding={14} variant="strong">
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-              Basic includes full test creation with AI tools and a 1 student cap. Upgrade for a larger classroom.
+              Free includes full test creation with AI tools and a 1 student cap. Upgrade to Standard when you need more seats.
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate("Subscription")}
@@ -803,7 +803,7 @@ export default function TestsScreen() {
               }}
             >
               <Ionicons name="diamond-outline" size={14} color={theme.isDark ? theme.colors.primary : AZULEJO_BLUE} />
-              <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "800", fontSize: 13 }}>View plans</Text>
+              <Text style={{ color: theme.isDark ? theme.colors.primary : AZULEJO_BLUE, fontWeight: "800", fontSize: 13 }}>Add more students</Text>
             </TouchableOpacity>
           </GlassCard>
         ) : null}

@@ -1,22 +1,21 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 20.5.1",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "environment": "development"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "environment": "preview"
     },
     "production": {
-      "ios": {
-        "distribution": "appstore"
-      },
-      "android": {
-        "buildType": "app-bundle"
-      }
+      "autoIncrement": true,
+      "environment": "production"
     }
   },
   "submit": {

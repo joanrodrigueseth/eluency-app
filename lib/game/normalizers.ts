@@ -181,6 +181,7 @@ export function normalizeTestsToWords(tests: TestGamePayload[], assetRefreshEpoc
       if (!pt && !en) continue;
       out.push({
         id: `test-${test.id}-${stableToken(`${pt}-${en}`) || i}`,
+        questionIndex: Number.isInteger(q.question_index) ? q.question_index : i,
         testId: test.id,
         testName: test.name,
         sourceType: "test",

@@ -130,25 +130,30 @@ export async function hydrateProgress(sessionId: string): Promise<StudyProgress>
   return merged;
 }
 
-let progressSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const progressSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function scheduleProgressSync(sessionId: string, progress: StudyProgress, delayMs = 1200) {
-  if (progressSaveTimer) clearTimeout(progressSaveTimer);
-  progressSaveTimer = setTimeout(() => {
+  const currentTimer = progressSaveTimers.get(sessionId);
+  if (currentTimer) clearTimeout(currentTimer);
+  queueProgressSync(sessionId, progress).catch(() => {});
+  const timer = setTimeout(() => {
     saveRemoteProgress(sessionId, progress)
       .then(() => clearQueuedProgressSync(sessionId))
       .catch(() => {
         queueProgressSync(sessionId, progress).catch(() => {});
       });
-    progressSaveTimer = null;
+    progressSaveTimers.delete(sessionId);
   }, delayMs);
+  progressSaveTimers.set(sessionId, timer);
 }
 
 export async function flushProgressSync(sessionId: string, progress: StudyProgress) {
-  if (progressSaveTimer) {
-    clearTimeout(progressSaveTimer);
-    progressSaveTimer = null;
+  const currentTimer = progressSaveTimers.get(sessionId);
+  if (currentTimer) {
+    clearTimeout(currentTimer);
+    progressSaveTimers.delete(sessionId);
   }
+  await queueProgressSync(sessionId, progress);
   try {
     await saveRemoteProgress(sessionId, progress);
     await clearQueuedProgressSync(sessionId);
