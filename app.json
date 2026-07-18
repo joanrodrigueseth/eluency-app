@@ -17,6 +17,7 @@
       "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSUserNotificationUsageDescription": "Eluency uses notifications for assignments, announcements, and learning updates.",
         "NSPhotoLibraryUsageDescription": "Eluency uses your photo library to choose images for lessons, tests, and covers."
       }
