@@ -92,3 +92,17 @@ export function historyDirectionLabel(
   const { shortA, shortB } = getDisplayShortLabels(pairCode, lessonLanguage);
   return direction === "pt-en" ? `${shortA} → ${shortB}` : `${shortB} → ${shortA}`;
 }
+
+export function ttsLangFromShort(shortCode: string): string {
+  const locales: Record<string, string> = {
+    PT: "pt-BR", ES: "es-ES", FR: "fr-FR", DE: "de-DE", IT: "it-IT",
+    JA: "ja-JP", KO: "ko-KR", ZH: "zh-CN", AR: "ar-SA", EN: "en-US",
+  };
+  return locales[shortCode.toUpperCase()] ?? "en-US";
+}
+
+export function studySpeechLanguage(pair: string | null | undefined, lessonLanguage: string | null | undefined,
+  direction: "pt-en" | "en-pt"): string {
+  const meta = getDisplayLanguageMeta(pair, lessonLanguage);
+  return ttsLangFromShort(direction === "pt-en" ? meta.shortA : meta.shortB);
+}

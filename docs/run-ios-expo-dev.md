@@ -1,123 +1,63 @@
-# Beginner Guide: Run Expo on iOS (Mac)
+# Run the student app on iOS (Mac)
 
-This is a very beginner-friendly guide for someone who only has a Mac and wants to run the app.
+## Requirements
 
-## What you need first
+Use a Mac with Xcode, its command-line tools, and a Node.js version supported by
+the installed Expo SDK. Open Xcode once to complete its setup. Native builds
+also require CocoaPods.
 
-1. A Mac
-2. Internet connection
-3. Xcode (free in the App Store)
-4. Terminal app (already on Mac)
+## Install and start
 
-That is enough to start.
+Open Terminal in the `eluency-app` repository:
 
-## Step 1: Install Xcode
-
-1. Open the **App Store**
-2. Search for **Xcode**
-3. Click **Get / Install**
-4. After install, open Xcode once and accept everything it asks
-
-Important: first Xcode launch can take a few minutes.
-
-## Step 2: Install Homebrew (package manager)
-
-Open **Terminal** and run:
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```sh
+npm ci
+npm run check
+npm start
 ```
 
-After installation, close and reopen Terminal.
+Press `i` to open the iOS simulator with Expo Go, or scan the QR code in Expo Go
+on an iPhone connected to the same network.
 
-## Step 3: Install Node.js and Bun
+The app opens to student access-code entry. Ask a teacher for a six-character
+code, or use the existing shared student demo. Teacher registration and
+Google/Apple sign-in are no longer part of the mobile application.
 
-In Terminal:
+The API uses `app.json` by default. See the
+[README](../README.md#api-configuration) for the optional development override.
+No Supabase or OAuth environment variables are required.
 
-```bash
-brew install node
-brew install oven-sh/bun/bun
+## Native development build
+
+Remote notification delivery needs an installed native build. On the Mac:
+
+```sh
+npm run ios
+npm run start:dev-client
 ```
 
-Check if installed:
+For a physical device, use the project's existing EAS development profile or
+run `npx expo run:ios --device` with the appropriate Xcode signing setup.
+The existing bundle ID is `com.eluency.mobile`.
 
-```bash
-node -v
-bun -v
+After the phase 3 native-plugin cleanup, install a fresh native binary. Updating
+JavaScript in an older binary will not remove its prior capabilities.
+
+## Troubleshooting
+
+If Metro appears stale, stop it and run:
+
+```sh
+npm start -- --clear
 ```
 
-If both commands show version numbers, you are ready.
+For a simulator launch failure, open Xcode and the Simulator app before retrying.
+For a real-device connection failure, check that the phone can reach the
+development computer and the configured API address.
 
-## Step 4: Open the project folder
+## Device checks
 
-In Terminal, go to the mobile app folder:
-
-```bash
-cd ~/Documents/Work/eluency-mobile
-```
-
-If your folder is in a different location, use that path instead.
-
-## Step 5: Install project packages
-
-```bash
-bun install
-```
-
-Wait until it finishes.
-
-## Step 6: Start Expo
-
-```bash
-bun start
-```
-
-You will now see the Expo developer screen in Terminal.
-
-## Step 7: Run on iOS Simulator (easiest on Mac)
-
-While Expo is running:
-
-- press **`i`** in Terminal
-
-Expo opens the iOS Simulator and runs the app.
-
-## Step 8: Run on your real iPhone (optional)
-
-1. Install **Expo Go** from the App Store on iPhone
-2. Keep Mac + iPhone on the same Wi-Fi
-3. In Expo Terminal, scan the QR code using Expo Go
-
-## If something does not work
-
-### Problem: Simulator does not open
-
-- Open Xcode manually once
-- Then try pressing `i` again in Expo Terminal
-
-### Problem: Project is stuck / weird errors
-
-Stop Expo (`Ctrl + C`) and run:
-
-```bash
-bunx expo start -c
-```
-
-Then try again.
-
-### Problem: Command not found
-
-- Close Terminal
-- Open Terminal again
-- Re-run the install command (Node or Bun)
-
-## Daily usage (next time)
-
-Every time you want to run the app again:
-
-```bash
-cd ~/Documents/Work/eluency-mobile
-bun start
-```
-
-Then press **`i`** for iOS Simulator.
+Verify code entry and clipboard paste, session persistence and expiry, switching
+students, downloaded lessons, audio/PDF viewing, test submission, teacher-reviewed
+feedback, and assignment/result notifications. TypeScript and bundle exports do
+not substitute for those checks.

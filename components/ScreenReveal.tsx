@@ -1,5 +1,6 @@
 import { PropsWithChildren, useEffect, useRef } from "react";
 import { Animated, Easing } from "react-native";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 
 type ScreenRevealProps = PropsWithChildren<{
   delay?: number;
@@ -17,12 +18,19 @@ export default function ScreenReveal({
   duration = 360,
   style,
 }: ScreenRevealProps) {
+  const reducedMotion = useReducedMotion();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(distance)).current;
   const scale = useRef(new Animated.Value(scaleFrom)).current;
 
   useEffect(() => {
-    Animated.parallel([
+    if (reducedMotion) {
+      opacity.setValue(1);
+      translateY.setValue(0);
+      scale.setValue(1);
+      return;
+    }
+    const animation = Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
         duration: Math.max(220, duration - 60),
@@ -44,8 +52,10 @@ export default function ScreenReveal({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
-  }, [delay, distance, duration, opacity, scale, translateY]);
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [delay, distance, duration, opacity, reducedMotion, scale, translateY]);
 
   return (
     <Animated.View style={[{ opacity, transform: [{ translateY }, { scale }] }, style]}>

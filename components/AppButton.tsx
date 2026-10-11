@@ -2,6 +2,7 @@ import { ReactNode, useRef } from "react";
 import { ActivityIndicator, Animated, Text, TouchableOpacity, View } from "react-native";
 import { triggerLightImpact } from "../lib/haptics";
 import { useAppTheme } from "../lib/theme";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 
 type AppButtonProps = {
   label: string;
@@ -10,7 +11,10 @@ type AppButtonProps = {
   disabled?: boolean;
   variant?: "primary" | "secondary" | "violet" | "dangerSoft";
   icon?: ReactNode;
+  trailingIcon?: ReactNode;
   fullWidth?: boolean;
+  size?: "default" | "compact";
+  preserveCase?: boolean;
 };
 
 export default function AppButton({
@@ -20,18 +24,19 @@ export default function AppButton({
   disabled = false,
   variant = "primary",
   icon,
+  trailingIcon,
   fullWidth = true,
+  size = "default",
+  preserveCase = false,
 }: AppButtonProps) {
   const theme = useAppTheme();
+  const reducedMotion = useReducedMotion();
   const pressScale = useRef(new Animated.Value(1)).current;
   const { spacing, radii } = theme;
   const isSecondary = variant === "secondary";
   const isDangerSoft = variant === "dangerSoft";
-  const isPrimary = !isSecondary && !isDangerSoft && variant !== "violet";
   const isDisabled = disabled || loading;
-  const darkPrimaryBg = "#1F3E5A";
-  const darkPrimaryBorder = "#2E5C82";
-  const darkPrimaryText = "#CFE6FF";
+  const isCompact = size === "compact";
 
   const backgroundColor =
     isSecondary
@@ -42,19 +47,19 @@ export default function AppButton({
           : "rgba(229, 91, 107, 0.12)"
       : variant === "violet"
         ? theme.colors.violet
-        : theme.isDark
-          ? darkPrimaryBg
-          : theme.colors.primary;
+        : theme.colors.primary;
 
   const textColor = isSecondary
     ? theme.colors.text
     : isDangerSoft
       ? theme.colors.danger
-      : isPrimary && theme.isDark
-        ? darkPrimaryText
-        : theme.colors.primaryText;
+      : theme.colors.primaryText;
 
   const animatePress = (toValue: number) => {
+    if (reducedMotion) {
+      pressScale.setValue(1);
+      return;
+    }
     Animated.spring(pressScale, {
       toValue,
       friction: 7,
@@ -71,6 +76,9 @@ export default function AppButton({
       }}
     >
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
         onPress={() => {
           triggerLightImpact();
           onPress();
@@ -83,18 +91,16 @@ export default function AppButton({
         activeOpacity={0.92}
         style={{
           borderRadius: radii.pill,
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.md,
-          backgroundColor: isDisabled ? theme.colors.borderStrong : backgroundColor,
+          paddingHorizontal: isCompact ? spacing.md : spacing.lg,
+          paddingVertical: isCompact ? spacing.sm : spacing.md,
+          backgroundColor: disabled && !loading ? theme.colors.surfaceAlt : backgroundColor,
           borderWidth: 1,
           borderColor: isSecondary
             ? theme.colors.border
             : isDangerSoft
               ? "rgba(229, 91, 107, 0.28)"
-              : isPrimary && theme.isDark
-                ? darkPrimaryBorder
-                : "transparent",
-          minHeight: 56,
+              : "transparent",
+          minHeight: isCompact ? 44 : 56,
           shadowColor: isSecondary || isDangerSoft ? "transparent" : theme.isDark ? "#000" : theme.colors.shadow,
           shadowOpacity: isSecondary || isDangerSoft || isDisabled ? 0 : theme.isDark ? 0.08 : 0.18,
           shadowRadius: theme.isDark ? 10 : 20,
@@ -119,11 +125,11 @@ export default function AppButton({
             style={[
               theme.typography.bodyStrong,
               {
-                color: textColor,
-                fontSize: 14,
-                lineHeight: 18,
-                textTransform: "uppercase",
-                letterSpacing: 1.2,
+                color: disabled && !loading ? theme.colors.textMuted : textColor,
+                fontSize: isCompact ? 12 : 14,
+                lineHeight: isCompact ? 16 : 18,
+                textTransform: preserveCase ? "none" : "uppercase",
+                letterSpacing: preserveCase ? 0.1 : 1.2,
                 textAlign: "center",
                 flexShrink: 1,
               },
@@ -131,6 +137,7 @@ export default function AppButton({
           >
             {label}
           </Text>
+          {trailingIcon ? <View>{trailingIcon}</View> : null}
         </View>
       </TouchableOpacity>
     </Animated.View>

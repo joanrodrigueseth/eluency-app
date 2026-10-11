@@ -24,6 +24,8 @@ type AppColors = {
   primaryText: string;
   success: string;
   successSoft: string;
+  warning: string;
+  warningSoft: string;
   violet: string;
   violetSoft: string;
   danger: string;
@@ -86,18 +88,27 @@ const sharedFontFamily = Platform.select({
   default: "System",
 });
 
-const LINEN_BG = "#F7F2EA";
-const LINEN_SURFACE = "#FCFAF6";
-const LINEN_ALT = "#FFFFFF";
-
-const AZULEJO_BLUE = "#2E7ABF";
-const AZULEJO_BLUE_SOFT = "#EAF3FB";
-const GOLD = "#F3C64D";
-const GOLD_SOFT = "#FFF5DA";
-
-const INK = "#252A2E";
-const INK_MUTED = "#5F6B76";
-const INK_SOFT = "#7B8794";
+// Public website palette. Keep mobile brand colors sourced from one place.
+export const ELUENCY_WEB_PALETTE = {
+  canvas: "#FBFCFE",
+  surface: "#FFFFFF",
+  surfaceAlt: "#F3F7FB",
+  ink: "#10253F",
+  navy: "#0B1F36",
+  muted: "#526477",
+  softText: "#5F7185",
+  blue: "#0050C0",
+  blueDark: "#003F99",
+  blueSoft: "#EAF3FF",
+  green: "#1F745F",
+  greenSoft: "#E9F6F1",
+  ai: "#7042B2",
+  aiSoft: "#F2EDFB",
+  amber: "#9A5C0D",
+  amberSoft: "#FFF6E7",
+  border: "#DCE5EE",
+  borderStrong: "#C5D2DF",
+} as const;
 
 const DARK_BG = "#0F1720";
 const DARK_SURFACE = "#17212B";
@@ -110,25 +121,27 @@ const DARK_TEXT_MUTED = "#D6E0EA";
 const DARK_TEXT_SOFT = "#9FB3C8";
 
 const lightColors: AppColors = {
-  background: LINEN_BG,
-  surface: LINEN_SURFACE,
-  surfaceAlt: LINEN_ALT,
-  surfaceGlass: "rgba(252,250,246,0.78)",
-  border: "rgba(46,122,191,0.14)",
-  borderStrong: "rgba(46,122,191,0.24)",
-  text: INK,
-  textMuted: INK_MUTED,
-  textSoft: INK_SOFT,
-  primary: AZULEJO_BLUE,
-  primarySoft: AZULEJO_BLUE_SOFT,
+  background: ELUENCY_WEB_PALETTE.canvas,
+  surface: ELUENCY_WEB_PALETTE.surface,
+  surfaceAlt: ELUENCY_WEB_PALETTE.surfaceAlt,
+  surfaceGlass: "rgba(255,255,255,0.88)",
+  border: ELUENCY_WEB_PALETTE.border,
+  borderStrong: ELUENCY_WEB_PALETTE.borderStrong,
+  text: ELUENCY_WEB_PALETTE.ink,
+  textMuted: ELUENCY_WEB_PALETTE.muted,
+  textSoft: ELUENCY_WEB_PALETTE.softText,
+  primary: ELUENCY_WEB_PALETTE.blue,
+  primarySoft: ELUENCY_WEB_PALETTE.blueSoft,
   primaryText: "#FFFFFF",
-  success: "#059669",
-  successSoft: "rgba(5,150,105,0.12)",
-  violet: GOLD,
-  violetSoft: GOLD_SOFT,
+  success: ELUENCY_WEB_PALETTE.green,
+  successSoft: ELUENCY_WEB_PALETTE.greenSoft,
+  warning: ELUENCY_WEB_PALETTE.amber,
+  warningSoft: ELUENCY_WEB_PALETTE.amberSoft,
+  violet: ELUENCY_WEB_PALETTE.ai,
+  violetSoft: ELUENCY_WEB_PALETTE.aiSoft,
   danger: "#DC2626",
   dangerSoft: "rgba(220,38,38,0.12)",
-  shadow: "rgba(37,42,46,0.10)",
+  shadow: "rgba(11,31,54,0.10)",
 };
 
 const darkColors: AppColors = {
@@ -143,11 +156,13 @@ const darkColors: AppColors = {
   textSoft: DARK_TEXT_SOFT,
   primary: "#60A5FA",
   primarySoft: "rgba(96,165,250,0.16)",
-  primaryText: "#FFFFFF",
+  primaryText: DARK_BG,
   success: "#34D399",
   successSoft: "rgba(52,211,153,0.18)",
-  violet: GOLD,
-  violetSoft: "rgba(243,198,77,0.16)",
+  warning: "#FBBF24",
+  warningSoft: "rgba(251,191,36,0.16)",
+  violet: "#C4B5FD",
+  violetSoft: "rgba(196,181,253,0.16)",
   danger: "#F87171",
   dangerSoft: "rgba(248,113,113,0.20)",
   shadow: "rgba(0,0,0,0.42)",
@@ -212,21 +227,21 @@ export function useAppTheme(): AppTheme {
         fontSize: 34,
         lineHeight: 40,
         fontWeight: "700",
-        color: isDark ? colors.text : "#0F1115",
+        color: colors.text,
       },
       sectionTitle: {
         fontFamily: sharedFontFamily,
         fontSize: 27,
         lineHeight: 33,
         fontWeight: "800",
-        color: isDark ? colors.text : "#0F1115",
+        color: colors.text,
       },
       title: {
         fontFamily: sharedFontFamily,
         fontSize: 22,
         lineHeight: 28,
         fontWeight: "800",
-        color: isDark ? colors.text : "#0F1115",
+        color: colors.text,
       },
       body: {
         fontFamily: sharedFontFamily,

@@ -13,12 +13,6 @@ type FloatingToastProps = {
 
 export type FloatingToastTone = NonNullable<FloatingToastProps["tone"]>;
 
-const toneConfig = {
-  success: { icon: "checkmark-circle" as const, color: "#1F8A54", bg: "rgba(225,248,235,0.96)" },
-  info: { icon: "information-circle" as const, color: "#2E7ABF", bg: "rgba(234,243,251,0.96)" },
-  danger: { icon: "alert-circle" as const, color: "#C24141", bg: "rgba(254,238,238,0.96)" },
-};
-
 export default function FloatingToast({
   visible,
   message,
@@ -47,7 +41,11 @@ export default function FloatingToast({
 
   if (!message) return null;
 
-  const config = toneConfig[tone];
+  const config = tone === "success"
+    ? { icon: "checkmark-circle" as const, color: theme.colors.success, bg: theme.colors.successSoft }
+    : tone === "danger"
+      ? { icon: "alert-circle" as const, color: theme.colors.danger, bg: theme.colors.dangerSoft }
+      : { icon: "information-circle" as const, color: theme.colors.primary, bg: theme.colors.primarySoft };
 
   return (
     <Animated.View
@@ -81,7 +79,7 @@ export default function FloatingToast({
         }}
       >
         <Ionicons name={config.icon} size={18} color={config.color} />
-        <Text style={{ flex: 1, color: "#10202D", fontSize: 13, fontWeight: "700" }}>{message}</Text>
+        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: "700" }}>{message}</Text>
       </View>
     </Animated.View>
   );

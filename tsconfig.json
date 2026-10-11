@@ -1,19 +1,16 @@
 {
-  "extends": "@tsconfig/react-native/tsconfig.json",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "jsx": "react-native",
-    "ignoreDeprecations": "5.0",
-    "baseUrl": ".",
     "paths": {
       "@screens/*": [
-        "screens/*"
+        "./screens/*"
       ],
       "@lib/*": [
-        "lib/*"
+        "./lib/*"
       ],
       "@components/*": [
-        "components/*"
+        "./components/*"
       ]
     },
     "types": [
@@ -29,6 +26,7 @@
   ],
   "exclude": [
     "node_modules",
+    "tests",
     "babel.config.js",
     "metro.config.js"
   ]

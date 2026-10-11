@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { studentDataScope } from "../studentDataStorage";
 import * as FileSystem from "expo-file-system/legacy";
 
 import { getApiBaseUrl } from "../api/config";
@@ -35,11 +36,12 @@ function storageRoot(): string {
 }
 
 function safeSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "item";
+  const segment = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return segment && segment !== "." && segment !== ".." ? segment : "item";
 }
 
 function sessionRoot(sessionId: string): string {
-  return `${storageRoot()}/${safeSegment(sessionId)}`;
+  return `${storageRoot()}/${safeSegment(studentDataScope(sessionId))}`;
 }
 
 function lessonRoot(sessionId: string, lessonId: string): string {
@@ -47,11 +49,11 @@ function lessonRoot(sessionId: string, lessonId: string): string {
 }
 
 function sessionSnapshotKey(sessionId: string): string {
-  return `${OFFLINE_SESSION_KEY}:${sessionId}`;
+  return `${OFFLINE_SESSION_KEY}:${studentDataScope(sessionId)}`;
 }
 
 function indexKey(sessionId: string): string {
-  return `${OFFLINE_INDEX_KEY}:${sessionId}`;
+  return `${OFFLINE_INDEX_KEY}:${studentDataScope(sessionId)}`;
 }
 
 function cloneLesson(lesson: LessonGamePayload): LessonGamePayload {
@@ -196,6 +198,14 @@ export async function downloadLessonForOffline(
     seen
   )) as string | undefined;
 
+  offlineLesson.audio_url = (await downloadAsset(
+    offlineLesson.audio_url,
+    assetsDir,
+    "lesson-audio",
+    "audio",
+    seen
+  )) as string | undefined;
+
   const offlineWords: LessonGamePayload["words"] = [];
   for (let index = 0; index < (offlineLesson.words ?? []).length; index += 1) {
     const word = (offlineLesson.words ?? [])[index];
@@ -209,6 +219,26 @@ export async function downloadLessonForOffline(
       | string
       | null
       | undefined;
+    if (next.rowType === "prompt_builder" && Array.isArray(next.prompts)) {
+      next.prompts = await Promise.all(next.prompts.map(async (prompt, promptIndex) => {
+        const downloadElement = async (element: typeof prompt.a, slot: "a" | "b") => {
+          if (element.kind !== "image") return element;
+          const imageUrl = await downloadAsset(
+            element.image_url ?? element.image_path,
+            assetsDir,
+            `prompt-${label}-${promptIndex}-${slot}`,
+            "image",
+            seen
+          );
+          return { ...element, image_url: imageUrl ?? undefined };
+        };
+        return {
+          ...prompt,
+          a: await downloadElement(prompt.a, "a"),
+          b: await downloadElement(prompt.b, "b"),
+        };
+      }));
+    }
     offlineWords.push(next);
   }
   offlineLesson.words = offlineWords;
@@ -222,7 +252,11 @@ export async function downloadLessonForOffline(
     updated_at: lesson.updated_at ?? null,
     downloadedAt: new Date().toISOString(),
     bytes: await folderSize(root),
-    wordCount: Array.isArray(lesson.words) ? lesson.words.length : 0,
+    wordCount: Array.isArray(lesson.words)
+      ? lesson.words.reduce((total, word) => total + (
+          word.rowType === "prompt_builder" && Array.isArray(word.prompts) ? word.prompts.length : 1
+        ), 0)
+      : 0,
     path: payloadPath,
   };
 
@@ -233,9 +267,14 @@ export async function downloadLessonForOffline(
 }
 
 export async function removeOfflineLesson(sessionId: string, lessonId: string): Promise<void> {
-  const root = lessonRoot(sessionId, lessonId);
-  await FileSystem.deleteAsync(root, { idempotent: true }).catch(() => {});
   const index = await readIndex(sessionId);
+  const savedPath = index.lessons[lessonId]?.path;
+  const savedRoot = savedPath?.endsWith("/lesson.json") ? savedPath.slice(0, -"/lesson.json".length) : null;
+  const safeSavedRoot = savedRoot?.startsWith(`${storageRoot()}/`)
+    && savedRoot.endsWith(`/lessons/${safeSegment(lessonId)}`)
+    && !savedRoot.split("/").some((segment) => segment === "." || segment === "..");
+  const root = safeSavedRoot && savedRoot ? savedRoot : lessonRoot(sessionId, lessonId);
+  await FileSystem.deleteAsync(root, { idempotent: true }).catch(() => {});
   delete index.lessons[lessonId];
   await writeIndex(sessionId, index);
 }

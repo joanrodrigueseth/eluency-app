@@ -5,58 +5,57 @@
     "scheme": "eluency",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/favicon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.eluency.mobile",
       "buildNumber": "1",
       "supportsTablet": true,
       "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
         "ITSAppUsesNonExemptEncryption": false,
-        "NSUserNotificationUsageDescription": "Eluency uses notifications for assignments, announcements, and learning updates.",
-        "NSPhotoLibraryUsageDescription": "Eluency uses your photo library to choose images for lessons, tests, and covers."
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        },
+        "NSUserNotificationUsageDescription": "Eluency uses notifications for new assignments, reminders, and reviewed test results."
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/favicon.png",
-        "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
       },
       "versionCode": 1,
       "package": "com.eluency.mobile",
+      "allowBackup": false,
       "permissions": [
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "androidStatusBar": {
       "hidden": false,
       "translucent": false,
-      "backgroundColor": "#FFFFFF",
+      "backgroundColor": "#FBFCFE",
       "barStyle": "dark-content"
     },
     "plugins": [
       [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow Eluency to choose images for lessons, tests, and covers.",
-          "cameraPermission": false,
-          "microphonePermission": false
-        }
-      ],
-      [
         "expo-notifications",
         {
           "icon": "./assets/favicon.png",
-          "color": "#3B5EDB",
+          "color": "#0050C0",
           "sounds": []
         }
       ],
@@ -66,11 +65,21 @@
         "expo-audio",
         {
           "microphonePermission": false,
-          "recordAudioAndroid": false
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
         }
       ],
-      "@react-native-google-signin/google-signin",
-      "expo-web-browser"
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FBFCFE"
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1,38 +1,29 @@
-import { useEffect, useRef, useState } from "react";
-import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { ActivityIndicator, View } from "react-native";
+import { AppState, View } from "react-native";
+import StudyGameLoadingSkeleton from "./components/StudyGameLoadingSkeleton";
 import LoginScreen from "./screens/LoginScreen";
-import RegisterScreen from "./screens/RegisterScreen";
-import DashboardScreen from "./screens/DashboardScreen";
-import NotificationsScreen from "./screens/NotificationsScreen";
-import ChatsScreen from "./screens/ChatsScreen";
-import SendNotificationsScreen from "./screens/SendNotificationsScreen";
-import TeachersScreen from "./screens/TeachersScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import SubscriptionScreen from "./screens/SubscriptionScreen";
-import LessonPacksScreen from "./screens/LessonPacksScreen";
-import StudentsScreen from "./screens/StudentsScreen";
-import StudentFormScreen from "./screens/StudentFormScreen";
-import TestsScreen from "./screens/TestsScreen";
-import TestFormScreen from "./screens/TestFormScreen";
-import LessonsScreen from "./screens/LessonsScreen";
-import LessonFormScreen from "./screens/LessonFormScreen";
 import StudyGameScreen from "./screens/StudyGameScreen";
-import StudentResultsScreen from "./screens/StudentResultsScreen";
-import { getStoredStudentSessionId } from "./lib/studentSession";
+import { getStoredStudentSessionId, subscribeToStudentSession } from "./lib/studentSession";
+import { getStudentSession } from "./lib/api/study";
 import { ThemeProvider, useAppTheme } from "./lib/theme";
-import { clearSupabaseAuthStorage, supabase } from "./lib/supabase";
-import { ensureLocalNotificationsReady, registerStudentPushToken } from "./lib/mobileNotifications";
-import { startStudentAssignmentsWatcher, startTeacherNotificationsWatcher } from "./lib/notificationWatchers";
+import {
+  getNotificationPermissionState,
+  registerStudentPushToken,
+  requestNotificationPermissionAfterLogin,
+} from "./lib/mobileNotifications";
 import { getApiBaseUrl } from "./lib/api/config";
-import type { RootStackParamList } from "./types/navigation";
+import { startStudentAssignmentNotificationsWatcher } from "./lib/studentAssignmentNotifications";
+import { getStudentNotificationDestination, type StudentMobileStackParamList } from "./lib/studentMobileNavigation";
 
-const Stack = createNativeStackNavigator<RootStackParamList>();
-const navigationRef = createNavigationContainerRef<RootStackParamList>();
+const Stack = createNativeStackNavigator<StudentMobileStackParamList>();
+const navigationRef = createNavigationContainerRef<StudentMobileStackParamList>();
+
+type NotificationDestination = { screen: "StudyGame"; params: StudentMobileStackParamList["StudyGame"] };
 
 export default function App() {
   return (
@@ -44,206 +35,225 @@ export default function App() {
 
 function AppShell() {
   const theme = useAppTheme();
+  const navigationTheme = useMemo(() => {
+    const baseTheme = theme.isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...baseTheme,
+      dark: theme.isDark,
+      colors: {
+        ...baseTheme.colors,
+        primary: theme.colors.primary,
+        background: theme.colors.background,
+        card: theme.colors.surface,
+        text: theme.colors.text,
+        border: theme.colors.border,
+        notification: theme.colors.danger,
+      },
+    };
+  }, [theme.colors, theme.isDark]);
   const apiBaseUrl = getApiBaseUrl();
   const [authBootstrapped, setAuthBootstrapped] = useState(false);
-  const [hasSession, setHasSession] = useState(false);
   const [studentSessionId, setStudentSessionId] = useState<string | null>(null);
-  const pendingNotificationStudentIdRef = useRef<string | null>(null);
-
-  const navigateToStudentNotification = (studentId: string) => {
+  const pendingNotificationDestinationRef = useRef<NotificationDestination | null>(null);
+  const lastHandledNotificationIdRef = useRef<string | null>(null);
+  const coldStartNotificationPendingRef = useRef(true);
+  const navigateToNotificationDestination = (destination: NotificationDestination) => {
     if (navigationRef.isReady()) {
-      pendingNotificationStudentIdRef.current = null;
-      navigationRef.navigate("Students", { openStudentId: studentId });
+      pendingNotificationDestinationRef.current = null;
+      navigationRef.navigate("StudyGame", destination.params);
       return;
     }
-
-    pendingNotificationStudentIdRef.current = studentId;
+    pendingNotificationDestinationRef.current = destination;
   };
 
   const flushPendingNotificationNavigation = () => {
-    const studentId = pendingNotificationStudentIdRef.current;
-    if (!studentId || !navigationRef.isReady()) return;
-    pendingNotificationStudentIdRef.current = null;
-    navigationRef.navigate("Students", { openStudentId: studentId });
+    const destination = pendingNotificationDestinationRef.current;
+    if (!destination || !navigationRef.isReady()) return;
+    navigateToNotificationDestination(destination);
   };
 
   useEffect(() => {
     let mounted = true;
-
-    const bootstrap = async () => {
-      const storedStudentSessionId = await getStoredStudentSessionId();
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (!mounted) return;
-        if (error?.message?.toLowerCase().includes("refresh token")) {
-          await clearSupabaseAuthStorage();
-          setHasSession(false);
-        } else {
-          setHasSession(!!data.session);
-        }
-        setStudentSessionId(storedStudentSessionId);
-      } catch (error) {
-        if (!mounted) return;
-        const message = error instanceof Error ? error.message.toLowerCase() : "";
-        if (message.includes("refresh token")) {
-          await clearSupabaseAuthStorage();
-        }
-        setHasSession(false);
-        setStudentSessionId(storedStudentSessionId);
-      } finally {
-        if (!mounted) return;
-        setAuthBootstrapped(true);
+    let sessionChanged = false;
+    const unsubscribe = subscribeToStudentSession((sessionId) => {
+      sessionChanged = true;
+      coldStartNotificationPendingRef.current = false;
+      if (mounted) {
+        pendingNotificationDestinationRef.current = null;
+        setStudentSessionId(sessionId);
       }
-    };
-
-    bootstrap().catch(() => {
-      if (!mounted) return;
-      setHasSession(false);
-      setAuthBootstrapped(true);
     });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSession(!!session);
-    });
-
+    getStoredStudentSessionId()
+      .then((sessionId) => {
+        if (mounted && !sessionChanged) {
+          coldStartNotificationPendingRef.current = !!sessionId;
+          setStudentSessionId(sessionId);
+        }
+      })
+      .finally(() => {
+        if (mounted) setAuthBootstrapped(true);
+      });
     return () => {
       mounted = false;
-      listener.subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
   useEffect(() => {
-    if (hasSession) return;
-
-    let cancelled = false;
-    const intervalId = setInterval(() => {
-      getStoredStudentSessionId()
-        .then((storedId) => {
-          if (cancelled) return;
-          setStudentSessionId((prev) => (prev === storedId ? prev : storedId));
-        })
-        .catch(() => {});
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [hasSession]);
-
-  // Handle notification taps - navigate teacher to Students screen
-  useEffect(() => {
+    if (!authBootstrapped || !studentSessionId) return;
     let sub: { remove: () => void } | null = null;
+    let disposed = false;
 
     const setup = async () => {
       try {
         const Notifications = await import("expo-notifications");
 
-        const handleResponse = (response: any) => {
+        const handleResponse = async (response: import("expo-notifications").NotificationResponse) => {
+          if (disposed) return;
+          const notificationIdentifier = String(response?.notification?.request?.identifier ?? "");
+          if (notificationIdentifier && lastHandledNotificationIdRef.current === notificationIdentifier) return;
           const data = response?.notification?.request?.content?.data ?? {};
-          const studentId = typeof data.student_id === "string" ? data.student_id : null;
-          if (!studentId) return;
-          navigateToStudentNotification(studentId);
+          const currentSession = await getStudentSession(studentSessionId).catch(() => null);
+          if (disposed || !currentSession) return;
+          if (notificationIdentifier && lastHandledNotificationIdRef.current === notificationIdentifier) return;
+          const params = getStudentNotificationDestination(data, studentSessionId, notificationIdentifier, currentSession.student.id);
+          if (!params) return;
+          if (notificationIdentifier) lastHandledNotificationIdRef.current = notificationIdentifier;
+          navigateToNotificationDestination({ screen: "StudyGame", params });
         };
 
-        // Cold-start: app opened via notification tap
-        const last = await Notifications.getLastNotificationResponseAsync();
-        if (last) handleResponse(last);
+        // Restore a cold-start tap once. Signing into another student must not
+        // replay the device's previous notification response.
+        const checkColdStart = coldStartNotificationPendingRef.current;
+        coldStartNotificationPendingRef.current = false;
+        const last = checkColdStart ? await Notifications.getLastNotificationResponseAsync() : null;
+        if (disposed) return;
+        if (last) await handleResponse(last);
 
-        sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+        sub = Notifications.addNotificationResponseReceivedListener((response) => { handleResponse(response).catch(() => {}); });
       } catch {
         // expo-notifications unavailable in Expo Go / web
       }
     };
 
     setup().catch(() => {});
-    return () => { sub?.remove(); };
-  }, []);
+    return () => {
+      disposed = true;
+      sub?.remove();
+    };
+  }, [authBootstrapped, studentSessionId]);
 
   useEffect(() => {
-    if (!authBootstrapped) return;
+    if (!authBootstrapped || !studentSessionId) return;
 
-    let cleanup: (() => void) | null = null;
     let disposed = false;
+    const controller = new AbortController();
+    let registered = false;
+    let registration: Promise<boolean> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let stopAssignmentWatcher: (() => void) | null = null;
 
-    const setup = async () => {
-      await ensureLocalNotificationsReady();
-      if (disposed) return;
-
-      if (hasSession) {
-        const watcherCleanup = await startTeacherNotificationsWatcher();
-        if (disposed) {
-          watcherCleanup();
-          return;
-        }
-        cleanup = watcherCleanup;
+    const ensureAssignmentWatcher = async () => {
+      if (disposed || !studentSessionId || stopAssignmentWatcher) return;
+      const cleanup = startStudentAssignmentNotificationsWatcher(studentSessionId, apiBaseUrl);
+      if (disposed) {
+        cleanup();
         return;
       }
+      stopAssignmentWatcher = cleanup;
+    };
 
-      if (studentSessionId) {
-        await registerStudentPushToken(studentSessionId, apiBaseUrl);
-        const watcherCleanup = await startStudentAssignmentsWatcher(studentSessionId, apiBaseUrl);
-        if (disposed) {
-          watcherCleanup();
-          return;
-        }
-        cleanup = watcherCleanup;
+    const registerCurrentDevice = async () => {
+      if (disposed || registered) return registered;
+      if (registration) return registration;
+      registration = registerStudentPushToken(studentSessionId, apiBaseUrl, controller.signal);
+      const didRegister = await registration.finally(() => { registration = null; });
+
+      if (!disposed && didRegister) {
+        registered = true;
+        stopAssignmentWatcher?.();
+        stopAssignmentWatcher = null;
+      }
+      return didRegister;
+    };
+
+    const retryRegistrationIfPermitted = async () => {
+      if (disposed || registered) return;
+      const permission = await getNotificationPermissionState();
+      if (disposed || permission !== "granted") return;
+
+      const didRegister = await registerCurrentDevice();
+      if (!didRegister && !disposed) {
+        await ensureAssignmentWatcher();
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryRegistrationIfPermitted().catch(() => {});
+        }, 30000);
+      }
+    };
+
+    const setup = async () => {
+      const notificationsEnabled = await requestNotificationPermissionAfterLogin();
+      if (disposed || !notificationsEnabled) return;
+
+      const didRegister = await registerCurrentDevice();
+      if (!didRegister && !disposed) {
+        await ensureAssignmentWatcher();
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryRegistrationIfPermitted().catch(() => {});
+        }, 10000);
       }
     };
 
     setup().catch(() => {});
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") retryRegistrationIfPermitted().catch(() => {});
+    });
 
     return () => {
       disposed = true;
-      if (cleanup) cleanup();
+      controller.abort();
+      if (retryTimer) clearTimeout(retryTimer);
+      stopAssignmentWatcher?.();
+      appStateSubscription.remove();
     };
-  }, [apiBaseUrl, authBootstrapped, hasSession, studentSessionId]);
+  }, [apiBaseUrl, authBootstrapped, studentSessionId]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <StatusBar
-          style={theme.isDark ? "light" : "dark"}
-          hidden={false}
-          translucent={false}
-          backgroundColor={theme.colors.background}
-        />
-        {authBootstrapped ? (
-          <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation}>
-            <Stack.Navigator
-              initialRouteName={hasSession ? "Dashboard" : studentSessionId ? "StudyGame" : "Register"}
-              screenOptions={{
-                headerShown: false,
-              }}
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+          <StatusBar
+            style={theme.isDark ? "light" : "dark"}
+            hidden={false}
+          />
+          {authBootstrapped ? (
+            <NavigationContainer
+              ref={navigationRef}
+              theme={navigationTheme}
+              onReady={flushPendingNotificationNavigation}
             >
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
-              <Stack.Screen name="Dashboard" component={DashboardScreen} />
-              <Stack.Screen name="Notifications" component={NotificationsScreen} />
-              <Stack.Screen name="Chats" component={ChatsScreen} />
-              <Stack.Screen name="SendNotifications" component={SendNotificationsScreen} />
-              <Stack.Screen name="Teachers" component={TeachersScreen} />
-              <Stack.Screen name="Settings" component={SettingsScreen} />
-              <Stack.Screen name="Subscription" component={SubscriptionScreen} />
-              <Stack.Screen name="LessonPacks" component={LessonPacksScreen} />
-              <Stack.Screen name="Students" component={StudentsScreen} />
-              <Stack.Screen name="StudentForm" component={StudentFormScreen} />
-              <Stack.Screen name="Lessons" component={LessonsScreen} />
-              <Stack.Screen name="LessonForm" component={LessonFormScreen} />
-              <Stack.Screen name="Tests" component={TestsScreen} />
-              <Stack.Screen name="TestForm" component={TestFormScreen} />
-              <Stack.Screen name="StudentResults" component={StudentResultsScreen} />
-              <Stack.Screen name="StudyGame" component={StudyGameScreen} initialParams={{ sessionId: studentSessionId || "" }} />
-            </Stack.Navigator>
-          </NavigationContainer>
-        ) : (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-          </View>
-        )}
-      </View>
-    </SafeAreaProvider>
+              <Stack.Navigator
+                key={studentSessionId ?? "signed-out"}
+                initialRouteName={studentSessionId ? "StudyGame" : "Login"}
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: theme.colors.background },
+                }}
+              >
+                {studentSessionId ? (
+                  <Stack.Screen name="StudyGame" component={StudyGameScreen} initialParams={{ sessionId: studentSessionId }} />
+                ) : (
+                  <Stack.Screen name="Login" component={LoginScreen} />
+                )}
+              </Stack.Navigator>
+            </NavigationContainer>
+          ) : (
+            <StudyGameLoadingSkeleton theme={theme} label="Opening Eluency…" />
+          )}
+        </View>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

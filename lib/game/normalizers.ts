@@ -1,6 +1,12 @@
 import { cacheBustAssetUrl } from "../imageCacheBust";
 import { getApiBaseUrl } from "../api/config";
 import type { GameWord, LessonGamePayload, StudySessionMode, TestGamePayload } from "../../types/study-game";
+import {
+  isPromptBuilderItemComplete,
+  normalizePromptBuilderActivity,
+  promptBuilderPromptText,
+  type PromptBuilderItem,
+} from "../promptBuilder";
 
 const API_BASE = getApiBaseUrl();
 
@@ -59,16 +65,22 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[], assetRefre
     for (let i = 0; i < (lesson.words ?? []).length; i += 1) {
       const w = (lesson.words ?? [])[i] as Record<string, unknown>;
       const rowType =
-        w.rowType === "conjugation" ? "conjugation" : w.rowType === "preposition" ? "preposition" : "vocab";
+        w.rowType === "conjugation"
+          ? "conjugation"
+          : w.rowType === "preposition" || w.rowType === "prompt_builder"
+            ? "prompt_builder"
+            : "vocab";
 
       if (rowType === "conjugation") {
         const infinitive = String(w.infinitive ?? "").trim();
         const conjugations = Array.isArray(w.conjugations) ? w.conjugations : [];
-        const entries = conjugations.map((c: { pronoun?: string; form_a?: string; form_b?: string }) => ({
+        const entries = conjugations
+          .filter((c: { included?: boolean }) => c?.included !== false)
+          .map((c: { pronoun?: string; form_a?: string; form_b?: string }) => ({
           pronoun: String(c.pronoun ?? "").trim(),
           form_a: String(c.form_a ?? "").trim(),
           form_b: String(c.form_b ?? "").trim(),
-        }));
+          }));
         const withPronouns = entries.filter((e) => e.pronoun);
         if (!infinitive || withPronouns.length === 0) continue;
         const hasAnyKey = withPronouns.some((e) => e.form_a || e.form_b);
@@ -95,18 +107,26 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[], assetRefre
         continue;
       }
 
-      if (rowType === "preposition") {
-        const preps = Array.isArray(w.prepositions) ? w.prepositions : [];
-        for (let pi = 0; pi < preps.length; pi += 1) {
-          const p = preps[pi] as { left?: string; right?: string; answer?: string; note?: string };
-          const left = String(p.left ?? "").trim();
-          const right = String(p.right ?? "").trim();
-          const answer = String(p.answer ?? "").trim();
-          if (!answer || (!left && !right)) continue;
-          const prompt = left && right ? `${left} + ${right}` : left || right;
-          const token = stableToken(`${left}-${right}-${answer}`) || `${i}-${pi}`;
+      if (rowType === "prompt_builder") {
+        const activity = normalizePromptBuilderActivity(w);
+        const prompts = activity.prompts.filter(isPromptBuilderItemComplete);
+        for (let pi = 0; pi < prompts.length; pi += 1) {
+          const sourcePrompt = prompts[pi];
+          const answer = sourcePrompt.expectedAnswer.trim();
+          const prompt = promptBuilderPromptText(sourcePrompt);
+          const token = stableToken(sourcePrompt.id || `${prompt}-${answer}`) || `${i}-${pi}`;
+          const resolveElementImage = (item: PromptBuilderItem): PromptBuilderItem => ({
+            ...item,
+            a: item.a.kind === "image"
+              ? { ...item.a, image_url: lessonImageUrl(item.a.image_url ?? item.a.image_path, lesson, assetRefreshEpoch) }
+              : item.a,
+            b: item.b.kind === "image"
+              ? { ...item.b, image_url: lessonImageUrl(item.b.image_url ?? item.b.image_path, lesson, assetRefreshEpoch) }
+              : item.b,
+          });
+          const promptItem = resolveElementImage(sourcePrompt);
           out.push({
-            id: `lesson-${lesson.id}-prep-${token}`,
+            id: `lesson-${lesson.id}-prompt-${token}`,
             lessonId: lesson.id,
             lessonName: lesson.name,
             lessonLanguagePair,
@@ -120,9 +140,10 @@ export function normalizeLessonsToWords(lessons: LessonGamePayload[], assetRefre
             audioUrl: null,
             promptFormat: "text",
             answerFormat: "specific",
-            practiceKind: "preposition",
-            prepositionPrompt: prompt,
-            prepositionAnswer: answer,
+            practiceKind: "prompt-builder",
+            promptBuilderInstruction: activity.instruction,
+            promptBuilderItem: promptItem,
+            acceptedAnswers: sourcePrompt.acceptedAnswers ?? [],
           });
         }
         continue;
@@ -176,24 +197,27 @@ export function normalizeTestsToWords(tests: TestGamePayload[], assetRefreshEpoc
   for (const test of tests) {
     for (let i = 0; i < (test.words ?? []).length; i += 1) {
       const q = (test.words ?? [])[i];
-      const pt = String(q.pt ?? "").trim();
-      const en = String(q.en ?? "");
-      if (!pt && !en) continue;
+      const questionIndex = Number.isInteger(q.question_index) ? (q.question_index as number) : i;
+      const prompt = String(q.prompt_text ?? q.en ?? "");
+      const imageUrl = testImageUrl(q.image_url ?? q.img, test, assetRefreshEpoch);
+      const audioUrl = q.audio_url ?? null;
+      if (!prompt.trim() && !imageUrl && !audioUrl) continue;
       out.push({
-        id: `test-${test.id}-${stableToken(`${pt}-${en}`) || i}`,
-        questionIndex: Number.isInteger(q.question_index) ? q.question_index : i,
+        // Question position is the assessment identity. Prompt-derived IDs collide
+        // when a teacher intentionally repeats a question.
+        id: `test-${test.id}-question-${questionIndex}`,
+        questionIndex,
         testId: test.id,
         testName: test.name,
         sourceType: "test",
-        pt,
-        en,
-        pt_alt: Array.isArray(q.pt_alt) ? q.pt_alt : [],
-        imageUrl: testImageUrl(q.image_url ?? q.img, test, assetRefreshEpoch),
-        audioUrl: q.audio_url ?? null,
+        pt: "",
+        en: prompt,
+        imageUrl,
+        audioUrl,
         promptFormat: q.prompt_format ?? "text",
         answerFormat: q.answer_format ?? (q.require_specific_answer === false ? "open" : "specific"),
         mcqOptions: Array.isArray(q.mcq_options) ? q.mcq_options : undefined,
-        mcqCorrectOptionId: q.mcq_correct_option_id ?? null,
+        mcqCorrectOptionId: null,
         fillBlankCharacterCount: q.fill_blank_character_count,
       });
     }
@@ -224,6 +248,7 @@ export function getDisplayPrompt(word: GameWord, direction: "pt-en" | "en-pt") {
   if (word.practiceKind === "conjugation-table" && word.conjugationTable?.infinitive) return word.conjugationTable.infinitive;
   if (word.practiceKind === "conjugation" && word.conjugationPrompt) return word.conjugationPrompt;
   if (word.practiceKind === "preposition" && word.prepositionPrompt) return word.prepositionPrompt;
+  if (word.practiceKind === "prompt-builder" && word.promptBuilderItem) return promptBuilderPromptText(word.promptBuilderItem);
   if (direction === "pt-en") return word.pt || word.sp || "";
   return word.en || word.se || "";
 }
@@ -232,6 +257,7 @@ export function getExpectedAnswer(word: GameWord, direction: "pt-en" | "en-pt") 
   if (word.practiceKind === "conjugation-table") return "";
   if (word.practiceKind === "conjugation" && word.conjugationAnswer) return word.conjugationAnswer;
   if (word.practiceKind === "preposition" && word.prepositionAnswer) return word.prepositionAnswer;
+  if (word.practiceKind === "prompt-builder" && word.promptBuilderItem) return word.promptBuilderItem.expectedAnswer;
   if (direction === "pt-en") return word.en || "";
   return word.pt || "";
 }

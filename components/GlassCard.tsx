@@ -1,6 +1,5 @@
 import { PropsWithChildren } from "react";
-import { Platform, StyleProp, View, ViewStyle } from "react-native";
-import { BlurView } from "expo-blur";
+import { StyleProp, View, ViewStyle } from "react-native";
 import { useAppTheme } from "../lib/theme";
 
 type GlassCardProps = PropsWithChildren<{
@@ -8,6 +7,7 @@ type GlassCardProps = PropsWithChildren<{
   contentStyle?: StyleProp<ViewStyle>;
   padding?: number;
   variant?: "subtle" | "strong" | "hero";
+  /** Kept for call-site compatibility; cards now use solid composited surfaces. */
   blurIntensity?: number;
 }>;
 
@@ -17,7 +17,6 @@ export default function GlassCard({
   contentStyle,
   padding = 20,
   variant = "subtle",
-  blurIntensity,
 }: GlassCardProps) {
   const theme = useAppTheme();
   const radius = theme.radii.xl;
@@ -25,19 +24,16 @@ export default function GlassCard({
     variant === "hero"
       ? {
           borderColor: theme.colors.borderStrong,
-          backgroundColor: theme.isDark ? "rgba(23,33,43,0.76)" : "rgba(255,255,255,0.90)",
-          intensity: 58,
+          backgroundColor: theme.colors.surface,
         }
       : variant === "strong"
         ? {
             borderColor: theme.colors.borderStrong,
-            backgroundColor: theme.isDark ? "rgba(23,33,43,0.84)" : "rgba(255,255,255,0.94)",
-            intensity: 48,
+            backgroundColor: theme.colors.surface,
           }
         : {
             borderColor: theme.colors.border,
-            backgroundColor: theme.isDark ? theme.colors.surfaceGlass : "rgba(255,255,255,0.88)",
-            intensity: 34,
+            backgroundColor: theme.colors.surface,
           };
 
   return (
@@ -50,23 +46,15 @@ export default function GlassCard({
           borderColor: variantConfig.borderColor,
           backgroundColor: variantConfig.backgroundColor,
         },
-        theme.cardShadow,
+        variant === "hero" ? theme.cardShadow : null,
         style,
       ]}
     >
-      {Platform.OS === "ios" ? (
-        <BlurView
-          intensity={blurIntensity ?? variantConfig.intensity}
-          tint={theme.isDark ? "dark" : "light"}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-        />
-      ) : null}
       <View
         style={[
           {
             padding,
-            backgroundColor:
-              Platform.OS === "android" ? variantConfig.backgroundColor : "transparent",
+            backgroundColor: "transparent",
           },
           contentStyle,
         ]}
